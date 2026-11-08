@@ -15,9 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.focusRestorer
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -91,12 +88,10 @@ class HomeViewModel(container: AppContainer) : ViewModel() {
 private data class Tile(val icon: ImageVector, val label: String, val sub: String, val route: String)
 
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
 fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { HomeViewModel(it) }
     val recents by vm.recents.collectAsStateWithLifecycle()
     val info by vm.info.collectAsStateWithLifecycle()
-    val recentsState = rememberLazyListState()
 
     Column(
         modifier = Modifier
@@ -145,8 +140,6 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
             Spacer(Modifier.height(30.dp))
             SectionTitle(Ar.continueWatching)
             LazyRow(
-                state = recentsState,
-                modifier = Modifier.focusRestorer(),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = PaddingValues(vertical = 6.dp),
             ) {
