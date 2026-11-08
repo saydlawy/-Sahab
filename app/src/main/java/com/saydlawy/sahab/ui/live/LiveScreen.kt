@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -259,13 +261,15 @@ private fun ChannelList(
     modifier: Modifier = Modifier,
 ) {
     val channels = state.visibleChannels
+    val listState = rememberLazyListState()
     Box(modifier.fillMaxSize()) {
         when {
             state.busy && channels.isEmpty() -> LoadingBox()
             state.error != null && channels.isEmpty() -> MessageBox(state.error, actionLabel = Ar.retry, onAction = onRetry)
             channels.isEmpty() -> MessageBox(Ar.noChannels)
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                modifier = Modifier.fillMaxSize().focusRestorer(),
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
