@@ -9,12 +9,12 @@ val runNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
 android {
     namespace = "com.saydlawy.sahab"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.saydlawy.sahab"
         minSdk = 21
-        targetSdk = 34
+        targetSdk = 36
         versionCode = runNumber
         versionName = "1.0.$runNumber"
     }
