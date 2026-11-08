@@ -1,0 +1,54 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build release APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Prepare APK
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$APK" Sahab.apk
+          ls -la Sahab.apk
+
+      # The APK is published to a fixed "latest" release, so it never
+      # uses the Actions artifact storage quota.
+      - name: Publish to the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest Sahab.apk \
+            --title "سحاب — أحدث نسخة (build ${{ github.run_number }})" \
+            --notes "ملف التثبيت: Sahab.apk — رقم البناء ${{ github.run_number }}" \
+            --target "${{ github.sha }}" \
+            --latest
