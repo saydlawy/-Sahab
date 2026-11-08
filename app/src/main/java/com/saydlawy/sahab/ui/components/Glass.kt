@@ -58,6 +58,14 @@ import coil.compose.AsyncImage
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 
 private val FocusBorder = Brush.linearGradient(listOf(Palette.Violet, Palette.Pink, Palette.Cyan))
 private val SelectedBorder = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.75f), Palette.Pink.copy(alpha = 0.55f)))
@@ -332,6 +340,53 @@ fun ProgressLine(fraction: Float, modifier: Modifier = Modifier) {
 }
 
 @Composable
+@Composable
+fun SkeletonGrid(
+    columnWidth: Dp,
+    modifier: Modifier = Modifier,
+    itemCount: Int = 12,
+) {
+    val transition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by transition.animateFloat(
+        initialValue = 0.12f,
+        targetValue = 0.28f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "skeletonAlpha",
+    )
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(columnWidth),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        userScrollEnabled = false,
+    ) {
+        items(itemCount) {
+            Column {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(2f / 3f)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.White.copy(alpha = alpha)),
+                )
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.7f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.White.copy(alpha = alpha * 0.8f)),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun PosterCard(
     title: String,
     imageUrl: String,
@@ -357,6 +412,19 @@ fun PosterCard(
                     url = imageUrl,
                     modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
                     contentScale = contentScale,
+                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.30f),
+                                ),
+                            ),
+                        ),
                 )
                 if (badge.isNotBlank()) {
                     Row(

@@ -74,6 +74,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.util.formatClock
 
 data class LiveUiState(
     val categories: List<Category> = emptyList(),
@@ -262,6 +264,8 @@ private fun ChannelList(
 ) {
     val channels = state.visibleChannels
     val listState = rememberLazyListState()
+    val isTv = LocalIsTv.current
+    val hPad = if (isTv) 48.dp else 20.dp
     Box(modifier.fillMaxSize()) {
         when {
             state.busy && channels.isEmpty() -> LoadingBox()
@@ -270,7 +274,7 @@ private fun ChannelList(
             else -> LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().focusRestorer(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = hPad, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 itemsIndexed(channels, key = { _, channel -> channel.id }) { index, channel ->
@@ -349,13 +353,24 @@ private fun ChannelRow(
                     )
                     val program = now
                     if (program != null) {
-                        Text(
-                            text = program.title.ifBlank { Ar.noName },
-                            fontSize = 14.sp,
-                            color = Palette.TextDim,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${formatClock(program.start)} - ${formatClock(program.end)}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Palette.Cyan,
+                                maxLines = 1,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = program.title.ifBlank { Ar.noName },
+                                fontSize = 14.sp,
+                                color = Palette.TextDim,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                         Spacer(Modifier.height(5.dp))
                         val total = (program.end - program.start).coerceAtLeast(1)
                         ProgressLine((System.currentTimeMillis() / 1000 - program.start).toFloat() / total)

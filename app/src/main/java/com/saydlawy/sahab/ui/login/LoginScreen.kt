@@ -49,6 +49,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.TextStyle
+import com.saydlawy.sahab.ui.LocalIsTv
 
 data class LoginUiState(
     val server: String = "",
@@ -128,95 +134,181 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
 fun LoginScreen(onLoggedIn: () -> Unit) {
     val vm = appViewModel { LoginViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val isTv = LocalIsTv.current
 
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
+            .verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.Center,
+    ) {
+        val wide = maxWidth >= 720.dp
+        val hPad = if (wide) 48.dp else 24.dp
+        val vPad = if (wide) 32.dp else 24.dp
+
+        if (wide) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = hPad, vertical = vPad),
+                horizontalArrangement = Arrangement.spacedBy(48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BrandPanel(Modifier.weight(0.4f))
+                LoginForm(state, vm, onLoggedIn, isTv, Modifier.weight(0.6f))
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = hPad, vertical = vPad),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                BrandPanel(Modifier)
+                Spacer(Modifier.height(24.dp))
+                LoginForm(state, vm, onLoggedIn, isTv, Modifier.widthIn(max = 520.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrandPanel(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
+        Box(
             modifier = Modifier
-                .widthIn(max = 520.dp)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(32.dp))
-                .background(Color.White.copy(alpha = 0.09f))
-                .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .size(120.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Palette.Violet.copy(alpha = 0.35f), Color.Transparent),
+                    ),
+                ),
+            contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
-                    .size(76.dp)
+                    .size(84.dp)
                     .clip(CircleShape)
                     .background(Palette.Accent),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Ic.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(38.dp))
-            }
-            Spacer(Modifier.height(16.dp))
-            Text(Ar.appName, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-            Text(
-                Ar.loginHint,
-                fontSize = 16.sp,
-                color = Palette.TextDim,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 4.dp, bottom = 22.dp),
-            )
-
-            GlassTextField(
-                value = state.server,
-                onValueChange = vm::onServer,
-                placeholder = Ar.serverUrl,
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Next,
-                ltr = true,
-            )
-            Spacer(Modifier.height(12.dp))
-            GlassTextField(
-                value = state.user,
-                onValueChange = vm::onUser,
-                placeholder = Ar.username,
-                imeAction = ImeAction.Next,
-                ltr = true,
-            )
-            Spacer(Modifier.height(12.dp))
-            GlassTextField(
-                value = state.pass,
-                onValueChange = vm::onPass,
-                placeholder = Ar.password,
-                imeAction = ImeAction.Done,
-                password = true,
-                ltr = true,
-                onImeAction = { vm.submit(onLoggedIn) },
-            )
-
-            val error = state.error
-            if (error != null) {
-                Text(
-                    text = error,
-                    fontSize = 15.sp,
-                    color = Palette.Danger,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
-                )
-            }
-
-            Spacer(Modifier.height(22.dp))
-            if (state.loading) {
-                CircularProgressIndicator(color = Palette.Pink, modifier = Modifier.size(44.dp))
-            } else {
-                GlassButton(
-                    text = Ar.login,
-                    onClick = { vm.submit(onLoggedIn) },
-                    modifier = Modifier.fillMaxWidth(),
-                    primary = true,
-                )
+                Icon(Ic.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(42.dp))
             }
         }
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = Ar.appName,
+            style = TextStyle(
+                brush = Brush.linearGradient(listOf(Palette.Violet, Palette.Pink, Palette.Cyan)),
+                fontSize = 40.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = Ar.loginHint,
+            fontSize = 16.sp,
+            color = Palette.TextDim,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+    }
+}
+
+@Composable
+private fun LoginForm(
+    state: LoginUiState,
+    vm: LoginViewModel,
+    onLoggedIn: () -> Unit,
+    isTv: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(32.dp))
+            .background(Color.White.copy(alpha = 0.09f))
+            .padding(28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        GlassTextField(
+            value = state.server,
+            onValueChange = vm::onServer,
+            placeholder = Ar.serverUrl,
+            leading = Ic.Globe,
+            keyboardType = KeyboardType.Uri,
+            imeAction = ImeAction.Next,
+            ltr = true,
+        )
+        Spacer(Modifier.height(12.dp))
+        GlassTextField(
+            value = state.user,
+            onValueChange = vm::onUser,
+            placeholder = Ar.username,
+            leading = Ic.Person,
+            imeAction = ImeAction.Next,
+            ltr = true,
+        )
+        Spacer(Modifier.height(12.dp))
+        GlassTextField(
+            value = state.pass,
+            onValueChange = vm::onPass,
+            placeholder = Ar.password,
+            leading = Ic.Lock,
+            imeAction = ImeAction.Done,
+            password = true,
+            ltr = true,
+            onImeAction = { vm.submit(onLoggedIn) },
+        )
+
+        val error = state.error
+        if (error != null) {
+            Spacer(Modifier.height(14.dp))
+            ErrorBanner(error)
+        }
+
+        Spacer(Modifier.height(22.dp))
+        if (state.loading) {
+            CircularProgressIndicator(color = Palette.Pink, modifier = Modifier.size(44.dp))
+        } else {
+            GlassButton(
+                text = Ar.login,
+                onClick = { vm.submit(onLoggedIn) },
+                modifier = Modifier.fillMaxWidth(),
+                primary = true,
+                autoFocus = isTv,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorBanner(message: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Palette.Danger.copy(alpha = 0.15f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(Palette.Danger),
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = message,
+            fontSize = 14.sp,
+            color = Palette.Danger,
+            modifier = Modifier.weight(1f),
+        )
     }
 }

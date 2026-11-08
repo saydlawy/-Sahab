@@ -67,6 +67,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.Icon
 
 class SeriesDetailViewModel(private val container: AppContainer, private val id: String) : ViewModel() {
 
@@ -98,6 +100,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
     }
 }
 
+
 @Composable
 fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { SeriesDetailViewModel(it, id) }
@@ -118,34 +121,25 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                 BackButton(onBack)
             }
             else -> {
-                RemoteImage(details.backdrop.ifBlank { details.cover }, Modifier.fillMaxSize().alpha(0.28f))
+                RemoteImage(details.backdrop.ifBlank { details.cover }, Modifier.fillMaxSize().alpha(0.25f))
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Palette.Bg.copy(alpha = 0.95f)))),
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Palette.Bg.copy(alpha = 0.98f)))),
                 )
+                val isFavorite = favorites.any { it.kind == Kind.SERIES && it.id == details.id }
                 SeriesContent(
                     details = details,
                     recents = recents,
-                    isFavorite = favorites.any { it.kind == Kind.SERIES && it.id == details.id },
+                    isFavorite = isFavorite,
                     onToggleFavorite = { vm.toggleFavorite(details) },
                     onPlay = onPlay,
+                    onBack = onBack
                 )
-                BackButton(onBack)
             }
         }
     }
 }
-
-private fun playItem(details: SeriesDetails, episode: Episode) = PlayItem(
-    kind = Kind.EPISODE,
-    id = episode.id,
-    title = details.name,
-    subtitle = Ar.seasonEpisode(episode.season, episode.number),
-    icon = episode.image.ifBlank { details.cover },
-    ext = episode.ext,
-    groupId = details.id,
-)
 
 @Composable
 private fun SeriesContent(
@@ -154,6 +148,7 @@ private fun SeriesContent(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
+    onBack: () -> Unit
 ) {
     val seasons = details.seasons
     var selectedSeasonIndex by remember { mutableIntStateOf(0) }
@@ -170,29 +165,65 @@ private fun SeriesContent(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 720.dp
+        val hPad = if (wide) 48.dp else 20.dp
+
         LazyColumn(
             state = episodesState,
             modifier = Modifier.fillMaxSize().focusRestorer(),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 20.dp),
+            contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item { Spacer(Modifier.height(54.dp)) }
+            item { Spacer(Modifier.height(20.dp)) }
+
+            // Header
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    GlassIconButton(Ic.Back, Ar.back, onBack, autoFocus = true)
+                    Text(
+                        details.name,
+                        fontSize = if (wide) 28.sp else 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Palette.Text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                        textAlign = TextAlign.Center
+                    )
+                    GlassIconButton(
+                        icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
+                        description = Ar.favorites,
+                        onClick = onToggleFavorite,
+                        tint = if (isFavorite) Palette.Pink else Palette.Text,
+                    )
+                }
+            }
+
+            item { Spacer(Modifier.height(16.dp)) }
+
+            // Poster + Info
             item {
                 if (wide) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                        Cover(details.cover, Modifier.width(220.dp))
-                        Header(details, isFavorite, onToggleFavorite, resumeIndex, queue, onPlay, Modifier.weight(1f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+                        SeriesInfo(details, resumeIndex, queue, onPlay, Modifier.weight(1f))
+                        Cover(details.cover, Modifier.width(300.dp))
                     }
                 } else {
                     Column {
-                        Cover(details.cover, Modifier.width(170.dp).align(Alignment.CenterHorizontally))
-                        Spacer(Modifier.height(16.dp))
-                        Header(details, isFavorite, onToggleFavorite, resumeIndex, queue, onPlay, Modifier.fillMaxWidth())
+                        Cover(details.cover, Modifier.width(220.dp).align(Alignment.CenterHorizontally))
+                        Spacer(Modifier.height(24.dp))
+                        SeriesInfo(details, resumeIndex, queue, onPlay, Modifier.fillMaxWidth())
                     }
                 }
             }
+
+            // Seasons
             if (seasons.size > 1) {
                 item {
+                    Spacer(Modifier.height(16.dp))
                     LazyRow(
                         state = seasonsRowState,
                         modifier = Modifier.focusRestorer(),
@@ -209,9 +240,13 @@ private fun SeriesContent(
                     }
                 }
             }
+
+            item { Spacer(Modifier.height(16.dp)) }
+
             if (details.episodes.isEmpty()) {
                 item { Text(Ar.noEpisodes, fontSize = 17.sp, color = Palette.TextDim) }
             }
+
             items(visibleEpisodes, key = { it.id }) { episode ->
                 EpisodeRow(
                     episode = episode,
@@ -222,52 +257,110 @@ private fun SeriesContent(
                     },
                 )
             }
-            item { Spacer(Modifier.height(24.dp)) }
+            item { Spacer(Modifier.height(64.dp)) }
         }
     }
 }
 
 @Composable
-private fun Header(
+private fun SeriesInfo(
     details: SeriesDetails,
-    isFavorite: Boolean,
-    onToggleFavorite: () -> Unit,
     resumeIndex: Int,
     queue: List<PlayItem>,
     onPlay: (PlayRequest) -> Unit,
-    modifier: Modifier,
+    modifier: Modifier = Modifier
 ) {
     Column(modifier) {
-        Text(details.name, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-        MetaLine(listOf(details.year, details.genre).filter { it.isNotBlank() }.joinToString("  •  "), details.rating)
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (queue.isNotEmpty()) {
-                val resumeItem = queue.getOrNull(resumeIndex)
-                GlassButton(
-                    text = if (resumeItem != null) Ar.resumeEpisode else Ar.playFirst,
-                    onClick = { onPlay(PlayRequest(queue, resumeIndex.coerceAtLeast(0))) },
-                    icon = Ic.Play,
-                    primary = true,
-                    autoFocus = true,
-                )
+        Text(details.name, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+
+        Spacer(Modifier.height(12.dp))
+
+        // Metadata Row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (details.year.isNotBlank()) {
+                Text(details.year, fontSize = 16.sp, color = Palette.TextDim)
             }
-            GlassIconButton(
-                icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
-                description = Ar.favorites,
-                onClick = onToggleFavorite,
-                tint = if (isFavorite) Palette.Pink else Palette.Text,
+            if (details.rating.isNotBlank()) {
+                Text("•", fontSize = 16.sp, color = Palette.TextDim)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Ic.Star, contentDescription = null, tint = Palette.Peach, modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(details.rating, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Peach)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // Genre Chips
+        if (details.genre.isNotBlank()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                details.genre.split(",").take(3).forEach { g ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(g.trim(), fontSize = 14.sp, color = Palette.Text)
+                    }
+                }
+            }
+            Spacer(Modifier.height(28.dp))
+        }
+
+        // Actions
+        if (queue.isNotEmpty()) {
+            val resumeItem = queue.getOrNull(resumeIndex)
+            GlassButton(
+                text = if (resumeItem != null) Ar.resumeEpisode else Ar.playFirst,
+                onClick = { onPlay(PlayRequest(queue, resumeIndex.coerceAtLeast(0))) },
+                icon = Ic.Play,
+                primary = true,
+                autoFocus = true,
             )
         }
+
+        Spacer(Modifier.height(32.dp))
+
+        // Plot
         if (details.plot.isNotBlank()) {
-            Spacer(Modifier.height(16.dp))
-            Text(details.plot, fontSize = 17.sp, lineHeight = 27.sp, color = Palette.Text.copy(alpha = 0.92f))
+            Text("القصة", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+            Spacer(Modifier.height(8.dp))
+            Text(details.plot, fontSize = 16.sp, lineHeight = 26.sp, color = Palette.Text.copy(alpha = 0.85f))
+            Spacer(Modifier.height(28.dp))
         }
+
+        // Details List
         if (details.cast.isNotBlank()) {
-            Spacer(Modifier.height(12.dp))
-            Text(Ar.cast, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Cyan)
-            Text(details.cast, fontSize = 15.sp, color = Palette.TextDim)
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    text = Ar.cast,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Palette.TextDim,
+                    modifier = Modifier.width(100.dp)
+                )
+                Text(
+                    text = details.cast,
+                    fontSize = 15.sp,
+                    color = Palette.Text,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun BackButton(onBack: () -> Unit) {
+    Box(Modifier.padding(20.dp)) {
+        GlassIconButton(Ic.Back, Ar.back, onBack)
     }
 }
 
@@ -327,12 +420,5 @@ private fun EpisodeRow(episode: Episode, saved: RecentItem?, onClick: () -> Unit
             }
             Box(Modifier.size(8.dp))
         }
-    }
-}
-
-@Composable
-private fun BackButton(onBack: () -> Unit) {
-    Box(Modifier.padding(20.dp)) {
-        GlassIconButton(Ic.Back, Ar.back, onBack)
     }
 }

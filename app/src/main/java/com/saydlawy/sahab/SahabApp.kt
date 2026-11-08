@@ -11,6 +11,7 @@ import com.saydlawy.sahab.data.Prefs
 import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.XtreamApi
+import com.saydlawy.sahab.data.TmdbApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,7 +31,8 @@ class AppContainer(context: Context) {
         }
         .build()
 
-    val repo = Repository(XtreamApi(client))
+    val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY)
+    val repo = Repository(XtreamApi(client), tmdb)
 
     /** Outlives screens, so progress can still be saved while the player is closing. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

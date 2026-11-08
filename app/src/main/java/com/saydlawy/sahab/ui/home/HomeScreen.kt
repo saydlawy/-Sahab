@@ -89,187 +89,158 @@ class HomeViewModel(container: AppContainer) : ViewModel() {
 
 private data class Tile(val icon: ImageVector, val label: String, val sub: String, val route: String)
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 @Composable
 fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
-    val vm = appViewModel { HomeViewModel(it) }
-    val recents by vm.recents.collectAsStateWithLifecycle()
-    val info by vm.info.collectAsStateWithLifecycle()
-    val recentsState = rememberLazyListState()
+    val isTv = LocalIsTv.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 20.dp),
+            .padding(
+                horizontal = if (isTv) 48.dp else 20.dp,
+                vertical = if (isTv) 32.dp else 20.dp
+            ),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        HomeHeader(isTv, onOpen)
+        WidgetsRow(isTv)
+        MainTiles(isTv, onOpen)
+    }
+}
+
+@Composable
+private fun HomeHeader(isTv: Boolean, onOpen: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(Ar.appName, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                Text(Ar.tagline, fontSize = 16.sp, color = Palette.TextDim)
-                info?.let { SubscriptionLine(it) }
-            }
-            GlassIconButton(Ic.Settings, Ar.settings, { onOpen(Routes.SETTINGS) })
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        val tiles = listOf(
-            Tile(Ic.Tv, Ar.live, Ar.liveSub, Routes.LIVE),
-            Tile(Ic.Movie, Ar.movies, Ar.moviesSub, Routes.MOVIES),
-            Tile(Ic.Series, Ar.series, Ar.seriesSub, Routes.SERIES),
-            Tile(Ic.Heart, Ar.favorites, Ar.favoritesSub, Routes.FAVORITES),
-        )
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            if (maxWidth >= 720.dp) {
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    tiles.forEachIndexed { index, tile ->
-                        HomeTile(tile, Modifier.weight(1f).height(190.dp), index == 0, onOpen)
-                    }
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    tiles.chunked(2).forEachIndexed { rowIndex, pair ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            pair.forEachIndexed { col, tile ->
-                                HomeTile(tile, Modifier.weight(1f).height(150.dp), rowIndex == 0 && col == 0, onOpen)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (recents.isNotEmpty()) {
-            Spacer(Modifier.height(30.dp))
-            SectionTitle(Ar.continueWatching)
-            LazyRow(
-                state = recentsState,
-                modifier = Modifier.focusRestorer(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(vertical = 6.dp),
+            Box(
+                modifier = Modifier
+                    .size(if (isTv) 56.dp else 42.dp)
+                    .clip(CircleShape)
+                    .background(Palette.Accent),
+                contentAlignment = Alignment.Center
             ) {
-                items(recents, key = { "${it.kind}_${it.id}" }) { item ->
-                    RecentCard(item) {
-                        if (item.kind == Kind.EPISODE && item.groupId.isNotBlank()) {
-                            onOpen(Routes.series(item.groupId))
-                        } else {
-                            onPlay(
-                                PlayRequest(
-                                    listOf(
-                                        PlayItem(item.kind, item.id, item.title, item.subtitle, item.icon, item.ext, item.groupId),
-                                    ),
-                                    0,
-                                ),
-                            )
-                        }
-                    }
-                }
+                Icon(Ic.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (isTv) 28.dp else 22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text(Ar.appName, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+                Text(Ar.tagline, fontSize = if (isTv) 14.sp else 12.sp, color = Palette.TextDim)
             }
         }
-        Spacer(Modifier.height(20.dp))
-    }
-}
 
-@Composable
-private fun SubscriptionLine(info: UserInfo) {
-    val expiry = info.expiry
-    val text = when {
-        expiry == null || expiry <= 0L -> Ar.subscriptionOpen
-        else -> {
-            val daysLeft = ((expiry - System.currentTimeMillis() / 1000) / 86_400).toInt()
-            if (daysLeft < 0) Ar.subscriptionEnded(formatDate(expiry))
-            else Ar.subscriptionLine(formatDate(expiry), daysLeft)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            GlassIconButton(Ic.Heart, Ar.favorites, { onOpen(Routes.FAVORITES) }, size = if (isTv) 52.dp else 44.dp)
+            GlassIconButton(Ic.Settings, Ar.settings, { onOpen(Routes.SETTINGS) }, size = if (isTv) 52.dp else 44.dp)
         }
     }
-    Text(
-        text = text,
-        fontSize = 14.sp,
-        color = Palette.Cyan,
-        modifier = Modifier.padding(top = 6.dp),
-    )
 }
 
 @Composable
-private fun HomeTile(tile: Tile, modifier: Modifier, autoFocus: Boolean, onOpen: (String) -> Unit) {
+private fun WidgetsRow(isTv: Boolean) {
+    var currentTime by remember { mutableStateOf(LocalTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            currentTime = LocalTime.now()
+        }
+    }
+    val timeString = currentTime.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.US))
+
+    if (isTv) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            WidgetCard("الساعة", timeString, Modifier.weight(1f))
+            WidgetCard("الطقس", "27° الكويت", Modifier.weight(1f))
+            WidgetCard("المباريات", "الفريق الأول VS الثاني", Modifier.weight(1f))
+            WidgetCard("الصلاة القادمة", "العصر", Modifier.weight(1f))
+        }
+    } else {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { WidgetCard("الساعة", timeString, Modifier.width(140.dp)) }
+            item { WidgetCard("الطقس", "27° الكويت", Modifier.width(140.dp)) }
+            item { WidgetCard("المباريات", "اليوم 9:00م", Modifier.width(140.dp)) }
+            item { WidgetCard("الصلاة", "العصر", Modifier.width(140.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun WidgetCard(title: String, value: String, modifier: Modifier) {
+    GlassCard(
+        onClick = {},
+        modifier = modifier.height(90.dp),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(title, fontSize = 13.sp, color = Palette.TextDim)
+            Spacer(Modifier.height(4.dp))
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun MainTiles(isTv: Boolean, onOpen: (String) -> Unit) {
+    val tiles = listOf(
+        Tile(Ic.Tv, Ar.live, Ar.liveSub, Routes.LIVE),
+        Tile(Ic.Movie, Ar.movies, Ar.moviesSub, Routes.MOVIES),
+        Tile(Ic.Series, Ar.series, Ar.seriesSub, Routes.SERIES),
+    )
+
+    if (isTv) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            tiles.forEachIndexed { index, tile ->
+                BigTile(tile, Modifier.weight(1f).height(220.dp), index == 0, onOpen)
+            }
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            tiles.forEachIndexed { index, tile ->
+                BigTile(tile, Modifier.fillMaxWidth().height(160.dp), index == 0, onOpen)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BigTile(tile: Tile, modifier: Modifier, autoFocus: Boolean, onOpen: (String) -> Unit) {
     GlassCard(
         onClick = { onOpen(tile.route) },
         modifier = modifier,
         shape = RoundedCornerShape(28.dp),
-        autoFocus = autoFocus,
+        autoFocus = autoFocus
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
-                modifier = Modifier
-                    .size(62.dp)
-                    .clip(CircleShape)
-                    .background(Palette.Accent),
-                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(72.dp).clip(CircleShape).background(Palette.Accent.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(tile.icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
+                Icon(tile.icon, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(38.dp))
             }
-            Spacer(Modifier.height(12.dp))
-            Text(tile.label, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-            Text(
-                tile.sub,
-                fontSize = 14.sp,
-                color = Palette.TextDim,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun RecentCard(item: RecentItem, onClick: () -> Unit) {
-    val live = item.kind == Kind.LIVE
-    GlassCard(
-        onClick = onClick,
-        modifier = Modifier
-            .width(240.dp)
-            .height(140.dp),
-        shape = RoundedCornerShape(22.dp),
-    ) {
-        Box(Modifier.fillMaxSize()) {
-            RemoteImage(
-                url = item.icon,
-                modifier = if (live) Modifier.fillMaxSize().padding(28.dp) else Modifier.fillMaxSize(),
-                contentScale = if (live) ContentScale.Fit else ContentScale.Crop,
-            )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f)))),
-            )
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(12.dp),
-            ) {
-                Text(
-                    item.title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Palette.Text,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (item.subtitle.isNotBlank()) {
-                    Text(item.subtitle, fontSize = 13.sp, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                if (!live && item.durationMs > 0) {
-                    Spacer(Modifier.height(6.dp))
-                    ProgressLine(item.positionMs.toFloat() / item.durationMs)
-                }
-            }
+            Spacer(Modifier.height(16.dp))
+            Text(tile.label, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+            Text(tile.sub, fontSize = 15.sp, color = Palette.TextDim, textAlign = TextAlign.Center, maxLines = 1)
         }
     }
 }

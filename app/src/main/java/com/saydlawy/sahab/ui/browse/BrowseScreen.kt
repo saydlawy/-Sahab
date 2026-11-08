@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.saydlawy.sahab.ui.components.SkeletonGrid
 
 data class BrowseUiState(
     val categories: List<Category> = emptyList(),
@@ -216,7 +217,7 @@ private fun PosterGrid(
     val gridState = rememberLazyGridState()
     Box(modifier.fillMaxSize()) {
         when {
-            state.busy && items.isEmpty() -> LoadingBox()
+            state.busy && items.isEmpty() -> SkeletonGrid(columnWidth = columnWidth)
             state.error != null && items.isEmpty() -> MessageBox(state.error, actionLabel = Ar.retry, onAction = onRetry)
             items.isEmpty() -> MessageBox(Ar.noTitles)
             else -> LazyVerticalGrid(

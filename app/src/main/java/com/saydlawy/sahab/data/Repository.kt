@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonObject
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
-class Repository(private val api: XtreamApi) {
+class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
 
     @Volatile
     var account: Account? = null
@@ -111,7 +111,19 @@ class Repository(private val api: XtreamApi) {
 
     suspend fun movieDetails(id: String): MovieDetails = cached("vod_info:$id") {
         val json = request("get_vod_info", mapOf("vod_id" to id))
-        parseMovieDetails(id, json)
+        val base = parseMovieDetails(id, json)
+        val tmdbData = try { tmdb.enrichMovie(base.name, base.year) } catch (e: Exception) { null }
+        if (tmdbData == null) base else base.copy(
+            image = base.image.ifBlank { tmdbData.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }.orEmpty() },
+            backdrop = base.backdrop.ifBlank { tmdbData.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }.orEmpty() },
+            plot = base.plot.ifBlank { tmdbData.overview },
+            year = base.year.ifBlank { tmdbData.releaseDate.take(4) },
+            rating = base.rating.ifBlank { if (tmdbData.voteAverage > 0) String.format(Locale.US, "%.1f", tmdbData.voteAverage) else "" },
+            duration = base.duration.ifBlank { tmdbData.runtime?.let { "${it}m" }.orEmpty() },
+            genre = base.genre.ifBlank { tmdbData.genres.joinToString(", ") { it.name } },
+            director = base.director.ifBlank { tmdbData.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty() },
+            cast = base.cast.ifBlank { tmdbData.credits?.cast?.take(5)?.joinToString(", ") { it.name }.orEmpty() }
+        )
     }
 
     // Series
