@@ -31,8 +31,20 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Decode Keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release-keystore.jks
+
       - name: Build release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Verify Signature
+        run: |
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | head -1)
+          $APKSIGNER verify --print-certs app/build/outputs/apk/release/app-release.apk
 
       - name: Prepare APK
         run: |
@@ -40,8 +52,6 @@ jobs:
           cp "$APK" Sahab.apk
           ls -la Sahab.apk
 
-      # The APK is published to a fixed "latest" release, so it never
-      # uses the Actions artifact storage quota.
       - name: Publish to the latest release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

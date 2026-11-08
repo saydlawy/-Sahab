@@ -21,10 +21,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("release.keystore")
-            storePassword = "sahab2026"
-            keyAlias = "sahab"
-            keyPassword = "sahab2026"
+            storeFile = rootProject.file("release-keystore.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("KEY_ALIAS") ?: "my_app_key"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
         }
     }
 
