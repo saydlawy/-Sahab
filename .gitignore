@@ -14,3 +14,5 @@
 *.keystore
 release-keystore.jks
 local.properties
+keystore.b64
+*.b64
