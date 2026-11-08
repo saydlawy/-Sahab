@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -172,9 +174,11 @@ fun CategoryPane(
     wide: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
     if (wide) {
         LazyColumn(
-            modifier = modifier,
+            modifier = modifier.focusRestorer(),
+            state = listState,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -199,7 +203,8 @@ fun CategoryPane(
         }
     } else {
         LazyRow(
-            modifier = modifier,
+            modifier = modifier.focusRestorer(),
+            state = listState,
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {

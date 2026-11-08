@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -211,6 +213,7 @@ private fun PosterGrid(
     modifier: Modifier = Modifier,
 ) {
     val items = state.visibleItems
+    val gridState = rememberLazyGridState()
     Box(modifier.fillMaxSize()) {
         when {
             state.busy && items.isEmpty() -> LoadingBox()
@@ -218,7 +221,8 @@ private fun PosterGrid(
             items.isEmpty() -> MessageBox(Ar.noTitles)
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(columnWidth),
-                modifier = Modifier.fillMaxSize(),
+                state = gridState,
+                modifier = Modifier.fillMaxSize().focusRestorer(),
                 contentPadding = PaddingValues(20.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),

@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +40,7 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
     val scope = rememberCoroutineScope()
     val isTv = LocalIsTv.current
     val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
+    val gridState = rememberLazyGridState()
 
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(Ar.favorites, onBack)
@@ -46,7 +49,8 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(if (isTv) 170.dp else 128.dp),
-                modifier = Modifier.fillMaxSize(),
+                state = gridState,
+                modifier = Modifier.fillMaxSize().focusRestorer(),
                 contentPadding = PaddingValues(20.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
