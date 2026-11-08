@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -163,11 +165,14 @@ private fun SeriesContent(
     }
     val lastWatched = recents.firstOrNull { it.kind == Kind.EPISODE && it.groupId == details.id }
     val resumeIndex = lastWatched?.let { last -> details.episodes.indexOfFirst { it.id == last.id } } ?: -1
+    val episodesState = rememberLazyListState()
+    val seasonsRowState = rememberLazyListState()
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 720.dp
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = episodesState,
+            modifier = Modifier.fillMaxSize().focusRestorer(),
             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -189,6 +194,8 @@ private fun SeriesContent(
             if (seasons.size > 1) {
                 item {
                     LazyRow(
+                        state = seasonsRowState,
+                        modifier = Modifier.focusRestorer(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(vertical = 8.dp),
                     ) {
