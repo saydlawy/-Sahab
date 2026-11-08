@@ -58,6 +58,7 @@ import coil.compose.AsyncImage
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
@@ -339,7 +340,6 @@ fun ProgressLine(fraction: Float, modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
 @Composable
 fun SkeletonGrid(
     columnWidth: Dp,

@@ -141,6 +141,16 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
     }
 }
 
+private fun playItem(details: SeriesDetails, episode: Episode) = PlayItem(
+    kind = Kind.EPISODE,
+    id = episode.id,
+    title = details.name,
+    subtitle = Ar.seasonEpisode(episode.season, episode.number),
+    icon = episode.image.ifBlank { details.cover },
+    ext = episode.ext,
+    groupId = details.id,
+)
+
 @Composable
 private fun SeriesContent(
     details: SeriesDetails,

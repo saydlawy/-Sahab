@@ -65,6 +65,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.saydlawy.sahab.ui.LocalIsTv
+import kotlinx.coroutines.delay
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class HomeViewModel(container: AppContainer) : ViewModel() {
 
@@ -89,15 +99,6 @@ class HomeViewModel(container: AppContainer) : ViewModel() {
 
 private data class Tile(val icon: ImageVector, val label: String, val sub: String, val route: String)
 
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 @Composable
 fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val isTv = LocalIsTv.current
@@ -233,10 +234,10 @@ private fun BigTile(tile: Tile, modifier: Modifier, autoFocus: Boolean, onOpen: 
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
-                modifier = Modifier.size(72.dp).clip(CircleShape).background(Palette.Accent.copy(alpha = 0.2f)),
+                modifier = Modifier.size(72.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(tile.icon, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(38.dp))
+                Icon(tile.icon, contentDescription = null, tint = Palette.Pink, modifier = Modifier.size(38.dp))
             }
             Spacer(Modifier.height(16.dp))
             Text(tile.label, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
