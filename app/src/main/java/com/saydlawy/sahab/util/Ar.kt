@@ -100,10 +100,16 @@ object Ar {
     const val pause = "إيقاف مؤقت"
     const val previous = "السابق"
     const val next = "التالي"
-    const val tracks = "الصوت والترجمة"
+    const val tracks = "الجودة والصوت والترجمة"
+    const val videoQuality = "جودة الفيديو"
+    const val qualityAuto = "تلقائي (أفضل استقرار)"
     const val audio = "الصوت"
     const val subtitles = "الترجمة"
     const val subtitlesOff = "بدون ترجمة"
+    const val mute = "كتم الصوت"
+    const val unmute = "تشغيل الصوت"
+    const val fullscreen = "ملء الشاشة"
+    const val reconnecting = "جارٍ إعادة الاتصال بالبث…"
 
     // Settings
     const val account = "الحساب"

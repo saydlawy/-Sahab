@@ -4,26 +4,33 @@ import android.app.Application
 import android.content.Context
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.disk.DiskCache as CoilDiskCache
+import coil.memory.MemoryCache
+import com.saydlawy.sahab.data.DiskCache
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Prefs
 import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.Repository
-import com.saydlawy.sahab.data.XtreamApi
 import com.saydlawy.sahab.data.TmdbApi
+import com.saydlawy.sahab.data.XtreamApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import okhttp3.Cache
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
 
     val prefs = Prefs(context)
+    val diskCache = DiskCache(context)
 
     val client: OkHttpClient = OkHttpClient.Builder()
+        .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 50L * 1024L * 1024L))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .addInterceptor { chain ->
@@ -31,8 +38,8 @@ class AppContainer(context: Context) {
         }
         .build()
 
-    val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY)
-    val repo = Repository(XtreamApi(client), tmdb)
+    val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache)
+    val repo = Repository(XtreamApi(client), tmdb, diskCache)
 
     /** Outlives screens, so progress can still be saved while the player is closing. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -76,6 +83,18 @@ class SahabApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
             .okHttpClient(container.client)
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                CoilDiskCache.Builder()
+                    .directory(File(cacheDir, "image_cache"))
+                    .maxSizeBytes(150L * 1024L * 1024L)
+                    .build()
+            }
+            .respectCacheHeaders(false)
             .crossfade(true)
             .build()
 }

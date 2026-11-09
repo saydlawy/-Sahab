@@ -4,16 +4,24 @@ import android.net.Uri
 import android.util.Base64
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
-class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
+class Repository(
+    private val api: XtreamApi,
+    private val tmdb: TmdbApi,
+    private val disk: DiskCache? = null,
+) {
 
     @Volatile
     var account: Account? = null
@@ -25,33 +33,75 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
 
     private val cache = ConcurrentHashMap<String, Any>()
     private val epgCache = ConcurrentHashMap<String, Pair<Long, List<Program>>>()
-    private val epgGate = Semaphore(3)
+    private val epgGate = Semaphore(4)
 
     fun setAccount(value: Account?) {
+        val changed = account != value
         account = value
-        userInfo = null
-        clearCache()
+        if (changed) {
+            userInfo = null
+            clearCache(clearDisk = false)
+        }
     }
 
-    fun clearCache() {
+    fun clearCache(clearDisk: Boolean = false) {
         cache.clear()
         epgCache.clear()
+        if (clearDisk) {
+            disk?.clearCatalog()
+        }
     }
 
     private fun requireAccount(): Account = account ?: throw ApiException(Ar.errNoAccount)
+
+    private fun accountTag(): String {
+        val a = account ?: return "anon"
+        return "${a.server}|${a.user}"
+    }
+
+    private fun diskKey(key: String): String = "${accountTag()}::$key"
 
     suspend fun login(candidate: Account): UserInfo {
         val info = parseUserInfo(api.request(candidate, null))
         account = candidate
         userInfo = info
-        clearCache()
+        clearCache(clearDisk = false)
+        disk?.put(diskKey("user_info"), UserInfo.serializer(), info)
         return info
     }
 
     suspend fun refreshUserInfo(): UserInfo {
-        val info = parseUserInfo(api.request(requireAccount(), null))
+        val a = requireAccount()
+        disk?.get(diskKey("user_info"), UserInfo.serializer(), USER_INFO_TTL_MS)?.let { cachedInfo ->
+            if (userInfo == null) userInfo = cachedInfo
+        }
+        val info = parseUserInfo(api.request(a, null))
         userInfo = info
+        disk?.put(diskKey("user_info"), UserInfo.serializer(), info)
         return info
+    }
+
+    /** Pre-warms categories and full catalogs in background so any screen opens in 0ms. */
+    suspend fun prewarmCatalog() = supervisorScope {
+        if (account == null) return@supervisorScope
+        if (userInfo == null) {
+            disk?.get(diskKey("user_info"), UserInfo.serializer(), USER_INFO_TTL_MS)?.let {
+                userInfo = it
+            }
+        }
+        val liveCatsJob = async(Dispatchers.IO) { runCatching { liveCategories() } }
+        val vodCatsJob = async(Dispatchers.IO) { runCatching { movieCategories() } }
+        val seriesCatsJob = async(Dispatchers.IO) { runCatching { seriesCategories() } }
+        liveCatsJob.await()
+        vodCatsJob.await()
+        seriesCatsJob.await()
+
+        val liveAllJob = async(Dispatchers.IO) { runCatching { liveChannels(null) } }
+        val vodAllJob = async(Dispatchers.IO) { runCatching { movies(null) } }
+        val seriesAllJob = async(Dispatchers.IO) { runCatching { seriesList(null) } }
+        liveAllJob.await()
+        vodAllJob.await()
+        seriesAllJob.await()
     }
 
     fun liveExtensions(): List<String> {
@@ -76,9 +126,38 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private suspend fun <T : Any> cached(key: String, load: suspend () -> T): T {
+    private suspend fun <T : Any> cachedPersistent(
+        key: String,
+        serializer: KSerializer<T>,
+        ttlMs: Long,
+        load: suspend () -> T,
+    ): T {
         (cache[key] as? T)?.let { return it }
-        return load().also { cache[key] = it }
+        val dKey = diskKey(key)
+        val fromDisk = disk?.get(dKey, serializer, ttlMs)
+        if (fromDisk != null) {
+            cache[key] = fromDisk
+            return fromDisk
+        }
+        return load().also { loaded ->
+            cache[key] = loaded
+            disk?.put(dKey, serializer, loaded)
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    suspend fun <T : Any> peekCachedList(
+        key: String,
+        serializer: KSerializer<List<T>>,
+        ttlMs: Long = CATALOG_LIST_TTL_MS,
+    ): List<T>? {
+        (cache[key] as? List<T>)?.let { return it }
+        val fromDisk = disk?.get(diskKey(key), serializer, ttlMs)
+        if (fromDisk != null) {
+            cache[key] = fromDisk
+            return fromDisk
+        }
+        return null
     }
 
     private suspend fun request(action: String, params: Map<String, String> = emptyMap()): JsonElement =
@@ -89,58 +168,123 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
 
     // Live
 
-    suspend fun liveCategories(): List<Category> = cached("live_cats") {
-        parseCategories(request("get_live_categories"))
-    }
+    suspend fun liveCategories(): List<Category> =
+        cachedPersistent("live_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+            parseCategories(request("get_live_categories"))
+        }
 
-    suspend fun liveChannels(categoryId: String?): List<Channel> = cached("live:${categoryId.orEmpty()}") {
-        val json = request("get_live_streams", categoryParams(categoryId))
-        withContext(Dispatchers.Default) { parseChannels(json) }
+    suspend fun peekAllLiveChannels(): List<Channel>? =
+        peekCachedList("live:", ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS)
+
+    suspend fun liveChannels(categoryId: String?): List<Channel> {
+        val key = "live:${categoryId.orEmpty()}"
+        @Suppress("UNCHECKED_CAST")
+        (cache[key] as? List<Channel>)?.let { return it }
+
+        if (!categoryId.isNullOrBlank()) {
+            val all = peekAllLiveChannels()
+            if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
+                val filtered = withContext(Dispatchers.Default) {
+                    all.filter { it.categoryId == categoryId }
+                }
+                cache[key] = filtered
+                return filtered
+            }
+        }
+
+        return cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS) {
+            val json = request("get_live_streams", categoryParams(categoryId))
+            withContext(Dispatchers.Default) { parseChannels(json) }
+        }
     }
 
     // Movies
 
-    suspend fun movieCategories(): List<Category> = cached("vod_cats") {
-        parseCategories(request("get_vod_categories"))
+    suspend fun movieCategories(): List<Category> =
+        cachedPersistent("vod_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+            parseCategories(request("get_vod_categories"))
+        }
+
+    suspend fun peekAllMovies(): List<Poster>? =
+        peekCachedList("vod:", ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS)
+
+    suspend fun movies(categoryId: String?): List<Poster> {
+        val key = "vod:${categoryId.orEmpty()}"
+        @Suppress("UNCHECKED_CAST")
+        (cache[key] as? List<Poster>)?.let { return it }
+
+        if (!categoryId.isNullOrBlank()) {
+            val all = peekAllMovies()
+            if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
+                val filtered = withContext(Dispatchers.Default) {
+                    all.filter { it.categoryId == categoryId }
+                }
+                cache[key] = filtered
+                return filtered
+            }
+        }
+
+        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS) {
+            val json = request("get_vod_streams", categoryParams(categoryId))
+            withContext(Dispatchers.Default) { parseMovies(json) }
+        }
     }
 
-    suspend fun movies(categoryId: String?): List<Poster> = cached("vod:${categoryId.orEmpty()}") {
-        val json = request("get_vod_streams", categoryParams(categoryId))
-        withContext(Dispatchers.Default) { parseMovies(json) }
-    }
-
-    suspend fun movieDetails(id: String): MovieDetails = cached("vod_info:$id") {
-        val json = request("get_vod_info", mapOf("vod_id" to id))
-        val base = parseMovieDetails(id, json)
-        val tmdbData = try { tmdb.enrichMovie(base.name, base.year) } catch (e: Exception) { null }
-        if (tmdbData == null) base else base.copy(
-            image = base.image.ifBlank { tmdbData.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }.orEmpty() },
-            backdrop = base.backdrop.ifBlank { tmdbData.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }.orEmpty() },
-            plot = base.plot.ifBlank { tmdbData.overview },
-            year = base.year.ifBlank { tmdbData.releaseDate.take(4) },
-            rating = base.rating.ifBlank { if (tmdbData.voteAverage > 0) String.format(Locale.US, "%.1f", tmdbData.voteAverage) else "" },
-            duration = base.duration.ifBlank { tmdbData.runtime?.let { "${it}m" }.orEmpty() },
-            genre = base.genre.ifBlank { tmdbData.genres.joinToString(", ") { it.name } },
-            director = base.director.ifBlank { tmdbData.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty() },
-            cast = base.cast.ifBlank { tmdbData.credits?.cast?.take(5)?.joinToString(", ") { it.name }.orEmpty() }
-        )
-    }
+    suspend fun movieDetails(id: String): MovieDetails =
+        cachedPersistent("vod_info:$id", MovieDetails.serializer(), DETAILS_TTL_MS) {
+            val json = request("get_vod_info", mapOf("vod_id" to id))
+            val base = parseMovieDetails(id, json)
+            val tmdbData = try { tmdb.enrichMovie(base.name, base.year) } catch (e: Exception) { null }
+            if (tmdbData == null) base else base.copy(
+                image = base.image.ifBlank { tmdbData.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }.orEmpty() },
+                backdrop = base.backdrop.ifBlank { tmdbData.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }.orEmpty() },
+                plot = base.plot.ifBlank { tmdbData.overview },
+                year = base.year.ifBlank { tmdbData.releaseDate.take(4) },
+                rating = base.rating.ifBlank { if (tmdbData.voteAverage > 0) String.format(Locale.US, "%.1f", tmdbData.voteAverage) else "" },
+                duration = base.duration.ifBlank { tmdbData.runtime?.let { "${it}m" }.orEmpty() },
+                genre = base.genre.ifBlank { tmdbData.genres.joinToString(", ") { it.name } },
+                director = base.director.ifBlank { tmdbData.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty() },
+                cast = base.cast.ifBlank { tmdbData.credits?.cast?.take(5)?.joinToString(", ") { it.name }.orEmpty() },
+            )
+        }
 
     // Series
 
-    suspend fun seriesCategories(): List<Category> = cached("series_cats") {
-        parseCategories(request("get_series_categories"))
+    suspend fun seriesCategories(): List<Category> =
+        cachedPersistent("series_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+            parseCategories(request("get_series_categories"))
+        }
+
+    suspend fun peekAllSeries(): List<Poster>? =
+        peekCachedList("series:", ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS)
+
+    suspend fun seriesList(categoryId: String?): List<Poster> {
+        val key = "series:${categoryId.orEmpty()}"
+        @Suppress("UNCHECKED_CAST")
+        (cache[key] as? List<Poster>)?.let { return it }
+
+        if (!categoryId.isNullOrBlank()) {
+            val all = peekAllSeries()
+            if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
+                val filtered = withContext(Dispatchers.Default) {
+                    all.filter { it.categoryId == categoryId }
+                }
+                cache[key] = filtered
+                return filtered
+            }
+        }
+
+        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS) {
+            val json = request("get_series", categoryParams(categoryId))
+            withContext(Dispatchers.Default) { parseSeries(json) }
+        }
     }
 
-    suspend fun seriesList(categoryId: String?): List<Poster> = cached("series:${categoryId.orEmpty()}") {
-        val json = request("get_series", categoryParams(categoryId))
-        withContext(Dispatchers.Default) { parseSeries(json) }
-    }
-
-    suspend fun seriesDetails(id: String): SeriesDetails = cached("series_info:$id") {
-        val json = request("get_series_info", mapOf("series_id" to id))
-        withContext(Dispatchers.Default) { parseSeriesDetails(id, json) }
-    }
+    suspend fun seriesDetails(id: String): SeriesDetails =
+        cachedPersistent("series_info:$id", SeriesDetails.serializer(), SERIES_DETAILS_TTL_MS) {
+            val json = request("get_series_info", mapOf("series_id" to id))
+            withContext(Dispatchers.Default) { parseSeriesDetails(id, json) }
+        }
 
     // Program guide
 
@@ -149,10 +293,19 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
         epgCache[key]?.let { (time, list) ->
             if (System.currentTimeMillis() - time < EPG_TTL_MS) return list
         }
+        val dKey = diskKey("epg_$key")
+        disk?.get(dKey, ListSerializer(Program.serializer()), EPG_DISK_TTL_MS)?.let { fromDisk ->
+            epgCache[key] = System.currentTimeMillis() to fromDisk
+            return fromDisk
+        }
         return epgGate.withPermit {
+            epgCache[key]?.let { (time, list) ->
+                if (System.currentTimeMillis() - time < EPG_TTL_MS) return@withPermit list
+            }
             val json = request("get_short_epg", mapOf("stream_id" to streamId, "limit" to limit.toString()))
             val list = parsePrograms(json)
             epgCache[key] = System.currentTimeMillis() to list
+            disk?.put(dKey, ListSerializer(Program.serializer()), list)
             list
         }
     }
@@ -162,10 +315,20 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
         epgCache[key]?.let { (time, list) ->
             if (System.currentTimeMillis() - time < EPG_TTL_MS) return list
         }
+        val dKey = diskKey("epg_$key")
+        disk?.get(dKey, ListSerializer(Program.serializer()), DAY_EPG_DISK_TTL_MS)?.let { fromDisk ->
+            val nowSec = System.currentTimeMillis() / 1000
+            val valid = fromDisk.filter { it.end > nowSec - 2 * 3600 }
+            if (valid.isNotEmpty()) {
+                epgCache[key] = System.currentTimeMillis() to valid
+                return valid
+            }
+        }
         val json = request("get_simple_data_table", mapOf("stream_id" to streamId))
         val nowSec = System.currentTimeMillis() / 1000
         val list = parsePrograms(json).filter { it.end > nowSec - 2 * 3600 }.take(80)
         epgCache[key] = System.currentTimeMillis() to list
+        disk?.put(dKey, ListSerializer(Program.serializer()), list)
         return list
     }
 
@@ -339,5 +502,12 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
 
     private companion object {
         const val EPG_TTL_MS = 5 * 60_000L
+        const val EPG_DISK_TTL_MS = 15 * 60_000L
+        const val DAY_EPG_DISK_TTL_MS = 2 * 3600_000L
+        const val USER_INFO_TTL_MS = 24 * 3600_000L
+        const val CATEGORIES_TTL_MS = 12 * 3600_000L
+        const val CATALOG_LIST_TTL_MS = 6 * 3600_000L
+        const val DETAILS_TTL_MS = 7L * 24 * 3600_000L
+        const val SERIES_DETAILS_TTL_MS = 24 * 3600_000L
     }
 }

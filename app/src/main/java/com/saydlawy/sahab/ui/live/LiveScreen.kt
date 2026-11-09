@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.ui.live
 
+import android.view.ViewGroup
+import androidx.annotation.OptIn
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -31,11 +33,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -49,6 +55,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,9 +64,19 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.data.Channel
@@ -89,6 +106,7 @@ import com.saydlawy.sahab.ui.components.SideNavItem
 import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.components.rememberNow
+import com.saydlawy.sahab.ui.player.SahabPlayer
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatClock
@@ -143,41 +161,67 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
         loadCategories()
     }
 
+    private suspend fun computeCounts(allChannels: List<Channel>): Map<String, Int> =
+        withContext(Dispatchers.Default) {
+            val counts = HashMap<String, Int>()
+            allChannels.forEach { ch ->
+                val cid = ch.categoryId
+                if (cid.isNotBlank()) {
+                    counts[cid] = (counts[cid] ?: 0) + 1
+                }
+            }
+            counts
+        }
+
     fun loadCategories() {
         viewModelScope.launch {
             _state.update { it.copy(loadingCategories = true, error = null) }
             try {
                 val categories = repo.liveCategories()
-                val allChannels = try {
-                    repo.liveChannels(null).also { searchPool = it }
-                } catch (_: Exception) {
-                    emptyList()
-                }
-                val counts = HashMap<String, Int>()
-                allChannels.forEach { ch ->
-                    val cid = ch.categoryId
-                    if (cid.isNotBlank()) {
-                        counts[cid] = (counts[cid] ?: 0) + 1
+                val cachedAll = repo.peekAllLiveChannels()
+                if (!cachedAll.isNullOrEmpty()) {
+                    searchPool = cachedAll
+                    val counts = computeCounts(cachedAll)
+                    _state.update {
+                        it.copy(
+                            categories = categories,
+                            selectedId = ALL_CAT_ID,
+                            channels = cachedAll,
+                            loadingCategories = false,
+                            loadingChannels = false,
+                            totalCount = cachedAll.size,
+                            categoryCounts = counts,
+                        )
                     }
+                    return@launch
                 }
+
+                // Cold start: display categories immediately and load the first category right away
+                val firstCatId = categories.firstOrNull()?.id ?: ALL_CAT_ID
                 _state.update {
                     it.copy(
                         categories = categories,
+                        selectedId = firstCatId,
                         loadingCategories = false,
-                        totalCount = allChannels.size,
-                        categoryCounts = counts,
                     )
                 }
-                if (allChannels.isNotEmpty()) {
-                    _state.update {
-                        it.copy(
-                            selectedId = ALL_CAT_ID,
-                            channels = allChannels,
-                            loadingChannels = false,
-                        )
+                select(firstCatId)
+
+                // Fetch full channel pool & category counts in background without blocking UI
+                viewModelScope.launch {
+                    val allChannels = runCatching { repo.liveChannels(null) }.getOrDefault(emptyList())
+                    if (allChannels.isNotEmpty()) {
+                        searchPool = allChannels
+                        val counts = computeCounts(allChannels)
+                        _state.update { current ->
+                            current.copy(
+                                totalCount = allChannels.size,
+                                categoryCounts = counts + current.categoryCounts,
+                                channels = if (current.selectedId == ALL_CAT_ID || current.channels.isEmpty()) allChannels else current.channels,
+                                loadingChannels = if (current.selectedId == ALL_CAT_ID) false else current.loadingChannels,
+                            )
+                        }
                     }
-                } else {
-                    categories.firstOrNull()?.let { select(it.id) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -753,6 +797,7 @@ private fun LiveBadge() {
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun PreviewPanel(
     channel: Channel?,
@@ -762,7 +807,93 @@ private fun PreviewPanel(
     onGuide: (Channel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val repo = LocalContainer.current.repo
+    val container = LocalContainer.current
+    val repo = container.repo
+    val context = LocalContext.current
+
+    val previewExo = remember {
+        SahabPlayer.create(
+            context = context,
+            client = container.client,
+            isLive = true,
+            isPreview = true,
+        )
+    }
+
+    var isPlaying by remember { mutableStateOf(false) }
+    var buffering by remember { mutableStateOf(false) }
+    var videoReady by remember { mutableStateOf(false) }
+    var muted by remember { mutableStateOf(false) }
+    var formatAttempt by remember { mutableIntStateOf(0) }
+    var tracks by remember { mutableStateOf(Tracks.EMPTY) }
+
+    DisposableEffect(previewExo) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                buffering = state == Player.STATE_BUFFERING
+            }
+
+            override fun onRenderedFirstFrame() {
+                videoReady = true
+            }
+
+            override fun onTracksChanged(newTracks: Tracks) {
+                tracks = newTracks
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (formatAttempt + 1 < repo.liveExtensions().size) {
+                    formatAttempt += 1
+                }
+            }
+        }
+        previewExo.addListener(listener)
+        onDispose {
+            previewExo.removeListener(listener)
+            previewExo.release()
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        previewExo.pause()
+    }
+
+    LaunchedEffect(channel?.id) {
+        formatAttempt = 0
+        videoReady = false
+        tracks = Tracks.EMPTY
+    }
+
+    LaunchedEffect(channel?.id, formatAttempt) {
+        val ch = channel
+        if (ch == null) {
+            previewExo.stop()
+            previewExo.clearMediaItems()
+            videoReady = false
+            return@LaunchedEffect
+        }
+        // Debounce rapid D-Pad navigation so we only connect when the user settles on a channel
+        if (formatAttempt == 0) delay(400)
+        val url = runCatching {
+            repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon), formatAttempt)
+        }.getOrNull() ?: return@LaunchedEffect
+
+        previewExo.setMediaItem(MediaItem.fromUri(url))
+        previewExo.prepare()
+        previewExo.playWhenReady = true
+    }
+
+    val openFullScreen: () -> Unit = {
+        // Release active stream connection before opening full-screen player (respects max_connections = 1)
+        previewExo.stop()
+        previewExo.clearMediaItems()
+        onPlay()
+    }
+
     val programs by produceState<List<Program>>(emptyList(), channel?.id) {
         value = if (channel != null && channel.epgId.isNotBlank()) {
             try { repo.shortEpg(channel.id, 6) } catch (_: Exception) { emptyList() }
@@ -774,7 +905,7 @@ private fun PreviewPanel(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(appDp(14)),
     ) {
-        // Card 1: Video Preview & Control Toolbar
+        // Card 1: Live Video Preview & Control Toolbar
         GlassPanel(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(appDp(24)),
@@ -787,14 +918,33 @@ private fun PreviewPanel(
                     .clip(RoundedCornerShape(appDp(16)))
                     .background(Color.Black)
                     .border(appDp(1), Color.White.copy(alpha = 0.10f), RoundedCornerShape(appDp(16)))
-                    .clickable(enabled = channel != null, onClick = onPlay),
+                    .clickable(enabled = channel != null, onClick = openFullScreen),
             ) {
-                RemoteImage(
-                    url = STADIUM_MATCH_PREVIEW_URL,
-                    fallbackText = channel?.name ?: "Live TV",
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            player = previewExo
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
                 )
+
+                if (!videoReady) {
+                    RemoteImage(
+                        url = STADIUM_MATCH_PREVIEW_URL,
+                        fallbackText = channel?.name ?: "Live TV",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -804,6 +954,18 @@ private fun PreviewPanel(
                             ),
                         ),
                 )
+
+                if (buffering && !videoReady && channel != null) {
+                    Box(Modifier.align(Alignment.Center)) {
+                        CircularProgressIndicator(
+                            color = Palette.Glow,
+                            trackColor = Color.White.copy(alpha = 0.15f),
+                            modifier = Modifier.size(appDp(32)),
+                            strokeWidth = appDp(3),
+                        )
+                    }
+                }
+
                 // Top-right badge: "مباشر - 1080p 60fps"
                 Row(
                     Modifier
@@ -817,12 +979,13 @@ private fun PreviewPanel(
                     horizontalArrangement = Arrangement.spacedBy(appDp(6)),
                 ) {
                     Box(Modifier.size(appDp(7)).clip(CircleShape).background(Palette.Live))
-                    val q = channel?.let { qualityOf(it.name) } ?: "1080p"
-                    Text("${Ar.liveBadge} - $q 60fps", fontSize = appSp(11), fontWeight = FontWeight.Bold, color = Color.White)
+                    val vBadge = SahabPlayer.videoBadge(tracks, channel?.let { qualityOf(it.name) })
+                    Text("${Ar.liveBadge} - $vBadge", fontSize = appSp(11), fontWeight = FontWeight.Bold, color = Color.White)
                 }
 
-                // Bottom-left badge: channel name / audio
+                // Bottom-left badge: Audio stream info or channel name
                 if (channel != null) {
+                    val aBadge = SahabPlayer.audioBadge(tracks) ?: channel.name
                     Row(
                         Modifier
                             .align(Alignment.BottomEnd)
@@ -835,7 +998,7 @@ private fun PreviewPanel(
                         horizontalArrangement = Arrangement.spacedBy(appDp(6)),
                     ) {
                         Text(
-                            channel.name,
+                            aBadge,
                             fontSize = appSp(11),
                             fontWeight = FontWeight.Bold,
                             color = Palette.Glow,
@@ -850,10 +1013,24 @@ private fun PreviewPanel(
                 Spacer(Modifier.height(appDp(10)))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(appDp(14), Alignment.CenterHorizontally),
+                    horizontalArrangement = Arrangement.spacedBy(appDp(12), Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    PlayerControlButton(icon = Ic.Play, description = Ar.play, onClick = onPlay)
+                    PlayerControlButton(
+                        icon = if (isPlaying) Ic.Pause else Ic.Play,
+                        description = if (isPlaying) Ar.pause else Ar.play,
+                        onClick = {
+                            if (previewExo.isPlaying) previewExo.pause() else previewExo.play()
+                        },
+                    )
+                    PlayerControlButton(
+                        icon = if (muted) Ic.VolumeOff else Ic.VolumeUp,
+                        description = if (muted) Ar.unmute else Ar.mute,
+                        onClick = {
+                            muted = !muted
+                            previewExo.volume = if (muted) 0f else 1f
+                        },
+                    )
                     PlayerControlButton(
                         icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
                         description = Ar.favorites,
@@ -861,7 +1038,7 @@ private fun PreviewPanel(
                         isRed = true,
                     )
                     PlayerControlButton(icon = Ic.Search, description = Ar.guide, onClick = { onGuide(channel) })
-                    PlayerControlButton(icon = Ic.Aspect, description = "ملء الشاشة", onClick = onPlay)
+                    PlayerControlButton(icon = Ic.Aspect, description = Ar.fullscreen, onClick = openFullScreen)
                 }
             }
         }

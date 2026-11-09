@@ -129,42 +129,70 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
 
     private suspend fun fetchCategories() = if (series) repo.seriesCategories() else repo.movieCategories()
 
+    private suspend fun peekAllItems() = if (series) repo.peekAllSeries() else repo.peekAllMovies()
+
     private suspend fun fetchItems(categoryId: String?) =
         if (series) repo.seriesList(categoryId) else repo.movies(categoryId)
+
+    private suspend fun computeCounts(allItems: List<Poster>): Map<String, Int> =
+        withContext(Dispatchers.Default) {
+            val counts = HashMap<String, Int>()
+            allItems.forEach { p ->
+                val cid = p.categoryId
+                if (cid.isNotBlank()) counts[cid] = (counts[cid] ?: 0) + 1
+            }
+            counts
+        }
 
     fun loadCategories() {
         viewModelScope.launch {
             _state.update { it.copy(loadingCategories = true, error = null) }
             try {
                 val categories = fetchCategories()
-                val allItems = try {
-                    fetchItems(null).also { searchPool = it }
-                } catch (_: Exception) {
-                    emptyList()
+                val cachedAll = peekAllItems()
+                if (!cachedAll.isNullOrEmpty()) {
+                    searchPool = cachedAll
+                    val counts = computeCounts(cachedAll)
+                    _state.update {
+                        it.copy(
+                            categories = categories,
+                            selectedId = ALL_CAT_ID,
+                            items = cachedAll,
+                            loadingCategories = false,
+                            loadingItems = false,
+                            totalCount = cachedAll.size,
+                            categoryCounts = counts,
+                        )
+                    }
+                    return@launch
                 }
-                val counts = HashMap<String, Int>()
-                allItems.forEach { p ->
-                    val cid = p.categoryId
-                    if (cid.isNotBlank()) counts[cid] = (counts[cid] ?: 0) + 1
-                }
+
+                // First-time cold start: show categories immediately and load the first category right away
+                val firstCatId = categories.firstOrNull()?.id ?: ALL_CAT_ID
                 _state.update {
                     it.copy(
                         categories = categories,
+                        selectedId = firstCatId,
                         loadingCategories = false,
-                        totalCount = allItems.size,
-                        categoryCounts = counts,
                     )
                 }
-                if (allItems.isNotEmpty()) {
-                    _state.update {
-                        it.copy(
-                            selectedId = ALL_CAT_ID,
-                            items = allItems,
-                            loadingItems = false,
-                        )
+                select(firstCatId)
+
+                // Warm up the full catalog and category counts in the background without blocking UI
+                viewModelScope.launch {
+                    val allItems = runCatching { fetchItems(null) }.getOrDefault(emptyList())
+                    if (allItems.isNotEmpty()) {
+                        searchPool = allItems
+                        val counts = computeCounts(allItems)
+                        _state.update { current ->
+                            current.copy(
+                                totalCount = allItems.size,
+                                categoryCounts = counts + current.categoryCounts,
+                                items = if (current.selectedId == ALL_CAT_ID || current.items.isEmpty()) allItems else current.items,
+                                loadingItems = if (current.selectedId == ALL_CAT_ID) false else current.loadingItems,
+                            )
+                        }
                     }
-                } else {
-                    categories.firstOrNull()?.let { select(it.id) }
                 }
             } catch (e: CancellationException) {
                 throw e

@@ -96,7 +96,8 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                             refreshed = refreshed,
                             onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } },
                             onRefresh = {
-                                container.repo.clearCache()
+                                container.repo.clearCache(clearDisk = true)
+                                container.appScope.launch { container.repo.prewarmCatalog() }
                                 refreshed = true
                             },
                             onLogout = { confirmLogout = true },
@@ -110,7 +111,8 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         refreshed = refreshed,
                         onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } },
                         onRefresh = {
-                            container.repo.clearCache()
+                            container.repo.clearCache(clearDisk = true)
+                            container.appScope.launch { container.repo.prewarmCatalog() }
                             refreshed = true
                         },
                         onLogout = { confirmLogout = true },
@@ -288,6 +290,7 @@ private fun SystemControlsColumn(
 
 private suspend fun logout(container: AppContainer) {
     container.playback = null
+    container.repo.clearCache(clearDisk = true)
     container.repo.setAccount(null)
     container.prefs.clearAccount()
 }

@@ -42,6 +42,7 @@ import com.saydlawy.sahab.ui.settings.SettingsScreen
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppRoot(container: AppContainer) {
@@ -50,7 +51,10 @@ fun AppRoot(container: AppContainer) {
 
     LaunchedEffect(Unit) {
         val account = container.prefs.account.first()
-        if (account != null) container.repo.setAccount(account)
+        if (account != null) {
+            container.repo.setAccount(account)
+            container.appScope.launch { container.repo.prewarmCatalog() }
+        }
         start = if (account != null) Routes.HOME else Routes.LOGIN
     }
 
@@ -118,6 +122,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
     ) {
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
+                container.appScope.launch { container.repo.prewarmCatalog() }
                 nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true } }
             })
         }

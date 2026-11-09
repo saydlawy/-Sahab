@@ -9,83 +9,92 @@ object Kind {
     const val SERIES = "series"
 }
 
+@Serializable
 data class Account(val server: String, val user: String, val pass: String)
 
+@Serializable
 data class UserInfo(
     val status: String,
-    val expiry: Long?,
-    val maxConnections: String,
-    val activeConnections: String,
-    val isTrial: Boolean,
-    val formats: List<String>,
+    val expiry: Long? = null,
+    val maxConnections: String = "",
+    val activeConnections: String = "",
+    val isTrial: Boolean = false,
+    val formats: List<String> = emptyList(),
 )
 
+@Serializable
 data class Category(val id: String, val name: String)
 
+@Serializable
 data class Channel(
     val id: String,
     val name: String,
-    val icon: String,
-    val categoryId: String,
-    val epgId: String,
+    val icon: String = "",
+    val categoryId: String = "",
+    val epgId: String = "",
 )
 
 /** A movie or a series shown as a poster in a grid. */
+@Serializable
 data class Poster(
     val id: String,
     val name: String,
-    val image: String,
-    val rating: String,
-    val ext: String,
-    val year: String,
+    val image: String = "",
+    val rating: String = "",
+    val ext: String = "",
+    val year: String = "",
     val categoryId: String = "",
 )
 
+@Serializable
 data class MovieDetails(
     val id: String,
     val name: String,
-    val image: String,
-    val backdrop: String,
-    val plot: String,
-    val cast: String,
-    val director: String,
-    val genre: String,
-    val year: String,
-    val duration: String,
-    val rating: String,
-    val ext: String,
+    val image: String = "",
+    val backdrop: String = "",
+    val plot: String = "",
+    val cast: String = "",
+    val director: String = "",
+    val genre: String = "",
+    val year: String = "",
+    val duration: String = "",
+    val rating: String = "",
+    val ext: String = "",
 )
 
+@Serializable
 data class Episode(
     val id: String,
     val season: Int,
     val number: Int,
     val title: String,
-    val ext: String,
-    val image: String,
-    val plot: String,
-    val duration: String,
+    val ext: String = "",
+    val image: String = "",
+    val plot: String = "",
+    val duration: String = "",
 )
 
+@Serializable
 data class SeriesDetails(
     val id: String,
     val name: String,
-    val cover: String,
-    val backdrop: String,
-    val plot: String,
-    val cast: String,
-    val genre: String,
-    val year: String,
-    val rating: String,
-    val episodes: List<Episode>,
+    val cover: String = "",
+    val backdrop: String = "",
+    val plot: String = "",
+    val cast: String = "",
+    val genre: String = "",
+    val year: String = "",
+    val rating: String = "",
+    val episodes: List<Episode> = emptyList(),
 ) {
     val seasons: List<Int> get() = episodes.map { it.season }.distinct().sorted()
 }
 
 /** Program times are Unix seconds. */
+@Serializable
 data class Program(
     val title: String,
-    val description: String,
+    val description: String = "",
     val start: Long,
     val end: Long,
 )
