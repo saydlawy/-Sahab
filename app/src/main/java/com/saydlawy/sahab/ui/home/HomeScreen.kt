@@ -180,9 +180,10 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
                 ),
         )
 
+        val maxH = maxHeight
         Column(Modifier.fillMaxSize()) {
             SahabTopBar(current = Routes.HOME)
-            val s = (maxHeight.value / 720f).coerceIn(0.75f, 1.35f)
+            val s = (maxH.value / 720f).coerceIn(0.75f, 1.35f)
             if (wide) {
                 WideHome(
                     s = s,
