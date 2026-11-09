@@ -228,19 +228,18 @@ private fun PhoneHome(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             categories.forEachIndexed { i, cat ->
-                Box(Modifier.weight(1f)) {
-                    AnimatedVisibility(
-                        visible = shows[i],
-                        enter = fadeIn(tween(450)) + scaleIn(tween(450), initialScale = 0.92f),
-                    ) {
-                        CategoryCard(
-                            cat = cat,
-                            modifier = Modifier.fillMaxWidth().aspectRatio(0.625f),
-                            s = 0.6f,
-                            autoFocus = false,
-                            onClick = { onOpen(cat.route) },
-                        )
-                    }
+                AnimatedVisibility(
+                    visible = shows[i],
+                    modifier = Modifier.weight(1f),
+                    enter = fadeIn(tween(450)) + scaleIn(tween(450), initialScale = 0.92f),
+                ) {
+                    CategoryCard(
+                        cat = cat,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(0.625f),
+                        s = 0.6f,
+                        autoFocus = false,
+                        onClick = { onOpen(cat.route) },
+                    )
                 }
             }
         }
