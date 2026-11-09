@@ -18,6 +18,9 @@ val LocalLightEffects = staticCompositionLocalOf { false }
 /** Global scale multiplier (1f = TV baseline). */
 val LocalAppScale = compositionLocalOf { 1f }
 
+/** Jumps to a top-level section (the tabs of the top bar) without piling up the back stack. */
+val LocalTabNavigator = staticCompositionLocalOf<(String) -> Unit> { {} }
+
 class SimpleFactory(private val build: () -> ViewModel) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = build() as T

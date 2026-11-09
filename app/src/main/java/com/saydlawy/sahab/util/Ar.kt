@@ -6,6 +6,42 @@ import com.saydlawy.sahab.data.Kind
 object Ar {
     const val appName = "سحاب"
     const val tagline = "مشاهدتك، بكل هدوء"
+    const val brand = "سحاب IPTV"
+    const val brandTagline = "البث التلفزيوني الذكي للشاشات الكبيرة"
+    const val home = "الرئيسية"
+    const val sports = "الرياضة"
+    const val sportsSoon = "قريباً — قسم الرياضة والمباريات الحية"
+    const val profile = "الحساب"
+    const val all = "الكل"
+    const val dpadReady = "D-Pad Ready"
+    const val details = "التفاصيل"
+    const val plot = "القصة"
+    const val channelList = "قائمة القنوات الحية"
+    const val moviesLibrary = "مكتبة الأفلام"
+    const val seriesLibrary = "مكتبة المسلسلات"
+    const val epgTitle = "دليل البرامج (EPG)"
+    const val noEpgShort = "لا تتوفر بيانات الدليل لهذه القناة"
+    const val pickChannel = "اختر قناة لعرض تفاصيلها"
+    const val pickTitle = "اختر عنواناً لعرض تفاصيله"
+    const val liveNow = "مباشر الآن"
+    const val onAirNow = "يعرض الآن"
+    const val soon = "قريباً"
+    const val ended = "انتهى"
+
+    // Login (identity screen)
+    const val firstSetup = "إعداد الجهاز الأول"
+    const val welcomeTitle = "مرحباً بك في منصة سحاب - البث التلفزيوني الذكي للشاشات الكبيرة"
+    const val welcomeBody = "يرجى إدخال بيانات الاشتراك الخاصة بك للبدء في الاستمتاع بآلاف القنوات والأفلام والمسلسلات."
+    const val serverLabel = "رابط الخادم (Server URL)"
+    const val userLabel = "اسم المستخدم (Username)"
+    const val passLabel = "كلمة المرور (Password)"
+    const val userPlaceholder = "أدخل اسم المستخدم"
+    const val loginInstall = "تسجيل الدخول والتثبيت"
+    const val m3uTipTitle = "لصق رابط M3U كامل"
+    const val m3uTipBody = "الصق رابط القائمة في حقل الخادم وسنملأ بقية البيانات تلقائياً"
+    const val statusReady = "جاهز للاتصال بالخادم"
+    const val statusConnecting = "جارٍ الاتصال بالخادم…"
+    const val statusFailed = "تعذّر الاتصال - راجع البيانات"
 
     // Main sections
     const val live = "بث مباشر"
@@ -113,6 +149,10 @@ object Ar {
     fun trackNumber(number: Int) = "مسار $number"
 
     fun version(name: String) = "سحاب · الإصدار $name"
+
+    fun versionShort(name: String) = "الإصدار $name"
+
+    fun itemsCount(count: Int) = "$count عنوان"
 
     fun subscriptionLine(date: String, daysLeft: Int) = "ينتهي الاشتراك في $date · متبقي $daysLeft يوماً"
 

@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -104,6 +105,7 @@ import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.GlassIconButton
 import com.saydlawy.sahab.ui.components.Ic
+import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.findActivity
@@ -582,14 +584,7 @@ private fun PlayerControls(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isLive) {
-                        Box(
-                            Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Palette.Danger),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(Ar.liveBadge, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Danger)
+                        Tag(Ar.liveBadge, Palette.Live, filled = true)
                         Spacer(Modifier.width(12.dp))
                     }
                     Text(
@@ -653,6 +648,7 @@ private fun PlayerControls(
                         description = if (isPlaying) Ar.pause else Ar.play,
                         onClick = onTogglePlay,
                         size = 72.dp,
+                        selected = true,
                         autoFocus = true,
                     )
                     if (!isLive) SeekButton("+10") { onSeekBy(10_000L) }
@@ -751,6 +747,7 @@ private fun TracksDialog(tracks: Tracks, exo: ExoPlayer, onDismiss: () -> Unit) 
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(26.dp))
                 .background(Palette.DialogBg)
+                .border(1.5.dp, Palette.Glow.copy(alpha = 0.45f), RoundedCornerShape(26.dp))
                 .padding(20.dp),
         ) {
             Text(Ar.tracks, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Palette.Text)

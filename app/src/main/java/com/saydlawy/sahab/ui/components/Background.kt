@@ -21,41 +21,44 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** Soft colour clouds drifting slowly behind every screen. Static in light mode. */
+/** Deep cosmic background with slowly drifting glow / royal / blue nebulas. Static in light mode. */
 @Composable
 fun DreamyBackground() {
     if (LocalLightEffects.current) {
-        CloudCanvas(phase = { 0f })
+        CosmicCanvas(phase = { 0f })
     } else {
-        val transition = rememberInfiniteTransition(label = "clouds")
+        val transition = rememberInfiniteTransition(label = "cosmos")
         val phase by transition.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(70_000, easing = LinearEasing), RepeatMode.Restart),
+            animationSpec = infiniteRepeatable(tween(80_000, easing = LinearEasing), RepeatMode.Restart),
             label = "phase",
         )
-        CloudCanvas(phase = { phase })
+        CosmicCanvas(phase = { phase })
     }
 }
 
 @Composable
-private fun CloudCanvas(phase: () -> Float) {
+private fun CosmicCanvas(phase: () -> Float) {
     Canvas(Modifier.fillMaxSize()) {
-        drawRect(Brush.verticalGradient(listOf(Palette.BgTop, Palette.Bg), startY = 0f, endY = size.height))
+        drawRect(Brush.verticalGradient(listOf(Palette.BgTop, Palette.Bg, Palette.Bg), startY = 0f, endY = size.height))
         val t = phase() * 2f * PI.toFloat()
-        cloud(Palette.Violet, 0.20f + 0.07f * sin(t), 0.18f + 0.06f * cos(t), 0.62f, 0.50f)
-        cloud(Palette.Pink, 0.82f + 0.06f * cos(t), 0.30f + 0.07f * sin(t), 0.50f, 0.34f)
-        cloud(Palette.Cyan, 0.30f + 0.08f * cos(t + 2f), 0.88f + 0.05f * sin(t + 1f), 0.55f, 0.28f)
-        cloud(Palette.Peach, 0.90f + 0.05f * sin(t + 3f), 0.90f + 0.04f * cos(t), 0.42f, 0.20f)
+        // Top-right glow (cyan → royal), like the reference "earth glow".
+        nebula(Palette.Glow, 0.88f + 0.04f * sin(t), -0.05f + 0.05f * cos(t), 0.55f, 0.16f)
+        nebula(Palette.Royal, 0.75f + 0.05f * cos(t), 0.10f + 0.04f * sin(t), 0.45f, 0.12f)
+        // Left royal cloud.
+        nebula(Palette.Royal, 0.05f + 0.05f * cos(t + 2f), 0.55f + 0.06f * sin(t + 1f), 0.42f, 0.13f)
+        // Bottom blue haze.
+        nebula(Palette.Blue, 0.65f + 0.06f * sin(t + 3f), 1.02f + 0.03f * cos(t), 0.50f, 0.12f)
     }
 }
 
-private fun DrawScope.cloud(color: Color, cx: Float, cy: Float, radiusFraction: Float, alpha: Float) {
+private fun DrawScope.nebula(color: Color, cx: Float, cy: Float, radiusFraction: Float, alpha: Float) {
     val center = Offset(size.width * cx, size.height * cy)
     val radius = size.maxDimension * radiusFraction
     drawCircle(
         brush = Brush.radialGradient(
-            colors = listOf(color.copy(alpha = alpha), Color.Transparent),
+            colors = listOf(color.copy(alpha = alpha), color.copy(alpha = alpha * 0.35f), Color.Transparent),
             center = center,
             radius = radius,
         ),

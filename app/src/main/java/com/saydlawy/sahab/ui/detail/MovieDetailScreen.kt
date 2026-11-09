@@ -1,31 +1,35 @@
 package com.saydlawy.sahab.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,13 +43,20 @@ import com.saydlawy.sahab.data.MovieDetails
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
+import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassIconButton
+import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
+import com.saydlawy.sahab.ui.components.ProgressLine
 import com.saydlawy.sahab.ui.components.RemoteImage
+import com.saydlawy.sahab.ui.components.SahabTopBar
+import com.saydlawy.sahab.ui.components.Tag
+import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatDuration
@@ -55,9 +66,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.shape.CircleShape
 
 data class DetailUiState<T>(
     val loading: Boolean = true,
@@ -95,7 +103,6 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
     }
 }
 
-
 @Composable
 fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { MovieDetailViewModel(it, id) }
@@ -106,79 +113,84 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
 
     Box(Modifier.fillMaxSize()) {
         val details = state.data
-        when {
-            state.loading -> {
-                LoadingBox()
-                BackButton(onBack)
-            }
-            details == null -> {
-                MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
-                BackButton(onBack)
-            }
-            else -> {
-                val backdrop = details.backdrop.ifBlank { details.image }
-                RemoteImage(backdrop, Modifier.fillMaxSize().alpha(0.25f))
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Palette.Bg.copy(alpha = 0.98f)))),
-                )
-                val isFavorite = favorites.any { it.kind == Kind.MOVIE && it.id == details.id }
-                val resume = recents.firstOrNull { it.kind == Kind.MOVIE && it.id == details.id }
-                val resumeMs = resume?.positionMs ?: 0L
-                val item = PlayItem(Kind.MOVIE, details.id, details.name, icon = details.image, ext = details.ext)
+        if (details != null) {
+            val backdrop = details.backdrop.ifBlank { details.image }
+            RemoteImage(backdrop, Modifier.fillMaxSize().alpha(0.22f))
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Palette.DeepBlue.copy(alpha = 0.55f),
+                                Palette.DeepBlue.copy(alpha = 0.88f),
+                                Palette.DeepBlue.copy(alpha = 0.98f),
+                            ),
+                        ),
+                    ),
+            )
+        }
 
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val wide = maxWidth >= 720.dp
-                    val hPad = if (wide) 48.dp else 20.dp
-                    
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = hPad, vertical = 20.dp),
-                    ) {
-                        Spacer(Modifier.height(20.dp))
-                        
-                        // Header
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+        Column(Modifier.fillMaxSize()) {
+            SahabTopBar(current = Routes.MOVIES, onBack = onBack)
+
+            when {
+                state.loading -> LoadingBox()
+                details == null -> MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
+                else -> {
+                    val isFavorite = favorites.any { it.kind == Kind.MOVIE && it.id == details.id }
+                    val resume = recents.firstOrNull { it.kind == Kind.MOVIE && it.id == details.id }
+                    val resumeMs = resume?.positionMs ?: 0L
+                    val durationMs = resume?.durationMs ?: 0L
+                    val item = PlayItem(Kind.MOVIE, details.id, details.name, icon = details.image, ext = details.ext)
+
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val wide = maxWidth >= 780.dp
+                        val hPad = if (wide) 36.dp else 18.dp
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = hPad, vertical = 16.dp),
                         ) {
-                            GlassIconButton(Ic.Back, Ar.back, onBack, autoFocus = true)
-                            Text(
-                                details.name,
-                                fontSize = if (wide) 28.sp else 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Palette.Text,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                            GlassIconButton(
-                                icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
-                                description = Ar.favorites,
-                                onClick = { vm.toggleFavorite(details) },
-                                tint = if (isFavorite) Palette.Pink else Palette.Text,
-                            )
-                        }
-                        
-                        Spacer(Modifier.height(32.dp))
-                        
-                        if (wide) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
-                                NewInfo(details, resumeMs, isFavorite, item, onPlay, Modifier.weight(1f))
-                                Poster(details.image, Modifier.width(300.dp))
+                            if (wide) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(36.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    MoviePosterFrame(details.image, details.name, Modifier.width(270.dp))
+                                    MovieInfoPanel(
+                                        details = details,
+                                        resumeMs = resumeMs,
+                                        durationMs = durationMs,
+                                        isFavorite = isFavorite,
+                                        onToggleFavorite = { vm.toggleFavorite(details) },
+                                        item = item,
+                                        onPlay = onPlay,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            } else {
+                                MoviePosterFrame(
+                                    details.image,
+                                    details.name,
+                                    Modifier.width(200.dp).align(Alignment.CenterHorizontally),
+                                )
+                                Spacer(Modifier.height(20.dp))
+                                MovieInfoPanel(
+                                    details = details,
+                                    resumeMs = resumeMs,
+                                    durationMs = durationMs,
+                                    isFavorite = isFavorite,
+                                    onToggleFavorite = { vm.toggleFavorite(details) },
+                                    item = item,
+                                    onPlay = onPlay,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             }
-                        } else {
-                            Poster(details.image, Modifier.width(220.dp).align(Alignment.CenterHorizontally))
-                            Spacer(Modifier.height(24.dp))
-                            NewInfo(details, resumeMs, isFavorite, item, onPlay, Modifier.fillMaxWidth())
+                            Spacer(Modifier.height(48.dp))
                         }
-                        
-                        Spacer(Modifier.height(64.dp))
                     }
                 }
             }
@@ -187,81 +199,94 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
 }
 
 @Composable
-private fun BackButton(onBack: () -> Unit) {
-    Box(Modifier.padding(20.dp)) {
-        GlassIconButton(Ic.Back, Ar.back, onBack)
+private fun MoviePosterFrame(url: String, title: String, modifier: Modifier) {
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier
+            .aspectRatio(2f / 3f)
+            .shadow(20.dp, shape, ambientColor = Palette.Royal, spotColor = Palette.Glow)
+            .clip(shape)
+            .background(Palette.Glass)
+            .border(1.5.dp, Palette.Glow.copy(alpha = 0.45f), shape)
+            .padding(6.dp),
+    ) {
+        RemoteImage(
+            url = url,
+            fallbackText = title,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(18.dp)),
+        )
     }
 }
 
 @Composable
-private fun Poster(url: String, modifier: Modifier) {
-    RemoteImage(
-        url = url,
-        modifier = modifier
-            .aspectRatio(2f / 3f)
-            .clip(RoundedCornerShape(22.dp)),
-    )
-}
-
-@Composable
-private fun NewInfo(
+private fun MovieInfoPanel(
     details: MovieDetails,
     resumeMs: Long,
+    durationMs: Long,
     isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     item: PlayItem,
     onPlay: (PlayRequest) -> Unit,
     modifier: Modifier,
 ) {
-    Column(modifier) {
-        Text(details.name, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-        
-        Spacer(Modifier.height(12.dp))
-        
-        // Metadata Row
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            details.name,
+            style = TextStyle(brush = Palette.BrandText, fontSize = 32.sp, fontWeight = FontWeight.Bold),
+        )
+
+        // Metadata badges row
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            val q = qualityOf(details.name) ?: "FHD"
+            Tag(q, if (q == "4K") Palette.Gold else Palette.Glow)
             if (details.year.isNotBlank()) {
-                Text(details.year, fontSize = 16.sp, color = Palette.TextDim)
+                Tag(details.year, Palette.Royal)
             }
             if (details.duration.isNotBlank()) {
-                Text("•", fontSize = 16.sp, color = Palette.TextDim)
-                Text(details.duration, fontSize = 16.sp, color = Palette.TextDim)
+                Text(details.duration, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Palette.TextDim)
             }
             if (details.rating.isNotBlank()) {
-                Text("•", fontSize = 16.sp, color = Palette.TextDim)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.material3.Icon(
-                        Ic.Star, contentDescription = null, tint = Palette.Peach, modifier = Modifier.size(18.dp)
-                    )
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Palette.Gold.copy(alpha = 0.16f))
+                        .border(1.dp, Palette.Gold.copy(alpha = 0.4f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Ic.Star, contentDescription = null, tint = Palette.Gold, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(details.rating, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Peach)
+                    Text(details.rating, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Gold)
                 }
             }
+            if (details.ext.isNotBlank()) {
+                Tag(details.ext.uppercase(), Palette.TextDim)
+            }
         }
-        
-        Spacer(Modifier.height(20.dp))
-        
-        // Genre Chips
+
+        // Genre tags
         if (details.genre.isNotBlank()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                details.genre.split(",").take(3).forEach { g ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(g.trim(), fontSize = 14.sp, color = Palette.Text)
-                    }
+                details.genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(4).forEach { g ->
+                    Tag(g, Palette.Glow, fontSize = 12.sp)
                 }
             }
-            Spacer(Modifier.height(28.dp))
         }
-        
+
+        if (resumeMs > 10_000 && durationMs > 0) {
+            ProgressLine((resumeMs.toFloat() / durationMs).coerceIn(0f, 1f), Modifier.fillMaxWidth(0.6f), height = 5.dp)
+        }
+
         // Actions
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             val canResume = resumeMs > 10_000
             GlassButton(
                 text = if (canResume) Ar.resumeFrom(formatDuration(resumeMs)) else Ar.play,
@@ -273,28 +298,42 @@ private fun NewInfo(
             if (canResume) {
                 GlassButton(Ar.fromStart, { onPlay(PlayRequest(listOf(item), 0, fromStart = true)) })
             }
+            GlassIconButton(
+                icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
+                description = Ar.favorites,
+                onClick = onToggleFavorite,
+                size = 54.dp,
+                selected = isFavorite,
+                tint = if (isFavorite) Palette.Live else Palette.Glow,
+            )
         }
-        
-        Spacer(Modifier.height(32.dp))
-        
-        // Plot
-        if (details.plot.isNotBlank()) {
-            Text("القصة", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-            Spacer(Modifier.height(8.dp))
-            Text(details.plot, fontSize = 16.sp, lineHeight = 26.sp, color = Palette.Text.copy(alpha = 0.85f))
-            Spacer(Modifier.height(28.dp))
-        }
-        
-        // Details List (TMDB data will replace these placeholders later)
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (details.director.isNotBlank()) {
-                DetailRow(Ar.director, details.director)
+
+        // Plot & cast inside a glass panel
+        GlassPanel(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            padding = 20.dp,
+        ) {
+            if (details.plot.isNotBlank()) {
+                DotTitle(Ar.plot, Palette.Gold, fontSize = 16.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    details.plot,
+                    fontSize = 15.sp,
+                    lineHeight = 25.sp,
+                    color = Palette.Text.copy(alpha = 0.90f),
+                )
+                Spacer(Modifier.height(18.dp))
             }
-            if (details.cast.isNotBlank()) {
-                DetailRow(Ar.cast, details.cast)
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (details.director.isNotBlank()) {
+                    DetailRow(Ar.director, details.director)
+                }
+                if (details.cast.isNotBlank()) {
+                    DetailRow(Ar.cast, details.cast)
+                }
             }
-            DetailRow("الدولة", "الولايات المتحدة")
-            DetailRow("اللغة", "الإنجليزية")
         }
     }
 }
@@ -304,41 +343,16 @@ private fun DetailRow(label: String, value: String) {
     Row(verticalAlignment = Alignment.Top) {
         Text(
             text = label,
-            fontSize = 15.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
-            color = Palette.TextDim,
-            modifier = Modifier.width(100.dp)
+            color = Palette.Glow,
+            modifier = Modifier.width(96.dp),
         )
         Text(
             text = value,
-            fontSize = 15.sp,
+            fontSize = 14.sp,
             color = Palette.Text,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
-    }
-}
-
-@Composable
-fun MetaLine(text: String, rating: String) {
-    Row(
-        modifier = Modifier.padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (rating.isNotBlank()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.Icon(
-                    Ic.Star,
-                    contentDescription = null,
-                    tint = Palette.Peach,
-                    modifier = Modifier.height(20.dp).width(20.dp),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(rating, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Palette.Peach)
-            }
-        }
-        if (text.isNotBlank()) {
-            Text(text, fontSize = 16.sp, color = Palette.TextDim)
-        }
     }
 }

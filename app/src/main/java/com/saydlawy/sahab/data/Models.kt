@@ -38,6 +38,7 @@ data class Poster(
     val rating: String,
     val ext: String,
     val year: String,
+    val categoryId: String = "",
 )
 
 data class MovieDetails(

@@ -5,9 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -16,11 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -35,8 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,10 +53,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.data.Category
+import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.TajawalFamily
 import com.saydlawy.sahab.util.Ar
 
+/**
+ * Semi-transparent dark input. The icon sits at the end of the field (left in RTL),
+ * the border glows cyan when the field has focus.
+ */
 @Composable
 fun GlassTextField(
     value: String,
@@ -73,12 +78,14 @@ fun GlassTextField(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val focusManager = LocalFocusManager.current
+    val light = LocalLightEffects.current
     var reveal by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(16.dp)
 
     val textStyle = TextStyle(
         color = Palette.Text,
-        fontSize = 18.sp,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium,
         fontFamily = TajawalFamily,
         textDirection = if (ltr) TextDirection.Ltr else TextDirection.Content,
         textAlign = if (ltr) TextAlign.Left else TextAlign.Start,
@@ -87,25 +94,24 @@ fun GlassTextField(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 58.dp)
+            .heightIn(min = 56.dp)
+            .then(
+                if (focused && !light) Modifier.shadow(14.dp, shape, ambientColor = Palette.Glow, spotColor = Palette.Glow)
+                else Modifier,
+            )
             .clip(shape)
-            .background(Color.White.copy(alpha = if (focused) 0.20f else 0.10f))
+            .background(Palette.InputBg)
             .border(
-                width = if (focused) 3.dp else 1.dp,
-                brush = if (focused) Brush.linearGradient(listOf(Palette.Violet, Palette.Pink, Palette.Cyan))
-                else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.40f), Color.White.copy(alpha = 0.06f))),
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) Palette.Glow else Color.White.copy(alpha = 0.12f),
                 shape = shape,
             )
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (leading != null) {
-            Icon(leading, contentDescription = null, tint = Palette.TextDim, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(12.dp))
-        }
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (value.isEmpty()) {
-                Text(placeholder, fontSize = 18.sp, color = Palette.TextDim.copy(alpha = 0.75f), maxLines = 1)
+                Text(placeholder, fontSize = 15.sp, color = Palette.TextDim.copy(alpha = 0.7f), maxLines = 1)
             }
             BasicTextField(
                 value = value,
@@ -113,7 +119,7 @@ fun GlassTextField(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 textStyle = textStyle,
-                cursorBrush = SolidColor(Palette.Pink),
+                cursorBrush = SolidColor(Palette.Glow),
                 interactionSource = interaction,
                 visualTransformation = if (password && !reveal) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
@@ -131,16 +137,25 @@ fun GlassTextField(
             )
         }
         if (password) {
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
             Text(
                 text = if (reveal) Ar.hide else Ar.show,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = Palette.Cyan,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Palette.Glow,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .clickable { reveal = !reveal }
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+        if (leading != null) {
+            Spacer(Modifier.width(10.dp))
+            Icon(
+                leading,
+                contentDescription = null,
+                tint = if (focused) Palette.Glow else Palette.TextDim,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -164,7 +179,86 @@ fun SearchBox(
 }
 
 /**
- * Category picker: a side list on wide screens (televisions, tablets), a row of chips on phones.
+ * Sidebar navigation item of the identity: glass row, label on the start side, a count pill or icon
+ * on the end side. When selected it gets the royal gradient, a cyan border and a glowing edge bar.
+ */
+@Composable
+fun SideNavItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    count: Int? = null,
+    icon: ImageVector? = null,
+    iconTint: Color = Palette.Glow,
+    trailingText: String? = null,
+    trailingColor: Color = Palette.Gold,
+) {
+    GlassCard(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        selected = selected,
+        focusScale = 1.02f,
+    ) { focused ->
+        if (selected) {
+            Box(Modifier.matchParentSize()) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .width(5.dp)
+                        .background(Palette.Glow),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 54.dp)
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                fontSize = 16.sp,
+                fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
+                color = if (selected || focused) Palette.Text else Palette.TextDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (trailingText != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(trailingText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = trailingColor)
+            }
+            if (count != null) {
+                Spacer(Modifier.width(8.dp))
+                if (selected) {
+                    Text(
+                        count.toString(),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Palette.Glow,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Palette.Royal.copy(alpha = 0.40f))
+                            .padding(horizontal = 10.dp, vertical = 3.dp),
+                    )
+                } else {
+                    Text(count.toString(), fontSize = 12.sp, color = Palette.TextDim.copy(alpha = 0.75f))
+                }
+            }
+            if (icon != null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+/**
+ * Category picker: a glass sidebar on wide screens (televisions, tablets), a row of chips on phones.
  */
 @Composable
 fun CategoryPane(
@@ -173,39 +267,30 @@ fun CategoryPane(
     onSelect: (String) -> Unit,
     wide: Boolean,
     modifier: Modifier = Modifier,
+    counts: Map<String, Int> = emptyMap(),
 ) {
     val listState = rememberLazyListState()
     if (wide) {
         LazyColumn(
             modifier = modifier.focusRestorer(),
             state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(categories, key = { it.id }) { category ->
-                GlassCard(
-                    onClick = { onSelect(category.id) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
+                SideNavItem(
+                    label = category.name,
                     selected = category.id == selectedId,
-                ) {
-                    Text(
-                        text = category.name,
-                        fontSize = 17.sp,
-                        fontWeight = if (category.id == selectedId) FontWeight.Bold else FontWeight.Medium,
-                        color = Palette.Text,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                    )
-                }
+                    onClick = { onSelect(category.id) },
+                    count = counts[category.id]?.takeIf { it > 0 },
+                )
             }
         }
     } else {
         LazyRow(
             modifier = modifier.focusRestorer(),
             state = listState,
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(categories, key = { it.id }) { category ->

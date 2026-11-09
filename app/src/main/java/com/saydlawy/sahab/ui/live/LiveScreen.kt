@@ -1,6 +1,14 @@
 package com.saydlawy.sahab.ui.live
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -8,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,29 +25,35 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,21 +68,30 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Program
+import com.saydlawy.sahab.ui.LocalAppScale
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
-import com.saydlawy.sahab.ui.components.CategoryPane
+import com.saydlawy.sahab.ui.components.Chip
+import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.EpgDialog
-import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.GlassIconButton
+import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.ProgressLine
 import com.saydlawy.sahab.ui.components.RemoteImage
-import com.saydlawy.sahab.ui.components.ScreenHeader
+import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.SearchBox
+import com.saydlawy.sahab.ui.components.SideNavItem
+import com.saydlawy.sahab.ui.components.Tag
+import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.components.rememberNow
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.formatClock
 import com.saydlawy.sahab.util.normalizeForSearch
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
@@ -79,40 +103,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.saydlawy.sahab.ui.LocalIsTv
-import com.saydlawy.sahab.ui.LocalAppScale
-import com.saydlawy.sahab.util.formatClock
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.ui.draw.alpha
-import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.LayoutDirection
-
-private const val SPACE_EARTH_BG_URL =
-    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=85"
 
 private const val STADIUM_MATCH_PREVIEW_URL =
     "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=1000&q=80"
-
 
 private const val FAV_CAT_ID = "__FAVORITES__"
 private const val ALL_CAT_ID = "__ALL__"
@@ -153,13 +148,11 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
             _state.update { it.copy(loadingCategories = true, error = null) }
             try {
                 val categories = repo.liveCategories()
-                // Load all channels to compute per-category counts and total
                 val allChannels = try {
                     repo.liveChannels(null).also { searchPool = it }
                 } catch (_: Exception) {
                     emptyList()
                 }
-                // Compute counts only if server sent categoryId
                 val counts = HashMap<String, Int>()
                 allChannels.forEach { ch ->
                     val cid = ch.categoryId
@@ -175,7 +168,6 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                         categoryCounts = counts,
                     )
                 }
-                // Set initial selection
                 if (allChannels.isNotEmpty()) {
                     _state.update {
                         it.copy(
@@ -198,8 +190,14 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
     fun select(categoryId: String) {
         channelsJob?.cancel()
         if (categoryId == FAV_CAT_ID) {
+            val pool = searchPool
             _state.update {
-                it.copy(selectedId = FAV_CAT_ID, loadingChannels = false, error = null)
+                it.copy(
+                    selectedId = FAV_CAT_ID,
+                    channels = pool ?: it.channels,
+                    loadingChannels = false,
+                    error = null,
+                )
             }
             return
         }
@@ -284,7 +282,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     var previewChannel by remember { mutableStateOf<Channel?>(null) }
 
     val rawChannels = state.visibleChannels
-    val channels = remember(rawChannels, state.selectedId, favoriteIds) {
+    val channels = remember(rawChannels, state.selectedId, favoriteIds, state.searchResults) {
         if (state.selectedId == FAV_CAT_ID && state.searchResults == null) {
             rawChannels.filter { it.id in favoriteIds }
         } else {
@@ -298,16 +296,23 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
             onPlay(PlayRequest(items, index))
         }
     }
+    val playChannel: (Channel) -> Unit = { ch ->
+        val idx = channels.indexOfFirst { it.id == ch.id }
+        if (idx >= 0) playAt(idx)
+        else onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)), 0))
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = (LocalIsTv.current || maxWidth >= 800.dp) && maxWidth > maxHeight
+        val wide = (LocalIsTv.current || maxWidth >= 820.dp) && maxWidth > maxHeight
         if (wide) {
             WideLiveLayout(
                 state = state,
+                channels = channels,
                 favoriteIds = favoriteIds,
                 previewChannel = previewChannel ?: channels.firstOrNull(),
                 onPreview = { previewChannel = it },
                 onPlayAt = playAt,
+                onPlayChannel = playChannel,
                 onToggleFavorite = vm::toggleFavorite,
                 onGuide = { guideFor = it },
                 onSelect = vm::select,
@@ -318,6 +323,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
         } else {
             NarrowLiveLayout(
                 state = state,
+                channels = channels,
                 favoriteIds = favoriteIds,
                 onPlayAt = playAt,
                 onToggleFavorite = vm::toggleFavorite,
@@ -336,82 +342,14 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
 }
 
 @Composable
-private fun LiveHeader(onBack: () -> Unit) {
-    var now by remember { mutableStateOf(LocalDateTime.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1000)
-            now = LocalDateTime.now()
-        }
-    }
-    val ar = Locale.forLanguageTag("ar")
-    val timeStr = now.format(DateTimeFormatter.ofPattern("hh:mm a", ar))
-    val dateStr = now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", ar))
-
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = appDp(24), vertical = appDp(12)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        GlassIconButton(Ic.Back, Ar.back, onBack, size = appDp(44))
-        Spacer(Modifier.width(appDp(14)))
-        Box(
-            Modifier.size(appDp(42)).clip(CircleShape).background(Palette.Accent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Ic.Play, null, tint = Color.White, modifier = Modifier.size(appDp(22)))
-        }
-        Spacer(Modifier.width(appDp(12)))
-        Column {
-            Text("Live TV", fontSize = appSp(22), fontWeight = FontWeight.Bold, color = Color.White)
-            Text(Ar.live, fontSize = appSp(12), color = Color(0xFF9AA7D6))
-        }
-        Spacer(Modifier.weight(1f))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(timeStr, fontSize = appSp(22), fontWeight = FontWeight.Light, color = Color.White)
-            Text(dateStr, fontSize = appSp(12), color = Color(0xFF9AA7D6))
-        }
-        Spacer(Modifier.width(appDp(14)))
-        HeaderCircleButton(icon = Ic.Settings, description = "الإعدادات", onClick = {})
-        Spacer(Modifier.width(appDp(8)))
-        HeaderCircleButton(icon = Ic.Person, description = "الحساب", onClick = {})
-    }
-}
-
-@Composable
-private fun HeaderCircleButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    onClick: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    Box(
-        Modifier
-            .size(appDp(42))
-            .clip(CircleShape)
-            .background(
-                if (focused) Color(0xFF8055E8).copy(alpha = 0.45f)
-                else Color(0xFF232946).copy(alpha = 0.78f)
-            )
-            .border(
-                width = appDp(1),
-                color = if (focused) Color(0xFFB37FEB) else Color.White.copy(alpha = 0.18f),
-                shape = CircleShape,
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(appDp(20)))
-    }
-}
-
-@Composable
 private fun WideLiveLayout(
     state: LiveUiState,
+    channels: List<Channel>,
     favoriteIds: Set<String>,
     previewChannel: Channel?,
     onPreview: (Channel) -> Unit,
     onPlayAt: (Int) -> Unit,
+    onPlayChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
     onGuide: (Channel) -> Unit,
     onSelect: (String) -> Unit,
@@ -419,72 +357,70 @@ private fun WideLiveLayout(
     onBack: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().background(Color(0xFF060814))) {
-        RemoteImage(
-            url = SPACE_EARTH_BG_URL,
-            fallbackText = "",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-        )
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xFF050716).copy(alpha = 0.72f),
-                        Color(0xFF080D24).copy(alpha = 0.84f),
-                        Color(0xFF0D0B28).copy(alpha = 0.92f),
-                        Color(0xFF1A0E3E).copy(alpha = 0.96f),
-                    )
-                )
-            )
-        )
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            Column(Modifier.fillMaxSize()) {
-                LiveHeader(onBack = onBack)
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        Column(Modifier.fillMaxSize()) {
+            SahabTopBar(current = Routes.LIVE, onBack = onBack)
 
-                Row(
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+                    .padding(horizontal = appDp(24), vertical = appDp(10)),
+                horizontalArrangement = Arrangement.spacedBy(appDp(22)),
+            ) {
+                // Column 1 (Right in RTL): Search + Categories sidebar (3/12)
+                Column(
                     Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                        .padding(horizontal = appDp(24), vertical = appDp(12)),
-                    horizontalArrangement = Arrangement.spacedBy(appDp(28)),
+                        .weight(0.26f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(appDp(10)),
                 ) {
-                    Column(
-                        Modifier.weight(1f).fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(appDp(12)),
-                    ) {
-                        SearchBox(
-                            state.query,
-                            onQuery,
-                            Ar.searchChannels,
-                            Modifier.fillMaxWidth(),
-                        )
-                        CategorySidebar(
-                            categories = state.categories,
-                            selectedId = state.selectedId,
-                            onSelect = onSelect,
-                            totalCount = state.totalCount,
-                            categoryCounts = state.categoryCounts,
-                            modifier = Modifier.fillMaxWidth().weight(1f),
-                        )
-                    }
-                    ChannelColumn(
-                        state = state,
-                        favoriteIds = favoriteIds,
-                        previewId = previewChannel?.id,
-                        onPreview = onPreview,
-                        onPlayAt = onPlayAt,
-                        onToggleFavorite = onToggleFavorite,
-                        onGuide = onGuide,
-                        onRetry = onRetry,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    SearchBox(
+                        state.query,
+                        onQuery,
+                        Ar.searchChannels,
+                        Modifier.fillMaxWidth(),
                     )
-                    PreviewPanel(
-                        channel = previewChannel,
-                        onGuide = onGuide,
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    CategorySidebar(
+                        categories = state.categories,
+                        selectedId = state.selectedId,
+                        onSelect = onSelect,
+                        totalCount = state.totalCount,
+                        favCount = favoriteIds.size,
+                        categoryCounts = state.categoryCounts,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                     )
                 }
+
+                // Column 2 (Center): Live Channel List (4/12)
+                ChannelColumn(
+                    state = state,
+                    channels = channels,
+                    favoriteIds = favoriteIds,
+                    previewId = previewChannel?.id,
+                    onPreview = onPreview,
+                    onPlayAt = onPlayAt,
+                    onToggleFavorite = onToggleFavorite,
+                    onGuide = onGuide,
+                    onRetry = onRetry,
+                    modifier = Modifier
+                        .weight(0.35f)
+                        .fillMaxHeight(),
+                )
+
+                // Column 3 (Left in RTL): Video Preview & EPG Schedule (5/12)
+                PreviewPanel(
+                    channel = previewChannel,
+                    isFavorite = previewChannel?.id in favoriteIds,
+                    onPlay = { previewChannel?.let(onPlayChannel) },
+                    onToggleFavorite = { previewChannel?.let(onToggleFavorite) },
+                    onGuide = onGuide,
+                    modifier = Modifier
+                        .weight(0.39f)
+                        .fillMaxHeight(),
+                )
             }
         }
     }
@@ -493,6 +429,7 @@ private fun WideLiveLayout(
 @Composable
 private fun NarrowLiveLayout(
     state: LiveUiState,
+    channels: List<Channel>,
     favoriteIds: Set<String>,
     onPlayAt: (Int) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
@@ -503,30 +440,31 @@ private fun NarrowLiveLayout(
     onRetry: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(Ar.live, onBack) {}
+        SahabTopBar(current = Routes.LIVE, onBack = onBack)
         SearchBox(
             state.query,
             onQuery,
             Ar.searchChannels,
-            Modifier.padding(horizontal = appDp(20), vertical = appDp(4)),
+            Modifier.padding(horizontal = appDp(16), vertical = appDp(4)),
         )
-        if (state.categories.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier.padding(vertical = appDp(6)),
-                contentPadding = PaddingValues(horizontal = appDp(16)),
-                horizontalArrangement = Arrangement.spacedBy(appDp(8)),
-            ) {
-                items(state.categories, key = { it.id }) { cat ->
-                    HorizontalCategoryChip(
-                        label = cat.name,
-                        selected = cat.id == state.selectedId,
-                        onClick = { onSelect(cat.id) },
-                    )
-                }
+        LazyRow(
+            modifier = Modifier.padding(vertical = appDp(6)),
+            contentPadding = PaddingValues(horizontal = appDp(16)),
+            horizontalArrangement = Arrangement.spacedBy(appDp(8)),
+        ) {
+            item(key = FAV_CAT_ID) {
+                Chip(Ar.favorites, state.selectedId == FAV_CAT_ID, { onSelect(FAV_CAT_ID) })
+            }
+            item(key = ALL_CAT_ID) {
+                Chip(Ar.all, state.selectedId == ALL_CAT_ID, { onSelect(ALL_CAT_ID) })
+            }
+            items(state.categories, key = { it.id }) { cat ->
+                Chip(cat.name, cat.id == state.selectedId, { onSelect(cat.id) })
             }
         }
         ChannelColumn(
             state = state,
+            channels = channels,
             favoriteIds = favoriteIds,
             previewId = null,
             onPreview = {},
@@ -534,7 +472,10 @@ private fun NarrowLiveLayout(
             onToggleFavorite = onToggleFavorite,
             onGuide = onGuide,
             onRetry = onRetry,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = appDp(12)),
         )
     }
 }
@@ -545,174 +486,51 @@ private fun CategorySidebar(
     selectedId: String?,
     onSelect: (String) -> Unit,
     totalCount: Int,
+    favCount: Int,
     categoryCounts: Map<String, Int>,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
-        modifier = modifier,
+        modifier = modifier.focusRestorer(),
         verticalArrangement = Arrangement.spacedBy(appDp(8)),
         contentPadding = PaddingValues(vertical = appDp(4)),
     ) {
         item(key = FAV_CAT_ID) {
-            SidebarFavoritesChip(
+            SideNavItem(
+                label = Ar.favorites,
                 selected = selectedId == FAV_CAT_ID,
                 onClick = { onSelect(FAV_CAT_ID) },
+                count = favCount.takeIf { it > 0 },
+                icon = Ic.HeartOutline,
+                iconTint = Palette.Glow,
             )
         }
         item(key = ALL_CAT_ID) {
-            VerticalCategoryChip(
-                label = "الكل",
+            SideNavItem(
+                label = Ar.all,
                 selected = selectedId == ALL_CAT_ID || selectedId == null,
-                count = if (totalCount > 0) totalCount else null,
                 onClick = { onSelect(ALL_CAT_ID) },
+                count = totalCount.takeIf { it > 0 },
             )
         }
         items(categories, key = { it.id }) { cat ->
             val count = categoryCounts[cat.id]
-            VerticalCategoryChip(
+            val isSport = cat.name.contains("رياض") || cat.name.uppercase().contains("SPORT") || cat.name.uppercase().contains("BEIN")
+            SideNavItem(
                 label = cat.name,
                 selected = cat.id == selectedId,
-                count = if (count != null && count > 0) count else null,
                 onClick = { onSelect(cat.id) },
+                count = if (count != null && count > 0) count else null,
+                trailingText = if (isSport && (count == null || count == 0)) "مباشر ⚽" else null,
             )
         }
-    }
-}
-
-@Composable
-private fun SidebarFavoritesChip(selected: Boolean, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val active = selected || focused
-    val shape = RoundedCornerShape(appDp(14))
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = appDp(52))
-            .clip(shape)
-            .background(
-                if (active) Color(0xFF8055E8).copy(alpha = 0.55f)
-                else Color.White.copy(alpha = 0.06f)
-            )
-            .border(
-                width = if (focused) appDp(2) else appDp(1),
-                color = if (focused) Color(0xFF7DC4FF)
-                else if (selected) Color(0xFF8055E8).copy(alpha = 0.8f)
-                else Color.White.copy(alpha = 0.10f),
-                shape = shape,
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(horizontal = appDp(14), vertical = appDp(14)),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "المفضلة",
-                fontSize = appSp(16),
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                color = if (active) Color.White else Palette.TextDim,
-                modifier = Modifier.weight(1f),
-            )
-            Icon(
-                Ic.Heart,
-                contentDescription = null,
-                tint = if (active) Color(0xFFFF5C8D) else Palette.TextDim,
-                modifier = Modifier.size(appDp(18)),
-            )
-        }
-    }
-}
-
-@Composable
-private fun VerticalCategoryChip(
-    label: String,
-    selected: Boolean,
-    count: Int? = null,
-    onClick: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(appDp(14))
-    val bg = when {
-        focused -> Color(0xFF8055E8).copy(alpha = 0.60f)
-        selected -> Color(0xFF8055E8).copy(alpha = 0.45f)
-        else -> Color.White.copy(alpha = 0.08f)
-    }
-    val borderColor = when {
-        focused -> Color(0xFF7DC4FF)
-        selected -> Color(0xFF8055E8).copy(alpha = 0.7f)
-        else -> Color.White.copy(alpha = 0.08f)
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = appDp(52))
-            .clip(shape)
-            .background(bg)
-            .border(if (focused) appDp(2) else appDp(1), borderColor, shape)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(horizontal = appDp(14), vertical = appDp(14)),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                label,
-                fontSize = appSp(16),
-                fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
-                color = if (focused || selected) Color.White else Palette.TextDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (count != null) {
-                Spacer(Modifier.width(appDp(8)))
-                Text(
-                    count.toString(),
-                    fontSize = appSp(13),
-                    fontWeight = FontWeight.Medium,
-                    color = if (focused || selected) Color.White.copy(alpha = 0.85f)
-                    else Palette.TextDim.copy(alpha = 0.7f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HorizontalCategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(50)
-    val bg = when {
-        focused -> Color(0xFF8055E8).copy(alpha = 0.35f)
-        selected -> Color(0xFF8055E8).copy(alpha = 0.25f)
-        else -> Color.White.copy(alpha = 0.06f)
-    }
-    Box(
-        modifier = Modifier
-            .clip(shape)
-            .background(bg)
-            .border(appDp(1), if (selected) Color(0xFF8055E8) else Color.White.copy(alpha = 0.10f), shape)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(horizontal = appDp(18), vertical = appDp(10)),
-    ) {
-        Text(
-            label,
-            fontSize = appSp(14),
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = Palette.Text,
-            maxLines = 1,
-        )
     }
 }
 
 @Composable
 private fun ChannelColumn(
     state: LiveUiState,
+    channels: List<Channel>,
     favoriteIds: Set<String>,
     previewId: String?,
     onPreview: (Channel) -> Unit,
@@ -722,30 +540,26 @@ private fun ChannelColumn(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val channels = state.visibleChannels
     val listState = rememberLazyListState()
 
     Column(modifier) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = appDp(8), vertical = appDp(6)),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = appDp(6), vertical = appDp(4)),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                "قائمة القنوات",
-                fontSize = appSp(20),
+                Ar.channelList,
+                fontSize = appSp(15),
                 fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                modifier = Modifier.weight(1f),
+                color = Palette.TextDim,
             )
-            if (channels.isNotEmpty()) {
-                Text(
-                    "${channels.size}",
-                    fontSize = appSp(14),
-                    color = Palette.Cyan,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            Tag(Ar.dpadReady, Palette.Gold, fontSize = appSp(10))
         }
+
+        Spacer(Modifier.height(appDp(4)))
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -755,12 +569,14 @@ private fun ChannelColumn(
                     actionLabel = Ar.retry,
                     onAction = onRetry,
                 )
-                channels.isEmpty() -> MessageBox(Ar.noChannels)
+                channels.isEmpty() -> MessageBox(
+                    if (state.selectedId == FAV_CAT_ID) Ar.noFavorites else Ar.noChannels,
+                )
                 else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
-                    contentPadding = PaddingValues(horizontal = appDp(4), vertical = appDp(4)),
-                    verticalArrangement = Arrangement.spacedBy(appDp(8)),
+                    contentPadding = PaddingValues(vertical = appDp(4)),
+                    verticalArrangement = Arrangement.spacedBy(appDp(10)),
                 ) {
                     itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                         ChannelRow(
@@ -803,32 +619,28 @@ private fun ChannelRow(
         }
     }
     var focused by remember { mutableStateOf(false) }
+    val active = focused || isPreviewed
     val shape = RoundedCornerShape(appDp(16))
     val borderColor = when {
-        focused -> Color(0xFF7DC4FF)
-        isPreviewed -> Color(0xFF7DC4FF).copy(alpha = 0.75f)
-        else -> Color.White.copy(alpha = 0.08f)
+        focused -> Palette.Glow
+        isPreviewed -> Palette.Glow.copy(alpha = 0.7f)
+        else -> Palette.GlassBorder
     }
-    val bg = when {
-        focused -> Color(0xFF8055E8).copy(alpha = 0.20f)
-        isPreviewed -> Color(0xFF7DC4FF).copy(alpha = 0.10f)
-        else -> Color.White.copy(alpha = 0.04f)
-    }
-    val borderWidth = if (focused || isPreviewed) appDp(2) else appDp(1)
+    val bg: Brush = if (active) Palette.ActiveFill else Brush.verticalGradient(listOf(Palette.Glass, Palette.Glass))
+    val borderWidth = if (active) appDp(2) else appDp(1)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(appDp(72))
             .then(
-                if (isPreviewed && !focused) {
+                if (active) {
                     Modifier.shadow(
-                        elevation = appDp(10),
+                        elevation = appDp(14),
                         shape = shape,
-                        ambientColor = Color(0xFF7DC4FF),
-                        spotColor = Color(0xFF7DC4FF),
+                        ambientColor = Palette.Glow,
+                        spotColor = Palette.Glow,
                     )
-                } else Modifier
+                } else Modifier,
             )
             .clip(shape)
             .background(bg)
@@ -838,98 +650,74 @@ private fun ChannelRow(
                 if (it.isFocused) onFocus()
             }
             .clickable(onClick = onPlay)
-            .padding(horizontal = appDp(12)),
+            .padding(horizontal = appDp(14), vertical = appDp(12)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(appDp(10)),
     ) {
         Text(
             index.toString(),
-            fontSize = appSp(15),
+            fontSize = appSp(14),
             fontWeight = FontWeight.Bold,
-            color = Palette.TextDim,
-            modifier = Modifier.width(appDp(28)),
+            color = if (active) Palette.Text else Palette.TextDim,
+            modifier = Modifier.width(appDp(26)),
         )
         RemoteImage(
             url = channel.icon,
             fallbackText = channel.name,
             modifier = Modifier
-                .size(appDp(52))
-                .clip(RoundedCornerShape(appDp(12)))
+                .size(appDp(40))
+                .clip(RoundedCornerShape(appDp(10)))
                 .background(Color.White.copy(alpha = 0.08f))
-                .padding(appDp(4)),
+                .padding(appDp(3)),
             contentScale = ContentScale.Fit,
         )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(4))) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    channel.name,
-                    fontSize = appSp(16),
-                    fontWeight = FontWeight.Bold,
-                    color = Palette.Text,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                qualityOf(channel.name)?.let { q ->
-                    Spacer(Modifier.width(appDp(8)))
-                    QualityBadge(q)
-                }
-                val program = now
-                if (program != null) {
-                    Spacer(Modifier.width(appDp(8)))
-                    LiveBadge()
-                }
-            }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(3))) {
+            Text(
+                channel.name,
+                fontSize = appSp(15),
+                fontWeight = FontWeight.Bold,
+                color = if (active) Palette.Text else Palette.Glow,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             val program = now
             if (program != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${formatClock(program.start)} - ${formatClock(program.end)}",
-                        fontSize = appSp(12),
-                        fontWeight = FontWeight.Medium,
-                        color = Palette.Cyan,
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(appDp(8)))
-                    Text(
-                        program.title.ifBlank { Ar.noName },
-                        fontSize = appSp(13),
-                        color = Palette.TextDim,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                val total = (program.end - program.start).coerceAtLeast(1)
-                val progress = ((System.currentTimeMillis() / 1000 - program.start).toFloat() / total).coerceIn(0f, 1f)
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(appDp(3))
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = 0.15f)),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(progress)
-                            .background(Palette.Cyan),
-                    )
-                }
+                Text(
+                    program.title.ifBlank { Ar.noName },
+                    fontSize = appSp(12),
+                    color = Palette.TextDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
+
+        val program = now
+        if (program != null) {
+            val total = (program.end - program.start).coerceAtLeast(1)
+            val progress = ((System.currentTimeMillis() / 1000 - program.start).toFloat() / total).coerceIn(0f, 1f)
+            ProgressLine(progress, Modifier.width(appDp(56)), height = appDp(5))
+        } else if (active) {
+            LiveBadge()
+        }
+
+        qualityOf(channel.name)?.let { q ->
+            Tag(q, if (q == "4K") Palette.Gold else Palette.Glow, fontSize = appSp(10))
+        }
+
         GlassIconButton(
             icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
             description = Ar.favorites,
             onClick = onToggleFavorite,
-            size = appDp(38),
-            tint = if (isFavorite) Palette.Pink else Palette.TextDim,
+            size = appDp(34),
+            tint = if (isFavorite) Palette.Live else Palette.TextDim,
         )
         GlassIconButton(
             icon = Ic.List,
             description = Ar.guide,
             onClick = onGuide,
-            size = appDp(38),
+            size = appDp(34),
+            tint = Palette.TextDim,
         )
     }
 }
@@ -946,20 +734,11 @@ private fun LiveBadge() {
         ),
         label = "dotAlpha",
     )
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "glowAlpha",
-    )
     Row(
         Modifier
             .clip(RoundedCornerShape(50))
-            .background(Color(0xFFE53935).copy(alpha = 0.9f))
-            .border(appDp(1), Color(0xFFE53935).copy(alpha = glowAlpha), RoundedCornerShape(50))
+            .background(Palette.Live.copy(alpha = 0.22f))
+            .border(appDp(1), Palette.Live.copy(alpha = 0.45f), RoundedCornerShape(50))
             .padding(horizontal = appDp(8), vertical = appDp(3)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(appDp(4)),
@@ -968,138 +747,239 @@ private fun LiveBadge() {
             Modifier
                 .size(appDp(6))
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = dotAlpha)),
+                .background(Palette.Live.copy(alpha = dotAlpha)),
         )
-        Text("مباشر", fontSize = appSp(10), fontWeight = FontWeight.Bold, color = Color.White)
+        Text(Ar.liveBadge, fontSize = appSp(10), fontWeight = FontWeight.Bold, color = Palette.Live)
     }
 }
 
 @Composable
-private fun QualityBadge(q: String) {
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(appDp(6)))
-            .border(appDp(1), Palette.Peach.copy(alpha = 0.7f), RoundedCornerShape(appDp(6)))
-            .padding(horizontal = appDp(6), vertical = appDp(2)),
-    ) {
-        Text(q, fontSize = appSp(10), fontWeight = FontWeight.Bold, color = Palette.Peach)
-    }
-}
-
-private fun qualityOf(name: String): String? {
-    val u = name.uppercase()
-    return when {
-        "4K" in u || "UHD" in u -> "4K"
-        "FHD" in u || "1080" in u -> "FHD"
-        "HD" in u -> "HD"
-        else -> null
-    }
-}
-
-@Composable
-private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier: Modifier = Modifier) {
+private fun PreviewPanel(
+    channel: Channel?,
+    isFavorite: Boolean,
+    onPlay: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onGuide: (Channel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val repo = LocalContainer.current.repo
     val programs by produceState<List<Program>>(emptyList(), channel?.id) {
         value = if (channel != null && channel.epgId.isNotBlank()) {
-            try { repo.shortEpg(channel.id, 6) } catch (e: Exception) { emptyList() }
+            try { repo.shortEpg(channel.id, 6) } catch (_: Exception) { emptyList() }
         } else emptyList()
     }
+    val today = rememberNow().format(DateTimeFormatter.ofPattern("EEEE، d MMMM", Locale.forLanguageTag("ar")))
 
     Column(
-        modifier
-            .clip(RoundedCornerShape(appDp(20)))
-            .background(Color(0xFF181D32).copy(alpha = 0.92f))
-            .border(appDp(1), Color.White.copy(alpha = 0.15f), RoundedCornerShape(appDp(20)))
-            .padding(appDp(18)),
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(appDp(14)),
     ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(appDp(14)))
-                .background(Color.Black),
+        // Card 1: Video Preview & Control Toolbar
+        GlassPanel(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(appDp(24)),
+            padding = appDp(12),
         ) {
-            RemoteImage(
-                url = STADIUM_MATCH_PREVIEW_URL,
-                fallbackText = channel?.name ?: "Live TV",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-            if (channel != null) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(appDp(16)))
+                    .background(Color.Black)
+                    .border(appDp(1), Color.White.copy(alpha = 0.10f), RoundedCornerShape(appDp(16)))
+                    .clickable(enabled = channel != null, onClick = onPlay),
+            ) {
+                RemoteImage(
+                    url = STADIUM_MATCH_PREVIEW_URL,
+                    fallbackText = channel?.name ?: "Live TV",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
                 Box(
                     Modifier
-                        .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
-                        .padding(horizontal = appDp(10), vertical = appDp(6))
-                        .align(Alignment.TopStart),
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Black.copy(alpha = 0.65f)),
+                            ),
+                        ),
+                )
+                // Top-right badge: "مباشر - 1080p 60fps"
+                Row(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(appDp(10))
+                        .clip(RoundedCornerShape(appDp(8)))
+                        .background(Color.Black.copy(alpha = 0.70f))
+                        .border(appDp(1), Color.White.copy(alpha = 0.12f), RoundedCornerShape(appDp(8)))
+                        .padding(horizontal = appDp(10), vertical = appDp(5)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(appDp(6)),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RemoteImage(
-                            url = channel.icon,
-                            fallbackText = channel.name,
-                            modifier = Modifier.size(appDp(22)).clip(RoundedCornerShape(appDp(4))),
-                            contentScale = ContentScale.Fit,
-                        )
-                        Spacer(Modifier.width(appDp(8)))
+                    Box(Modifier.size(appDp(7)).clip(CircleShape).background(Palette.Live))
+                    val q = channel?.let { qualityOf(it.name) } ?: "1080p"
+                    Text("${Ar.liveBadge} - $q 60fps", fontSize = appSp(11), fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                // Bottom-left badge: channel name / audio
+                if (channel != null) {
+                    Row(
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(appDp(10))
+                            .clip(RoundedCornerShape(appDp(8)))
+                            .background(Color.Black.copy(alpha = 0.70f))
+                            .border(appDp(1), Color.White.copy(alpha = 0.12f), RoundedCornerShape(appDp(8)))
+                            .padding(horizontal = appDp(10), vertical = appDp(5)),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(appDp(6)),
+                    ) {
                         Text(
                             channel.name,
-                            fontSize = appSp(13),
+                            fontSize = appSp(11),
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = Palette.Glow,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
             }
+
+            if (channel != null) {
+                Spacer(Modifier.height(appDp(10)))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(appDp(14), Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlayerControlButton(icon = Ic.Play, description = Ar.play, onClick = onPlay)
+                    PlayerControlButton(
+                        icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
+                        description = Ar.favorites,
+                        onClick = onToggleFavorite,
+                        isRed = true,
+                    )
+                    PlayerControlButton(icon = Ic.Search, description = Ar.guide, onClick = { onGuide(channel) })
+                    PlayerControlButton(icon = Ic.Aspect, description = "ملء الشاشة", onClick = onPlay)
+                }
+            }
         }
 
-        if (channel != null) {
-
-            Spacer(Modifier.height(appDp(10)))
-            // 5 round control buttons (stop / record / search / fullscreen / mute)
+        // Card 2: EPG Schedule
+        GlassPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            shape = RoundedCornerShape(appDp(24)),
+            padding = appDp(16),
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = appDp(4)),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PlayerControlButton(icon = Ic.Pause, description = "إيقاف", onClick = {})
-                PlayerControlButton(icon = Ic.Close, description = "تسجيل", onClick = {}, isRed = true)
-                PlayerControlButton(icon = Ic.Search, description = "دليل البرامج", onClick = { onGuide(channel) })
-                PlayerControlButton(icon = Ic.Aspect, description = "ملء الشاشة", onClick = {})
-                PlayerControlButton(icon = Ic.Tracks, description = "كتم الصوت", onClick = {})
+                DotTitle(Ar.epgTitle, Palette.Gold, fontSize = appSp(14))
+                Text(today, fontSize = appSp(11), color = Palette.TextDim)
             }
 
-            Spacer(Modifier.height(appDp(4)))
-            Text("دليل البرامج الإلكتروني", fontSize = appSp(13), color = Palette.Cyan, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(appDp(10)))
 
-            val now = System.currentTimeMillis() / 1000
-            val current = programs.firstOrNull { now in it.start until it.end }
-            val upcoming = programs.filter { it.start >= now }.take(3)
-
-            if (current == null && upcoming.isEmpty()) {
-                Text("لا تتوفر بيانات الدليل لهذه القناة", fontSize = appSp(13), color = Palette.TextDim)
+            if (channel == null) {
+                Text(Ar.pickChannel, fontSize = appSp(13), color = Palette.TextDim)
             } else {
-                current?.let { prog ->
-                    EpgMiniCard(
-                        title = prog.title.ifBlank { Ar.noName },
-                        time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
-                        progress = ((now - prog.start).toFloat() / (prog.end - prog.start).coerceAtLeast(1)).coerceIn(0f, 1f),
-                        highlight = true,
-                    )
-                }
-                upcoming.forEach { prog ->
-                    EpgMiniCard(
-                        title = prog.title.ifBlank { Ar.noName },
-                        time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
-                        progress = 0f,
-                        highlight = false,
-                    )
+                val now = System.currentTimeMillis() / 1000
+                val past = programs.lastOrNull { it.end <= now }
+                val current = programs.firstOrNull { now in it.start until it.end }
+                val upcoming = programs.filter { it.start > (current?.start ?: now) }.take(2)
+
+                if (past == null && current == null && upcoming.isEmpty()) {
+                    Text(Ar.noEpgShort, fontSize = appSp(13), color = Palette.TextDim)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(appDp(8))) {
+                        past?.let { prog ->
+                            EpgScheduleRow(
+                                time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                                title = prog.title.ifBlank { Ar.noName },
+                                state = EpgRowState.ENDED,
+                                onClick = { onGuide(channel) },
+                            )
+                        }
+                        current?.let { prog ->
+                            EpgScheduleRow(
+                                time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                                title = prog.title.ifBlank { Ar.noName },
+                                state = EpgRowState.NOW,
+                                onClick = { onGuide(channel) },
+                            )
+                        }
+                        upcoming.forEach { prog ->
+                            EpgScheduleRow(
+                                time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                                title = prog.title.ifBlank { Ar.noName },
+                                state = EpgRowState.SOON,
+                                onClick = { onGuide(channel) },
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+}
 
-            Spacer(Modifier.weight(1f))
+private enum class EpgRowState { ENDED, NOW, SOON }
+
+@Composable
+private fun EpgScheduleRow(
+    time: String,
+    title: String,
+    state: EpgRowState,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(appDp(12))
+    val isNow = state == EpgRowState.NOW
+    val bg: Brush = if (isNow) Palette.ActiveFill else Brush.verticalGradient(listOf(Palette.Glass, Palette.Glass))
+    val borderColor = if (isNow) Palette.Glow else Palette.GlassBorder
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(bg)
+            .border(appDp(1), borderColor, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = appDp(12), vertical = appDp(9)),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(appDp(10)),
+        ) {
+            Text(
+                time,
+                fontSize = appSp(11),
+                fontWeight = if (isNow) FontWeight.Bold else FontWeight.Medium,
+                color = if (isNow) Palette.Gold else Palette.TextDim,
+                maxLines = 1,
+            )
+            Text(
+                title,
+                fontSize = appSp(13),
+                fontWeight = if (isNow) FontWeight.Bold else FontWeight.Medium,
+                color = if (state == EpgRowState.ENDED) Palette.TextDim else Palette.Text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.width(appDp(8)))
+        when (state) {
+            EpgRowState.ENDED -> Tag(Ar.ended, Palette.TextDim, fontSize = appSp(10))
+            EpgRowState.NOW -> Tag(Ar.onAirNow, Palette.Live, filled = true, fontSize = appSp(10))
+            EpgRowState.SOON -> Tag(Ar.soon, Palette.Glow, fontSize = appSp(10))
         }
     }
 }
@@ -1113,18 +993,18 @@ private fun PlayerControlButton(
 ) {
     var focused by remember { mutableStateOf(false) }
     val bg = when {
-        isRed -> Color(0xFFE53935).copy(alpha = 0.85f)
-        focused -> Color(0xFF8055E8).copy(alpha = 0.55f)
-        else -> Color(0xFF232946).copy(alpha = 0.85f)
+        isRed -> Palette.Live.copy(alpha = if (focused) 0.55f else 0.30f)
+        focused -> Palette.Royal.copy(alpha = 0.55f)
+        else -> Color.White.copy(alpha = 0.10f)
     }
     val borderColor = when {
-        isRed -> Color(0xFFE53935)
-        focused -> Color(0xFF7DC4FF)
-        else -> Color.White.copy(alpha = 0.15f)
+        focused -> Palette.Glow
+        isRed -> Palette.Live.copy(alpha = 0.55f)
+        else -> Color.White.copy(alpha = 0.14f)
     }
     Box(
         modifier = Modifier
-            .size(appDp(38))
+            .size(appDp(40))
             .clip(CircleShape)
             .background(bg)
             .border(if (focused) appDp(2) else appDp(1), borderColor, CircleShape)
@@ -1132,49 +1012,12 @@ private fun PlayerControlButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(appDp(16)))
-    }
-}
-
-@Composable
-private fun EpgMiniCard(title: String, time: String, progress: Float, highlight: Boolean) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(appDp(12)))
-            .background(if (highlight) Color(0xFF3978FF).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.05f))
-            .padding(appDp(10)),
-        verticalArrangement = Arrangement.spacedBy(appDp(4)),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                title,
-                fontSize = appSp(13),
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(appDp(8)))
-            Text(time, fontSize = appSp(11), color = Palette.TextDim)
-        }
-        if (highlight) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(appDp(3))
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White.copy(alpha = 0.15f)),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(progress)
-                        .background(Palette.Cyan),
-                )
-            }
-        }
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = if (isRed) Palette.Live else Color.White,
+            modifier = Modifier.size(appDp(18)),
+        )
     }
 }
 
@@ -1183,4 +1026,3 @@ private fun appSp(n: Int): TextUnit = (n * LocalAppScale.current).sp
 
 @Composable
 private fun appDp(n: Int): Dp = (n * LocalAppScale.current).dp
-

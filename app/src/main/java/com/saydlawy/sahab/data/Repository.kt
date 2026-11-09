@@ -216,7 +216,8 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
                 image = o.s("stream_icon"),
                 rating = formatRating(o.s("rating")),
                 ext = o.s("container_extension"),
-                year = "",
+                year = yearOf(o.s("name")),
+                categoryId = o.s("category_id"),
             )
         }.distinctBy { it.id }
 
@@ -231,7 +232,8 @@ class Repository(private val api: XtreamApi, private val tmdb: TmdbApi) {
                 image = o.s("cover"),
                 rating = formatRating(o.s("rating")),
                 ext = "",
-                year = yearOf(o.s("releaseDate").ifBlank { o.s("release_date") }),
+                year = yearOf(o.s("releaseDate").ifBlank { o.s("release_date") }.ifBlank { o.s("name") }),
+                categoryId = o.s("category_id"),
             )
         }.distinctBy { it.id }
 

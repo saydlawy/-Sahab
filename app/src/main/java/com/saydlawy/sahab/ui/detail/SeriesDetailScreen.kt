@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,8 +20,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,8 +32,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,16 +52,22 @@ import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.SeriesDetails
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.Chip
+import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.GlassIconButton
+import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.ProgressLine
 import com.saydlawy.sahab.ui.components.RemoteImage
+import com.saydlawy.sahab.ui.components.SahabTopBar
+import com.saydlawy.sahab.ui.components.Tag
+import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.userMessage
@@ -67,8 +76,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.material3.Icon
 
 class SeriesDetailViewModel(private val container: AppContainer, private val id: String) : ViewModel() {
 
@@ -100,7 +107,6 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
     }
 }
 
-
 @Composable
 fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { SeriesDetailViewModel(it, id) }
@@ -111,31 +117,39 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
 
     Box(Modifier.fillMaxSize()) {
         val details = state.data
-        when {
-            state.loading -> {
-                LoadingBox()
-                BackButton(onBack)
-            }
-            details == null -> {
-                MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
-                BackButton(onBack)
-            }
-            else -> {
-                RemoteImage(details.backdrop.ifBlank { details.cover }, Modifier.fillMaxSize().alpha(0.25f))
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Palette.Bg.copy(alpha = 0.98f)))),
-                )
-                val isFavorite = favorites.any { it.kind == Kind.SERIES && it.id == details.id }
-                SeriesContent(
-                    details = details,
-                    recents = recents,
-                    isFavorite = isFavorite,
-                    onToggleFavorite = { vm.toggleFavorite(details) },
-                    onPlay = onPlay,
-                    onBack = onBack
-                )
+        if (details != null) {
+            RemoteImage(details.backdrop.ifBlank { details.cover }, Modifier.fillMaxSize().alpha(0.22f))
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Palette.DeepBlue.copy(alpha = 0.55f),
+                                Palette.DeepBlue.copy(alpha = 0.88f),
+                                Palette.DeepBlue.copy(alpha = 0.98f),
+                            ),
+                        ),
+                    ),
+            )
+        }
+
+        Column(Modifier.fillMaxSize()) {
+            SahabTopBar(current = Routes.SERIES, onBack = onBack)
+
+            when {
+                state.loading -> LoadingBox()
+                details == null -> MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
+                else -> {
+                    val isFavorite = favorites.any { it.kind == Kind.SERIES && it.id == details.id }
+                    SeriesContent(
+                        details = details,
+                        recents = recents,
+                        isFavorite = isFavorite,
+                        onToggleFavorite = { vm.toggleFavorite(details) },
+                        onPlay = onPlay,
+                    )
+                }
             }
         }
     }
@@ -158,7 +172,6 @@ private fun SeriesContent(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
-    onBack: () -> Unit
 ) {
     val seasons = details.seasons
     var selectedSeasonIndex by remember { mutableIntStateOf(0) }
@@ -174,71 +187,61 @@ private fun SeriesContent(
     val seasonsRowState = rememberLazyListState()
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 720.dp
-        val hPad = if (wide) 48.dp else 20.dp
+        val wide = maxWidth >= 780.dp
+        val hPad = if (wide) 36.dp else 18.dp
 
         LazyColumn(
             state = episodesState,
             modifier = Modifier.fillMaxSize().focusRestorer(),
-            contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = hPad, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { Spacer(Modifier.height(20.dp)) }
-
-            // Header
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    GlassIconButton(Ic.Back, Ar.back, onBack, autoFocus = true)
-                    Text(
-                        details.name,
-                        fontSize = if (wide) 28.sp else 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Palette.Text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                        textAlign = TextAlign.Center
-                    )
-                    GlassIconButton(
-                        icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
-                        description = Ar.favorites,
-                        onClick = onToggleFavorite,
-                        tint = if (isFavorite) Palette.Pink else Palette.Text,
-                    )
-                }
-            }
-
-            item { Spacer(Modifier.height(16.dp)) }
-
-            // Poster + Info
             item {
                 if (wide) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
-                        SeriesInfo(details, resumeIndex, queue, onPlay, Modifier.weight(1f))
-                        Cover(details.cover, Modifier.width(300.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(36.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        SeriesCoverFrame(details.cover, details.name, Modifier.width(250.dp))
+                        SeriesInfoPanel(
+                            details = details,
+                            resumeIndex = resumeIndex,
+                            queue = queue,
+                            isFavorite = isFavorite,
+                            onToggleFavorite = onToggleFavorite,
+                            onPlay = onPlay,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 } else {
                     Column {
-                        Cover(details.cover, Modifier.width(220.dp).align(Alignment.CenterHorizontally))
-                        Spacer(Modifier.height(24.dp))
-                        SeriesInfo(details, resumeIndex, queue, onPlay, Modifier.fillMaxWidth())
+                        SeriesCoverFrame(
+                            details.cover,
+                            details.name,
+                            Modifier.width(190.dp).align(Alignment.CenterHorizontally),
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        SeriesInfoPanel(
+                            details = details,
+                            resumeIndex = resumeIndex,
+                            queue = queue,
+                            isFavorite = isFavorite,
+                            onToggleFavorite = onToggleFavorite,
+                            onPlay = onPlay,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
 
-            // Seasons
             if (seasons.size > 1) {
                 item {
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(6.dp))
                     LazyRow(
                         state = seasonsRowState,
                         modifier = Modifier.focusRestorer(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(vertical = 6.dp),
                     ) {
                         items(seasons.size) { index ->
                             Chip(
@@ -251,15 +254,31 @@ private fun SeriesContent(
                 }
             }
 
-            item { Spacer(Modifier.height(16.dp)) }
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DotTitle(
+                        text = if (season != null) "${Ar.season(season)} · ${visibleEpisodes.size} حلقة" else Ar.seriesSub,
+                        dot = Palette.Glow,
+                        fontSize = 16.sp,
+                    )
+                    Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
+                }
+            }
 
             if (details.episodes.isEmpty()) {
-                item { Text(Ar.noEpisodes, fontSize = 17.sp, color = Palette.TextDim) }
+                item { Text(Ar.noEpisodes, fontSize = 16.sp, color = Palette.TextDim) }
             }
 
             items(visibleEpisodes, key = { it.id }) { episode ->
                 EpisodeRow(
                     episode = episode,
+                    coverFallback = details.cover,
                     saved = progress[episode.id],
                     onClick = {
                         val index = details.episodes.indexOfFirst { it.id == episode.id }
@@ -267,130 +286,161 @@ private fun SeriesContent(
                     },
                 )
             }
-            item { Spacer(Modifier.height(64.dp)) }
+            item { Spacer(Modifier.height(48.dp)) }
         }
     }
 }
 
 @Composable
-private fun SeriesInfo(
+private fun SeriesCoverFrame(url: String, title: String, modifier: Modifier) {
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier
+            .aspectRatio(2f / 3f)
+            .shadow(20.dp, shape, ambientColor = Palette.Royal, spotColor = Palette.Glow)
+            .clip(shape)
+            .background(Palette.Glass)
+            .border(1.5.dp, Palette.Glow.copy(alpha = 0.45f), shape)
+            .padding(6.dp),
+    ) {
+        RemoteImage(
+            url = url,
+            fallbackText = title,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(18.dp)),
+        )
+    }
+}
+
+@Composable
+private fun SeriesInfoPanel(
     details: SeriesDetails,
     resumeIndex: Int,
     queue: List<PlayItem>,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
-    Column(modifier) {
-        Text(details.name, fontSize = 36.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            details.name,
+            style = TextStyle(brush = Palette.BrandText, fontSize = 30.sp, fontWeight = FontWeight.Bold),
+        )
 
-        Spacer(Modifier.height(12.dp))
-
-        // Metadata Row
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            val q = qualityOf(details.name) ?: "HD"
+            Tag(q, if (q == "4K") Palette.Gold else Palette.Glow)
             if (details.year.isNotBlank()) {
-                Text(details.year, fontSize = 16.sp, color = Palette.TextDim)
+                Tag(details.year, Palette.Royal)
+            }
+            if (details.seasons.isNotEmpty()) {
+                Text("${details.seasons.size} مواسم", fontSize = 14.sp, color = Palette.TextDim)
             }
             if (details.rating.isNotBlank()) {
-                Text("•", fontSize = 16.sp, color = Palette.TextDim)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Ic.Star, contentDescription = null, tint = Palette.Peach, modifier = Modifier.size(18.dp)
-                    )
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Palette.Gold.copy(alpha = 0.16f))
+                        .border(1.dp, Palette.Gold.copy(alpha = 0.4f), RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Ic.Star, contentDescription = null, tint = Palette.Gold, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(details.rating, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Peach)
+                    Text(details.rating, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Gold)
                 }
             }
         }
 
-        Spacer(Modifier.height(20.dp))
-
-        // Genre Chips
         if (details.genre.isNotBlank()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                details.genre.split(",").take(3).forEach { g ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(g.trim(), fontSize = 14.sp, color = Palette.Text)
-                    }
+                details.genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(4).forEach { g ->
+                    Tag(g, Palette.Glow, fontSize = 12.sp)
                 }
             }
-            Spacer(Modifier.height(28.dp))
         }
 
-        // Actions
-        if (queue.isNotEmpty()) {
-            val resumeItem = queue.getOrNull(resumeIndex)
-            GlassButton(
-                text = if (resumeItem != null) Ar.resumeEpisode else Ar.playFirst,
-                onClick = { onPlay(PlayRequest(queue, resumeIndex.coerceAtLeast(0))) },
-                icon = Ic.Play,
-                primary = true,
-                autoFocus = true,
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (queue.isNotEmpty()) {
+                val resumeItem = queue.getOrNull(resumeIndex)
+                GlassButton(
+                    text = if (resumeItem != null) Ar.resumeEpisode else Ar.playFirst,
+                    onClick = { onPlay(PlayRequest(queue, resumeIndex.coerceAtLeast(0))) },
+                    icon = Ic.Play,
+                    primary = true,
+                    autoFocus = true,
+                )
+            }
+            GlassIconButton(
+                icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
+                description = Ar.favorites,
+                onClick = onToggleFavorite,
+                size = 54.dp,
+                selected = isFavorite,
+                tint = if (isFavorite) Palette.Live else Palette.Glow,
             )
         }
 
-        Spacer(Modifier.height(32.dp))
-
-        // Plot
-        if (details.plot.isNotBlank()) {
-            Text("القصة", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-            Spacer(Modifier.height(8.dp))
-            Text(details.plot, fontSize = 16.sp, lineHeight = 26.sp, color = Palette.Text.copy(alpha = 0.85f))
-            Spacer(Modifier.height(28.dp))
-        }
-
-        // Details List
-        if (details.cast.isNotBlank()) {
-            Row(verticalAlignment = Alignment.Top) {
-                Text(
-                    text = Ar.cast,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Palette.TextDim,
-                    modifier = Modifier.width(100.dp)
-                )
-                Text(
-                    text = details.cast,
-                    fontSize = 15.sp,
-                    color = Palette.Text,
-                    modifier = Modifier.weight(1f)
-                )
+        if (details.plot.isNotBlank() || details.cast.isNotBlank()) {
+            GlassPanel(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                padding = 18.dp,
+            ) {
+                if (details.plot.isNotBlank()) {
+                    DotTitle(Ar.plot, Palette.Gold, fontSize = 15.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        details.plot,
+                        fontSize = 14.sp,
+                        lineHeight = 23.sp,
+                        color = Palette.Text.copy(alpha = 0.90f),
+                    )
+                }
+                if (details.cast.isNotBlank()) {
+                    if (details.plot.isNotBlank()) Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            text = Ar.cast,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Palette.Glow,
+                            modifier = Modifier.width(90.dp),
+                        )
+                        Text(
+                            text = details.cast,
+                            fontSize = 14.sp,
+                            color = Palette.Text,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun BackButton(onBack: () -> Unit) {
-    Box(Modifier.padding(20.dp)) {
-        GlassIconButton(Ic.Back, Ar.back, onBack)
-    }
-}
-
-@Composable
-private fun Cover(url: String, modifier: Modifier) {
-    RemoteImage(
-        url = url,
-        modifier = modifier
-            .aspectRatio(2f / 3f)
-            .clip(RoundedCornerShape(22.dp)),
-    )
-}
-
-@Composable
-private fun EpisodeRow(episode: Episode, saved: RecentItem?, onClick: () -> Unit) {
+private fun EpisodeRow(
+    episode: Episode,
+    coverFallback: String,
+    saved: RecentItem?,
+    onClick: () -> Unit,
+) {
     GlassCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-    ) {
+        shape = RoundedCornerShape(18.dp),
+        focusScale = 1.02f,
+    ) { focused ->
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -398,37 +448,53 @@ private fun EpisodeRow(episode: Episode, saved: RecentItem?, onClick: () -> Unit
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RemoteImage(
-                url = episode.image,
+                url = episode.image.ifBlank { coverFallback },
+                fallbackText = episode.title,
                 modifier = Modifier
-                    .width(124.dp)
+                    .width(128.dp)
                     .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(12.dp)),
             )
             Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = Ar.episodeNumber(episode.number),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Palette.Cyan,
-                )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Tag(Ar.episodeNumber(episode.number), Palette.Glow, fontSize = 10.sp)
+                    if (episode.duration.isNotBlank()) {
+                        Text(episode.duration, fontSize = 12.sp, color = Palette.TextDim)
+                    }
+                }
                 Text(
                     text = episode.title,
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Palette.Text,
-                    maxLines = 2,
+                    color = if (focused) Palette.Text else Palette.Glow,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (episode.duration.isNotBlank()) {
-                    Text(episode.duration, fontSize = 14.sp, color = Palette.TextDim)
+                if (episode.plot.isNotBlank()) {
+                    Text(
+                        text = episode.plot,
+                        fontSize = 12.sp,
+                        color = Palette.TextDim,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 if (saved != null && saved.durationMs > 0) {
-                    Spacer(Modifier.height(6.dp))
-                    ProgressLine(saved.positionMs.toFloat() / saved.durationMs)
+                    Spacer(Modifier.height(4.dp))
+                    ProgressLine(saved.positionMs.toFloat() / saved.durationMs, height = 4.dp)
                 }
             }
-            Box(Modifier.size(8.dp))
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (focused) Palette.Royal else Palette.Royal.copy(alpha = 0.25f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Ic.Play, contentDescription = null, tint = Palette.Text, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

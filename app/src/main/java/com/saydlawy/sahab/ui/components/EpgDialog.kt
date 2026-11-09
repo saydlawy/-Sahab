@@ -3,7 +3,6 @@ package com.saydlawy.sahab.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -69,25 +68,27 @@ fun EpgDialog(channelName: String, channelId: String, onDismiss: () -> Unit) {
                 .fillMaxHeight(0.86f)
                 .clip(RoundedCornerShape(28.dp))
                 .background(Palette.DialogBg)
-                .border(1.dp, Palette.Violet.copy(alpha = 0.45f), RoundedCornerShape(28.dp)),
+                .border(1.5.dp, Palette.Glow.copy(alpha = 0.45f), RoundedCornerShape(28.dp)),
         ) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .padding(horizontal = 22.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(Ar.guide, fontSize = 15.sp, color = Palette.TextDim)
+                    DotTitle(Ar.epgTitle, Palette.Gold, fontSize = 14.sp)
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         channelName,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
+                        color = Palette.Text,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                GlassIconButton(Ic.Close, Ar.close, onDismiss, size = 52.dp, autoFocus = true)
+                GlassIconButton(Ic.Close, Ar.close, onDismiss, size = 48.dp, autoFocus = true)
             }
 
             val list = programs
@@ -114,49 +115,55 @@ private fun ProgramList(programs: List<Program>) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         itemsIndexed(programs, key = { index, p -> "${p.start}_$index" }) { index, program ->
             val isNow = index == currentIndex
+            val isPast = program.end <= nowSec
             val isOpen = expanded == index
             GlassCard(
                 onClick = { expanded = if (isOpen) null else index },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
                 selected = isNow,
+                focusScale = 1.015f,
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "${formatClock(program.start)} - ${formatClock(program.end)}",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isNow) Palette.Pink else Palette.TextDim,
+                            fontSize = 14.sp,
+                            fontWeight = if (isNow) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isNow) Palette.Gold else Palette.TextDim,
                         )
                         Spacer(Modifier.width(14.dp))
                         Text(
                             text = program.title.ifBlank { Ar.noName },
-                            fontSize = 18.sp,
+                            fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
+                            color = if (isPast && !isNow) Palette.TextDim else Palette.Text,
                             maxLines = if (isOpen) Int.MAX_VALUE else 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        if (isNow) {
-                            Text(Ar.nowShowing, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Palette.Cyan)
+                        Spacer(Modifier.width(10.dp))
+                        when {
+                            isNow -> Tag(Ar.onAirNow, Palette.Live, filled = true)
+                            isPast -> Tag(Ar.ended, Palette.TextDim)
+                            else -> Tag(Ar.soon, Palette.Glow)
                         }
                     }
                     if (isNow) {
                         Spacer(Modifier.height(8.dp))
                         val total = (program.end - program.start).coerceAtLeast(1)
-                        ProgressLine(((nowSec - program.start).toFloat() / total))
+                        ProgressLine(((nowSec - program.start).toFloat() / total), height = 4.dp)
                     }
                     if (program.description.isNotBlank()) {
                         Spacer(Modifier.height(6.dp))
                         Text(
                             text = program.description,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             color = Palette.TextDim,
                             maxLines = if (isOpen) Int.MAX_VALUE else 2,
                             overflow = TextOverflow.Ellipsis,

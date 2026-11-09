@@ -24,6 +24,12 @@ tailrec fun Context.findActivity(): Activity? = when (this) {
 
 fun Throwable.userMessage(): String = (this as? ApiException)?.message ?: Ar.errUnknown
 
+fun appVersion(context: Context): String = try {
+    context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+} catch (e: Exception) {
+    ""
+}
+
 /** Lower-cases and removes Arabic diacritics and letter variants so searching is forgiving. */
 fun String.normalizeForSearch(): String {
     val out = StringBuilder(length)
