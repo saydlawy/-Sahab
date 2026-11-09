@@ -86,6 +86,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 data class LiveUiState(
     val categories: List<Category> = emptyList(),
@@ -230,6 +241,44 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
 }
 
 @Composable
+private fun LiveHeader(onBack: () -> Unit) {
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            now = LocalDateTime.now()
+        }
+    }
+    val ar = Locale.forLanguageTag("ar")
+    val timeStr = now.format(DateTimeFormatter.ofPattern("hh:mm a", ar))
+    val dateStr = now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", ar))
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GlassIconButton(Ic.Back, Ar.back, onBack, size = 44.dp)
+        Spacer(Modifier.width(12.dp))
+        Box(
+            Modifier.size(42.dp).clip(CircleShape).background(Palette.Accent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Ic.Play, null, tint = Color.White, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text("Live TV", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(Ar.live, fontSize = 12.sp, color = Color(0xFF9AA7D6))
+        }
+        Spacer(Modifier.weight(1f))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(timeStr, fontSize = 22.sp, fontWeight = FontWeight.Light, color = Color.White)
+            Text(dateStr, fontSize = 12.sp, color = Color(0xFF9AA7D6))
+        }
+    }
+}
+
+@Composable
 private fun WideLiveLayout(
     state: LiveUiState,
     favoriteIds: Set<String>,
@@ -252,13 +301,17 @@ private fun WideLiveLayout(
                 )
             ),
     ) {
-        ScreenHeader(Ar.live, onBack) {
-            SearchBox(state.query, onQuery, Ar.searchChannels, Modifier.width(340.dp))
-        }
+        LiveHeader(onBack = onBack)
+        SearchBox(
+            state.query,
+            onQuery,
+            Ar.searchChannels,
+            Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+        )
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val showPreview = maxWidth >= 1100.dp
-            val sidebarWidth = (maxWidth * 0.18f).coerceIn(180.dp, 240.dp)
-            val previewWidth = (maxWidth * 0.28f).coerceIn(300.dp, 400.dp)
+            val showPreview = maxWidth >= 750.dp
+            val sidebarWidth = (maxWidth * 0.15f).coerceIn(140.dp, 200.dp)
+            val previewWidth = (maxWidth * 0.24f).coerceIn(220.dp, 340.dp)
             val hPad = (maxWidth * 0.02f).coerceIn(12.dp, 24.dp)
             Row(
                 Modifier
@@ -570,6 +623,7 @@ private fun ChannelRow(
         )
         RemoteImage(
             url = channel.icon,
+            fallbackText = channel.name,
             modifier = Modifier
                 .size(52.dp)
                 .clip(RoundedCornerShape(12.dp))
@@ -654,10 +708,30 @@ private fun ChannelRow(
 
 @Composable
 private fun LiveBadge() {
+    val infiniteTransition = rememberInfiniteTransition(label = "livePulse")
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dotAlpha",
+    )
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "glowAlpha",
+    )
     Row(
         Modifier
             .clip(RoundedCornerShape(50))
-            .background(Color(0xFFE53935))
+            .background(Color(0xFFE53935).copy(alpha = 0.9f))
+            .border(1.dp, Color(0xFFE53935).copy(alpha = glowAlpha), RoundedCornerShape(50))
             .padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -666,7 +740,7 @@ private fun LiveBadge() {
             Modifier
                 .size(6.dp)
                 .clip(CircleShape)
-                .background(Color.White),
+                .background(Color.White.copy(alpha = dotAlpha)),
         )
         Text("مباشر", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
     }
@@ -725,6 +799,7 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 RemoteImage(
                     url = channel.icon,
+                    fallbackText = channel.name,
                     modifier = Modifier
                         .size(72.dp)
                         .clip(RoundedCornerShape(16.dp))

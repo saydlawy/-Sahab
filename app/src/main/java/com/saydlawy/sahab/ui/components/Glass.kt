@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.withFrameNanos
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
@@ -309,16 +310,47 @@ fun RemoteImage(
     url: String,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    fallbackText: String = "",
 ) {
     Box(modifier.background(Color.White.copy(alpha = 0.06f))) {
         if (url.isNotBlank()) {
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = url,
                 contentDescription = null,
                 contentScale = contentScale,
                 modifier = Modifier.fillMaxSize(),
+                loading = { FallbackLetter(fallbackText) },
+                error = { FallbackLetter(fallbackText) },
             )
+        } else {
+            FallbackLetter(fallbackText)
         }
+    }
+}
+
+@Composable
+private fun FallbackLetter(text: String) {
+    val letter = text.trim().firstOrNull()?.uppercaseChar() ?: return
+    val gradient = remember(letter) {
+        val palettes = listOf(
+            listOf(Color(0xFF6366F1), Color(0xFF8B5CF6)),
+            listOf(Color(0xFFEC4899), Color(0xFFF43F5E)),
+            listOf(Color(0xFF06B6D4), Color(0xFF0EA5E9)),
+            listOf(Color(0xFFF59E0B), Color(0xFFEF4444)),
+            listOf(Color(0xFF10B981), Color(0xFF14B8A6)),
+        )
+        palettes[letter.code % palettes.size]
+    }
+    Box(
+        Modifier.fillMaxSize().background(Brush.linearGradient(gradient)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            letter.toString(),
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+        )
     }
 }
 
