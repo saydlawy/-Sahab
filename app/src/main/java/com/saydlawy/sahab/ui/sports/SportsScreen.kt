@@ -7,8 +7,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.saydlawy.sahab.data.sports.*
 
 val CyberBg = Color(0xFF0B0716)
@@ -26,36 +30,18 @@ val CyanAccent = Color(0xFF00F5D4)
 val LiveRed = Color(0xFFE63946)
 val GoldAccent = Color(0xFFF59E0B)
 
-// بيانات تجريبية (Mock Data) باستخدام الـ Models التي أنشأناها
-val sampleMatch = Match(
-    id = 1,
-    league = League(1, "الدوري المصري الممتاز", "مصر"),
-    homeTeam = Team(1, "النادي الأهلي"),
-    awayTeam = Team(2, "نادي الزمالك"),
-    homeScore = 2,
-    awayScore = 1,
-    status = MatchStatus.LIVE,
-    minute = "68",
-    date = "اليوم",
-    time = "20:00",
-    stadium = "استاد القاهرة الدولي",
-    channel = "OnTime Sports 1 HD",
-    commentator = "مدحت شلبي",
-    homeEvents = listOf("وسام أبو علي '24", "إمام عاشور '56"),
-    awayEvents = listOf("زيزو '42 (ض.ج)"),
-    stats = MatchStats(58, 42, 7, 4, 5, 2, 6, 3)
-)
-
 @Composable
-fun SportsScreen() {
-    // BoxWithConstraints لقياس حجم الشاشة وتكييف التصميم (Responsive)
+fun SportsScreen(viewModel: SportsViewModel = viewModel()) {
+    val matches by viewModel.matches.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(CyberBg)
             .padding(16.dp)
     ) {
-        val isWideScreen = maxWidth > 800.dp // إذا كانت الشاشة عريضة (تلفاز أو تابلت بالعرض)
+        val isWideScreen = maxWidth > 800.dp
 
         Column(modifier = Modifier.fillMaxSize()) {
             TopHeaderBar()
@@ -63,25 +49,34 @@ fun SportsScreen() {
             FilterBar()
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (isWideScreen) {
-                // تصميم التلفاز (عمودين)
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Column(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
-                        MatchDetailPanel(match = sampleMatch)
-                    }
-                    Column(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
-                        FeaturedMatchCard(match = sampleMatch)
-                    }
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = PrimaryAccent)
+                }
+            } else if (matches.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("لا توجد مباريات مباشرة حالياً", color = Color.White, fontSize = 18.sp)
                 }
             } else {
-                // تصميم الموبايل (عمود واحد)
-                Column(modifier = Modifier.fillMaxSize()) {
-                    FeaturedMatchCard(match = sampleMatch)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    MatchDetailPanel(match = sampleMatch)
+                val featuredMatch = matches.first()
+                if (isWideScreen) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
+                            MatchDetailPanel(match = featuredMatch)
+                        }
+                        Column(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
+                            FeaturedMatchCard(match = featuredMatch)
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        FeaturedMatchCard(match = featuredMatch)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        MatchDetailPanel(match = featuredMatch)
+                    }
                 }
             }
         }
@@ -104,9 +99,9 @@ fun FeaturedMatchCard(match: Match) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("• مباشر LIVE '${match.minute}", color = Color.White, modifier = Modifier.background(LiveRed, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp)
+                    Text("• مباشر LIVE '${match.minute ?: ""}", color = Color.White, modifier = Modifier.background(LiveRed, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("الشوط الثاني", color = Color.Gray, fontSize = 12.sp)
+                    Text(match.league.name, color = Color.Gray, fontSize = 12.sp)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(match.channel, color = Color.White, modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 12.sp)
@@ -134,7 +129,7 @@ fun FeaturedMatchCard(match: Match) {
 
                 // النتيجة
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("${match.homeScore} : ${match.awayScore}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
+                    Text("${match.homeScore ?: 0} : ${match.awayScore ?: 0}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(match.commentator, color = CyanAccent, fontSize = 12.sp)
                 }
@@ -218,15 +213,15 @@ fun MatchDetailPanel(match: Match) {
         Text("إحصائيات المباراة اللحظية", color = Color.Gray, fontSize = 12.sp)
         Spacer(modifier = Modifier.height(8.dp))
         
+        // شريط الاستحواذ (بيانات تجريبية لحين ربط API الإحصائيات)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${match.stats?.homePossession}% ${match.homeTeam.name}", color = LiveRed, fontSize = 12.sp)
+            Text("58% ${match.homeTeam.name}", color = LiveRed, fontSize = 12.sp)
             Text("الاستحواذ", color = Color.Gray, fontSize = 12.sp)
-            Text("${match.stats?.awayPossession}% ${match.awayTeam.name}", color = Color.White, fontSize = 12.sp)
+            Text("42% ${match.awayTeam.name}", color = Color.White, fontSize = 12.sp)
         }
         Spacer(modifier = Modifier.height(4.dp))
         Box(modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)).background(Color.DarkGray)) {
-            val homePoss = (match.stats?.homePossession ?: 50) / 100f
-            Box(modifier = Modifier.fillMaxWidth(homePoss).fillMaxHeight().background(LiveRed))
+            Box(modifier = Modifier.fillMaxWidth(0.58f).fillMaxHeight().background(LiveRed))
         }
 
         Spacer(modifier = Modifier.weight(1f))
