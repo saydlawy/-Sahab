@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,6 +31,7 @@ import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.GlassIconButton
 import com.saydlawy.sahab.ui.components.Ic
+import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.delay
@@ -46,6 +48,7 @@ private data class Category(
     val route: String,
     val icon: ImageVector,
     val art: Brush,
+    val bgUrl: String,
 )
 
 @Composable
@@ -55,11 +58,14 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val categories = remember {
         listOf(
             Category(Ar.live, Ar.liveSub, Routes.LIVE, Ic.Tv,
-                Brush.linearGradient(listOf(Color(0xFF4FC3FF), Color(0xFF1B5FD6), Color(0xFF0B1F5C)))),
+                Brush.linearGradient(listOf(Color(0xFF4FC3FF), Color(0xFF1B5FD6), Color(0xFF0B1F5C))),
+                "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=800&auto=format&fit=crop"),
             Category(Ar.movies, Ar.moviesSub, Routes.MOVIES, Ic.Movie,
-                Brush.linearGradient(listOf(Color(0xFFFF8AD8), Color(0xFF9B2FD6), Color(0xFF2A0B5C)))),
+                Brush.linearGradient(listOf(Color(0xFFFF8AD8), Color(0xFF9B2FD6), Color(0xFF2A0B5C))),
+                "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop"),
             Category(Ar.series, Ar.seriesSub, Routes.SERIES, Ic.Series,
-                Brush.linearGradient(listOf(Color(0xFFFFB36B), Color(0xFFD83D7A), Color(0xFF3A0B2E)))),
+                Brush.linearGradient(listOf(Color(0xFFFFB36B), Color(0xFFD83D7A), Color(0xFF3A0B2E))),
+                "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?q=80&w=800&auto=format&fit=crop"),
         )
     }
 
@@ -254,9 +260,21 @@ private fun CategoryCard(
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
     ) {
+        // 1. الصورة الخلفية
+        RemoteImage(
+            url = cat.bgUrl,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        // 2. تدرج داكن فوق الصورة لضمان قراءة النص
         Box(
             Modifier.fillMaxSize().background(
-                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Black.copy(alpha = 0.2f),
+                        Color.Black.copy(alpha = 0.85f)
+                    )
+                )
             )
         )
         Icon(
