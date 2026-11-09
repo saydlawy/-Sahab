@@ -82,6 +82,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -98,6 +99,15 @@ import androidx.compose.ui.draw.alpha
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+private const val SPACE_EARTH_BG_URL =
+    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=85"
+
+private const val STADIUM_MATCH_PREVIEW_URL =
+    "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=1000&q=80"
+
+private const val UCL_BANNER_URL =
+    "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=600&q=80"
 
 data class LiveUiState(
     val categories: List<Category> = emptyList(),
@@ -293,15 +303,22 @@ private fun WideLiveLayout(
     onBack: () -> Unit,
     onRetry: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF05060F), Color(0xFF0B0F24), Color(0xFF1B2352)),
-                )
-            ),
-    ) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF060814))) {
+        RemoteImage(
+            url = SPACE_EARTH_BG_URL,
+            fallbackText = "",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Box(Modifier.fillMaxSize().background(
+            Brush.verticalGradient(listOf(
+                Color(0xFF050716).copy(alpha = 0.72f),
+                Color(0xFF080D24).copy(alpha = 0.84f),
+                Color(0xFF0D0B28).copy(alpha = 0.92f),
+                Color(0xFF1A0E3E).copy(alpha = 0.96f),
+            ))
+        ))
+        Column(Modifier.fillMaxSize()) {
         LiveHeader(onBack = onBack)
         SearchBox(
             state.query,
@@ -346,6 +363,7 @@ private fun WideLiveLayout(
                 }
             }
         }
+    }
     }
 }
 
@@ -434,9 +452,9 @@ private fun VerticalCategoryChip(label: String, selected: Boolean, onClick: () -
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(14.dp)
     val bg = when {
-        focused -> Color(0xFF8055E8).copy(alpha = 0.35f)
-        selected -> Color(0xFF8055E8).copy(alpha = 0.20f)
-        else -> Color.White.copy(alpha = 0.05f)
+        focused -> Color(0xFF8055E8).copy(alpha = 0.60f)
+        selected -> Color(0xFF8055E8).copy(alpha = 0.45f)
+        else -> Color.White.copy(alpha = 0.08f)
     }
     val borderColor = when {
         focused -> Color(0xFF7DC4FF)
@@ -561,6 +579,106 @@ private fun ChannelColumn(
                 }
             }
         }
+        Spacer(Modifier.height(8.dp))
+        LatestMatchesBottomStrip(
+            channels = channels,
+            onPlayChannel = { ch ->
+                val idx = channels.indexOfFirst { it.id == ch.id }
+                if (idx >= 0) onPlayAt(idx)
+            },
+        )
+    }
+}
+
+@Composable
+private fun LatestMatchesBottomStrip(
+    channels: List<Channel>,
+    onPlayChannel: (Channel) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 6.dp, end = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("أحدث المباريات", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.width(3.dp).height(16.dp).clip(RoundedCornerShape(50)).background(Color(0xFFA855F7)))
+        }
+        Row(
+            Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF171C32).copy(alpha = 0.92f))
+                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                Modifier.width(100.dp).fillMaxHeight().clip(RoundedCornerShape(10.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(10.dp))
+                    .clickable { channels.firstOrNull()?.let(onPlayChannel) },
+            ) {
+                RemoteImage(
+                    url = UCL_BANNER_URL,
+                    fallbackText = "Match",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(Color.White)
+                    .clickable { channels.firstOrNull { it.name.contains("bein", ignoreCase = true) }?.let(onPlayChannel) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("beIN", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF3B0764))
+                    Text("SPORTS", fontSize = 6.sp, fontWeight = FontWeight.Bold, color = Color(0xFF3B0764))
+                }
+            }
+            MatchBrandTile(
+                title = "mbc",
+                bgColors = listOf(Color(0xFFEF4444), Color(0xFF991B1B)),
+                onClick = { channels.firstOrNull { it.name.contains("mbc", ignoreCase = true) }?.let(onPlayChannel) },
+                modifier = Modifier.weight(1f),
+            )
+            MatchBrandTile(
+                title = "العربية",
+                bgColors = listOf(Color(0xFF6D28D9), Color(0xFF4C1D95)),
+                onClick = { channels.firstOrNull { it.name.contains("arab", ignoreCase = true) }?.let(onPlayChannel) },
+                modifier = Modifier.weight(1f),
+            )
+            MatchBrandTile(
+                title = "العربية",
+                bgColors = listOf(Color(0xFF5B21B6), Color(0xFF3B0764)),
+                onClick = { channels.firstOrNull { it.name.contains("arab", ignoreCase = true) }?.let(onPlayChannel) },
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                Modifier.size(28.dp).clip(CircleShape)
+                    .clickable { channels.firstOrNull()?.let(onPlayChannel) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Ic.Next, null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MatchBrandTile(
+    title: String,
+    bgColors: List<Color>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.fillMaxHeight().clip(RoundedCornerShape(10.dp))
+            .background(Brush.verticalGradient(bgColors))
+            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(title, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1)
     }
 }
 
@@ -781,44 +899,54 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
     Column(
         modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
+            .background(Color(0xFF181D32).copy(alpha = 0.92f))
+            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            "قيد المعاينة",
-            fontSize = 12.sp,
-            color = Palette.TextDim,
-            fontWeight = FontWeight.Medium,
-        )
-        if (channel == null) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("تنقّل بين القنوات لمعاينة البرامج", fontSize = 14.sp, color = Palette.TextDim)
-            }
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                RemoteImage(
-                    url = channel.icon,
-                    fallbackText = channel.name,
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .padding(6.dp),
-                    contentScale = ContentScale.Fit,
-                )
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        channel.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Palette.Text,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black),
+        ) {
+            RemoteImage(
+                url = STADIUM_MATCH_PREVIEW_URL,
+                fallbackText = channel?.name ?: "Live TV",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            if (channel != null) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .align(Alignment.TopStart),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RemoteImage(
+                            url = channel.icon,
+                            fallbackText = channel.name,
+                            modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)),
+                            contentScale = ContentScale.Fit,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            channel.name,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
+        }
+
+        if (channel != null) {
 
             Spacer(Modifier.height(4.dp))
             Text("دليل البرامج", fontSize = 13.sp, color = Palette.Cyan, fontWeight = FontWeight.Bold)
