@@ -194,7 +194,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 900.dp
+        val wide = (LocalIsTv.current || maxWidth >= 800.dp) && maxWidth > maxHeight
         if (wide) {
             WideLiveLayout(
                 state = state,
@@ -255,34 +255,42 @@ private fun WideLiveLayout(
         ScreenHeader(Ar.live, onBack) {
             SearchBox(state.query, onQuery, Ar.searchChannels, Modifier.width(340.dp))
         }
-        Row(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            CategorySidebar(
-                categories = state.categories,
-                selectedId = state.selectedId,
-                onSelect = onSelect,
-                modifier = Modifier.width(220.dp).fillMaxHeight(),
-            )
-            ChannelColumn(
-                state = state,
-                favoriteIds = favoriteIds,
-                previewId = previewChannel?.id,
-                onPreview = onPreview,
-                onPlayAt = onPlayAt,
-                onToggleFavorite = onToggleFavorite,
-                onGuide = onGuide,
-                onRetry = onRetry,
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-            )
-            PreviewPanel(
-                channel = previewChannel,
-                onGuide = onGuide,
-                modifier = Modifier.width(340.dp).fillMaxHeight(),
-            )
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val showPreview = maxWidth >= 1100.dp
+            val sidebarWidth = (maxWidth * 0.18f).coerceIn(180.dp, 240.dp)
+            val previewWidth = (maxWidth * 0.28f).coerceIn(300.dp, 400.dp)
+            val hPad = (maxWidth * 0.02f).coerceIn(12.dp, 24.dp)
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = hPad, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                CategorySidebar(
+                    categories = state.categories,
+                    selectedId = state.selectedId,
+                    onSelect = onSelect,
+                    modifier = Modifier.width(sidebarWidth).fillMaxHeight(),
+                )
+                ChannelColumn(
+                    state = state,
+                    favoriteIds = favoriteIds,
+                    previewId = previewChannel?.id,
+                    onPreview = onPreview,
+                    onPlayAt = onPlayAt,
+                    onToggleFavorite = onToggleFavorite,
+                    onGuide = onGuide,
+                    onRetry = onRetry,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                if (showPreview) {
+                    PreviewPanel(
+                        channel = previewChannel,
+                        onGuide = onGuide,
+                        modifier = Modifier.width(previewWidth).fillMaxHeight(),
+                    )
+                }
+            }
         }
     }
 }
