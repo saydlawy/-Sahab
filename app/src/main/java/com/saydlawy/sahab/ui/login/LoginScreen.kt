@@ -45,7 +45,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Account
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.BrandLogo
@@ -157,7 +159,8 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
             .fillMaxSize()
             .imePadding(),
     ) {
-        val wide = maxWidth >= 820.dp
+        val displayMode = LocalDisplayMode.current
+        val wide = displayMode == DisplayMode.TABLET_OR_TV && maxWidth >= 820.dp
         val hPad = if (wide) 36.dp else 18.dp
 
         Column(

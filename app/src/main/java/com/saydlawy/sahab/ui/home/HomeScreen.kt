@@ -67,7 +67,9 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.RecentItem
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.DotTitle
@@ -154,9 +156,9 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
             .fillMaxSize()
             .background(Palette.DeepBlue),
     ) {
-        val wide = isTv || maxWidth > maxHeight
+        val displayMode = LocalDisplayMode.current
 
-        val bgParallax = if (wide) 0f else scrollState.value * 0.25f
+        val bgParallax = if (displayMode == DisplayMode.TABLET_OR_TV) 0f else scrollState.value * 0.25f
         RemoteImage(
             url = BG_URL,
             modifier = Modifier
@@ -183,34 +185,51 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
         val maxH = maxHeight
         Column(Modifier.fillMaxSize()) {
             SahabTopBar(current = Routes.HOME)
-            val s = (maxH.value / 720f).coerceIn(0.75f, 1.35f)
-            if (wide) {
-                WideHome(
-                    s = s,
-                    categories = categories,
-                    recents = recents,
-                    autoFocus = isTv,
-                    onOpen = onOpen,
-                    onPlay = onPlay,
-                    showWidgets = showWidgets,
-                    showLive = showLive,
-                    showMovies = showMovies,
-                    showSeries = showSeries,
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                PhoneHome(
-                    categories = categories,
-                    recents = recents,
-                    onOpen = onOpen,
-                    onPlay = onPlay,
-                    scrollState = scrollState,
-                    showWidgets = showWidgets,
-                    showLive = showLive,
-                    showMovies = showMovies,
-                    showSeries = showSeries,
-                    modifier = Modifier.weight(1f),
-                )
+            val s = (maxH.value / 720f).coerceIn(0.82f, 1.35f)
+            when (displayMode) {
+                DisplayMode.TABLET_OR_TV -> {
+                    WideHome(
+                        s = s,
+                        categories = categories,
+                        recents = recents,
+                        autoFocus = isTv,
+                        onOpen = onOpen,
+                        onPlay = onPlay,
+                        showWidgets = showWidgets,
+                        showLive = showLive,
+                        showMovies = showMovies,
+                        showSeries = showSeries,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                DisplayMode.PHONE_LANDSCAPE -> {
+                    PhoneLandscapeHome(
+                        categories = categories,
+                        recents = recents,
+                        onOpen = onOpen,
+                        onPlay = onPlay,
+                        scrollState = scrollState,
+                        showWidgets = showWidgets,
+                        showLive = showLive,
+                        showMovies = showMovies,
+                        showSeries = showSeries,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                DisplayMode.PHONE_PORTRAIT -> {
+                    PhoneHome(
+                        categories = categories,
+                        recents = recents,
+                        onOpen = onOpen,
+                        onPlay = onPlay,
+                        scrollState = scrollState,
+                        showWidgets = showWidgets,
+                        showLive = showLive,
+                        showMovies = showMovies,
+                        showSeries = showSeries,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -297,6 +316,82 @@ private fun WideHome(
 }
 
 @Composable
+private fun PhoneLandscapeHome(
+    categories: List<HomeSectionCard>,
+    recents: List<RecentItem>,
+    onOpen: (String) -> Unit,
+    onPlay: (PlayRequest) -> Unit,
+    scrollState: ScrollState,
+    showWidgets: Boolean,
+    showLive: Boolean,
+    showMovies: Boolean,
+    showSeries: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val shows = listOf(showLive, showMovies, showSeries)
+    Column(
+        modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(
+                Modifier.width(235.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                AnimatedVisibility(
+                    visible = showWidgets,
+                    enter = fadeIn(tween(400)) + slideInVertically(tween(400), initialOffsetY = { it / 6 }),
+                ) {
+                    ClockWeatherCard(s = 0.78f)
+                }
+                AnimatedVisibility(
+                    visible = showWidgets,
+                    enter = fadeIn(tween(500, delayMillis = 80)) + slideInVertically(tween(500, delayMillis = 80), initialOffsetY = { it / 6 }),
+                ) {
+                    SportsQuickCard(Modifier.fillMaxWidth(), 0.85f) { onOpen(Routes.SPORTS) }
+                }
+            }
+
+            Row(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                categories.forEachIndexed { i, cat ->
+                    AnimatedVisibility(
+                        visible = shows[i],
+                        modifier = Modifier.weight(1f),
+                        enter = fadeIn(tween(420)) + scaleIn(tween(420), initialScale = 0.92f),
+                    ) {
+                        SectionHeroCard(
+                            cat = cat,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(206.dp),
+                            s = 0.82f,
+                            autoFocus = false,
+                            onClick = { onOpen(cat.route) },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (recents.isNotEmpty()) {
+            RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay)
+        }
+
+        LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
+    }
+}
+
+@Composable
 private fun PhoneHome(
     categories: List<HomeSectionCard>,
     recents: List<RecentItem>,
@@ -334,8 +429,8 @@ private fun PhoneHome(
                         cat = cat,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(0.64f),
-                        s = 0.65f,
+                            .aspectRatio(0.68f),
+                        s = 0.85f,
                         autoFocus = false,
                         onClick = { onOpen(cat.route) },
                     )
@@ -647,46 +742,49 @@ fun LiveMatchesBar(
             .clip(RoundedCornerShape(18.dp))
             .background(Palette.Glass)
             .border(1.dp, Palette.GlassBorder, RoundedCornerShape(18.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         DotTitle("مباريات اليوم الحية", Palette.Gold, fontSize = 13.sp, color = Palette.Gold)
-        Row(
+        LazyRow(
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
         ) {
-            GlassCard(
-                onClick = onOpenSports,
-                shape = RoundedCornerShape(12.dp),
-                focusScale = 1.03f,
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            item {
+                GlassCard(
+                    onClick = onOpenSports,
+                    shape = RoundedCornerShape(12.dp),
+                    focusScale = 1.03f,
                 ) {
-                    Box(
-                        Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(Palette.Royal.copy(alpha = 0.45f)),
-                        contentAlignment = Alignment.Center,
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("UCL", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Palette.Glow)
+                        Box(
+                            Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(Palette.Royal.copy(alpha = 0.45f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("UCL", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Palette.Glow)
+                        }
+                        Text(
+                            "قمة أبطال أوروبا · مباشر",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Palette.Text,
+                            maxLines = 1,
+                        )
                     }
-                    Text(
-                        "قمة أبطال أوروبا · مباشر",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Palette.Text,
-                        maxLines = 1,
-                    )
                 }
             }
-            QuickChannelBadge("beIN", Palette.Blue, Palette.Glow, onOpenLive)
-            QuickChannelBadge("mbc", Palette.Live, Palette.Live, onOpenLive)
-            QuickChannelBadge("سحاب", Palette.Royal, Palette.Glow, onOpenLive)
+            item { QuickChannelBadge("beIN", Palette.Blue, Palette.Glow, onOpenLive) }
+            item { QuickChannelBadge("mbc", Palette.Live, Palette.Live, onOpenLive) }
+            item { QuickChannelBadge("سحاب", Palette.Royal, Palette.Glow, onOpenLive) }
         }
     }
 }

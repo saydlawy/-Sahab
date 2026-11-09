@@ -51,7 +51,10 @@ import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.SeriesDetails
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
+import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.Chip
@@ -187,8 +190,12 @@ private fun SeriesContent(
     val seasonsRowState = rememberLazyListState()
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 780.dp
-        val hPad = if (wide) 36.dp else 18.dp
+        val displayMode = LocalDisplayMode.current
+        val hPad = when (displayMode) {
+            DisplayMode.TABLET_OR_TV -> 36.dp
+            DisplayMode.PHONE_LANDSCAPE -> 20.dp
+            DisplayMode.PHONE_PORTRAIT -> 16.dp
+        }
 
         LazyColumn(
             state = episodesState,
@@ -197,39 +204,59 @@ private fun SeriesContent(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                if (wide) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(36.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        SeriesCoverFrame(details.cover, details.name, Modifier.width(250.dp))
-                        SeriesInfoPanel(
-                            details = details,
-                            resumeIndex = resumeIndex,
-                            queue = queue,
-                            isFavorite = isFavorite,
-                            onToggleFavorite = onToggleFavorite,
-                            onPlay = onPlay,
-                            modifier = Modifier.weight(1f),
-                        )
+                when (displayMode) {
+                    DisplayMode.TABLET_OR_TV -> {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(36.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            SeriesCoverFrame(details.cover, details.name, Modifier.width(250.dp))
+                            SeriesInfoPanel(
+                                details = details,
+                                resumeIndex = resumeIndex,
+                                queue = queue,
+                                isFavorite = isFavorite,
+                                onToggleFavorite = onToggleFavorite,
+                                onPlay = onPlay,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
-                } else {
-                    Column {
-                        SeriesCoverFrame(
-                            details.cover,
-                            details.name,
-                            Modifier.width(190.dp).align(Alignment.CenterHorizontally),
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        SeriesInfoPanel(
-                            details = details,
-                            resumeIndex = resumeIndex,
-                            queue = queue,
-                            isFavorite = isFavorite,
-                            onToggleFavorite = onToggleFavorite,
-                            onPlay = onPlay,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                    DisplayMode.PHONE_LANDSCAPE -> {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            SeriesCoverFrame(details.cover, details.name, Modifier.width(160.dp))
+                            SeriesInfoPanel(
+                                details = details,
+                                resumeIndex = resumeIndex,
+                                queue = queue,
+                                isFavorite = isFavorite,
+                                onToggleFavorite = onToggleFavorite,
+                                onPlay = onPlay,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    DisplayMode.PHONE_PORTRAIT -> {
+                        Column {
+                            SeriesCoverFrame(
+                                details.cover,
+                                details.name,
+                                Modifier.width(185.dp).align(Alignment.CenterHorizontally),
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            SeriesInfoPanel(
+                                details = details,
+                                resumeIndex = resumeIndex,
+                                queue = queue,
+                                isFavorite = isFavorite,
+                                onToggleFavorite = onToggleFavorite,
+                                onPlay = onPlay,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
             }
@@ -267,7 +294,9 @@ private fun SeriesContent(
                         dot = Palette.Glow,
                         fontSize = 16.sp,
                     )
-                    Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
+                    if (LocalIsTv.current) {
+                        Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
+                    }
                 }
             }
 

@@ -58,7 +58,9 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Poster
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
@@ -316,8 +318,8 @@ fun BrowseScreen(
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = (isTv || maxWidth >= 820.dp) && maxWidth > maxHeight
-        val showPreview = maxWidth >= 1040.dp && wide
+        val displayMode = LocalDisplayMode.current
+        val showPreview = displayMode == DisplayMode.TABLET_OR_TV && maxWidth >= 1040.dp
 
         Column(Modifier.fillMaxSize()) {
             SahabTopBar(current = route, onBack = onBack)
@@ -329,7 +331,7 @@ fun BrowseScreen(
                     actionLabel = Ar.retry,
                     onAction = vm::loadCategories,
                 )
-                wide -> Row(
+                displayMode == DisplayMode.TABLET_OR_TV -> Row(
                     Modifier
                         .fillMaxSize()
                         .padding(horizontal = 24.dp, vertical = 10.dp),
@@ -366,7 +368,7 @@ fun BrowseScreen(
                         series = series,
                         state = state,
                         items = items,
-                        columnWidth = if (isTv) 152.dp else 136.dp,
+                        columnWidth = if (isTv) 152.dp else 138.dp,
                         onOpenItem = onOpenItem,
                         onPreview = { previewPoster = it },
                         onToggleFavorite = vm::toggleFavorite,
@@ -392,15 +394,62 @@ fun BrowseScreen(
                         )
                     }
                 }
+                displayMode == DisplayMode.PHONE_LANDSCAPE -> Row(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    // Compact sidebar on right in RTL for landscape phones
+                    Column(
+                        Modifier
+                            .width(210.dp)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SearchBox(
+                            state.query,
+                            vm::onQuery,
+                            Ar.searchTitles,
+                            Modifier.fillMaxWidth(),
+                        )
+                        BrowseSidebar(
+                            categories = state.categories,
+                            selectedId = state.selectedId,
+                            onSelect = vm::select,
+                            totalCount = state.totalCount,
+                            favCount = favoriteIds.size,
+                            categoryCounts = state.categoryCounts,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                    }
+
+                    // Poster grid taking all remaining width without 3rd column squeeze
+                    PosterGrid(
+                        series = series,
+                        state = state,
+                        items = items,
+                        columnWidth = 132.dp,
+                        onOpenItem = onOpenItem,
+                        onPreview = {},
+                        onToggleFavorite = vm::toggleFavorite,
+                        onRetry = { state.selectedId?.let(vm::select) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    )
+                }
                 else -> Column(Modifier.fillMaxSize()) {
                     SearchBox(
                         state.query,
                         vm::onQuery,
                         Ar.searchTitles,
-                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                     )
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         item(key = FAV_CAT_ID) {
@@ -417,7 +466,7 @@ fun BrowseScreen(
                         series = series,
                         state = state,
                         items = items,
-                        columnWidth = 128.dp,
+                        columnWidth = 132.dp,
                         onOpenItem = onOpenItem,
                         onPreview = {},
                         onToggleFavorite = vm::toggleFavorite,
@@ -509,7 +558,9 @@ private fun PosterGrid(
                     Tag(Ar.itemsCount(items.size), Palette.Glow, fontSize = 10.sp)
                 }
             }
-            Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
+            if (LocalIsTv.current) {
+                Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
+            }
         }
 
         Spacer(Modifier.height(4.dp))

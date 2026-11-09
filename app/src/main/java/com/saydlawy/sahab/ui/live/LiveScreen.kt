@@ -85,8 +85,10 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Program
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalAppScale
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
@@ -346,37 +348,76 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
         else onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)), 0))
     }
 
+    val activePreview = previewChannel?.takeIf { p -> channels.any { it.id == p.id } } ?: channels.firstOrNull()
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = (LocalIsTv.current || maxWidth >= 820.dp) && maxWidth > maxHeight
-        if (wide) {
-            WideLiveLayout(
-                state = state,
-                channels = channels,
-                favoriteIds = favoriteIds,
-                previewChannel = previewChannel ?: channels.firstOrNull(),
-                onPreview = { previewChannel = it },
-                onPlayAt = playAt,
-                onPlayChannel = playChannel,
-                onToggleFavorite = vm::toggleFavorite,
-                onGuide = { guideFor = it },
-                onSelect = vm::select,
-                onQuery = vm::onQuery,
-                onBack = onBack,
-                onRetry = { state.selectedId?.let(vm::select) },
-            )
-        } else {
-            NarrowLiveLayout(
-                state = state,
-                channels = channels,
-                favoriteIds = favoriteIds,
-                onPlayAt = playAt,
-                onToggleFavorite = vm::toggleFavorite,
-                onGuide = { guideFor = it },
-                onSelect = vm::select,
-                onQuery = vm::onQuery,
-                onBack = onBack,
-                onRetry = { state.selectedId?.let(vm::select) },
-            )
+        val displayMode = LocalDisplayMode.current
+        when (displayMode) {
+            DisplayMode.TABLET_OR_TV -> {
+                WideLiveLayout(
+                    state = state,
+                    channels = channels,
+                    favoriteIds = favoriteIds,
+                    previewChannel = activePreview,
+                    onPreview = { previewChannel = it },
+                    onPlayAt = playAt,
+                    onPlayChannel = playChannel,
+                    onToggleFavorite = vm::toggleFavorite,
+                    onGuide = { guideFor = it },
+                    onSelect = vm::select,
+                    onQuery = vm::onQuery,
+                    onBack = onBack,
+                    onRetry = { state.selectedId?.let(vm::select) },
+                )
+            }
+            DisplayMode.PHONE_LANDSCAPE -> {
+                PhoneLandscapeLiveLayout(
+                    state = state,
+                    channels = channels,
+                    favoriteIds = favoriteIds,
+                    previewChannel = activePreview,
+                    onPreview = { previewChannel = it },
+                    onPlayAt = { idx ->
+                        val ch = channels.getOrNull(idx)
+                        if (ch != null && activePreview?.id != ch.id) {
+                            previewChannel = ch
+                        } else {
+                            playAt(idx)
+                        }
+                    },
+                    onPlayChannel = playChannel,
+                    onToggleFavorite = vm::toggleFavorite,
+                    onGuide = { guideFor = it },
+                    onSelect = vm::select,
+                    onQuery = vm::onQuery,
+                    onBack = onBack,
+                    onRetry = { state.selectedId?.let(vm::select) },
+                )
+            }
+            DisplayMode.PHONE_PORTRAIT -> {
+                PhonePortraitLiveLayout(
+                    state = state,
+                    channels = channels,
+                    favoriteIds = favoriteIds,
+                    previewChannel = activePreview,
+                    onPreview = { previewChannel = it },
+                    onPlayAt = { idx ->
+                        val ch = channels.getOrNull(idx)
+                        if (ch != null && activePreview?.id != ch.id) {
+                            previewChannel = ch
+                        } else {
+                            playAt(idx)
+                        }
+                    },
+                    onPlayChannel = playChannel,
+                    onToggleFavorite = vm::toggleFavorite,
+                    onGuide = { guideFor = it },
+                    onSelect = vm::select,
+                    onQuery = vm::onQuery,
+                    onBack = onBack,
+                    onRetry = { state.selectedId?.let(vm::select) },
+                )
+            }
         }
     }
 
@@ -461,6 +502,7 @@ private fun WideLiveLayout(
                     onPlay = { previewChannel?.let(onPlayChannel) },
                     onToggleFavorite = { previewChannel?.let(onToggleFavorite) },
                     onGuide = onGuide,
+                    showEpg = true,
                     modifier = Modifier
                         .weight(0.39f)
                         .fillMaxHeight(),
@@ -471,11 +513,103 @@ private fun WideLiveLayout(
 }
 
 @Composable
-private fun NarrowLiveLayout(
+private fun PhoneLandscapeLiveLayout(
     state: LiveUiState,
     channels: List<Channel>,
     favoriteIds: Set<String>,
+    previewChannel: Channel?,
+    onPreview: (Channel) -> Unit,
     onPlayAt: (Int) -> Unit,
+    onPlayChannel: (Channel) -> Unit,
+    onToggleFavorite: (Channel) -> Unit,
+    onGuide: (Channel) -> Unit,
+    onSelect: (String) -> Unit,
+    onQuery: (String) -> Unit,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        Column(Modifier.fillMaxSize()) {
+            SahabTopBar(current = Routes.LIVE, onBack = onBack)
+
+            LazyRow(
+                modifier = Modifier.padding(vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = FAV_CAT_ID) {
+                    Chip(Ar.favorites, state.selectedId == FAV_CAT_ID, { onSelect(FAV_CAT_ID) })
+                }
+                item(key = ALL_CAT_ID) {
+                    Chip(Ar.all, state.selectedId == ALL_CAT_ID, { onSelect(ALL_CAT_ID) })
+                }
+                items(state.categories, key = { it.id }) { cat ->
+                    Chip(cat.name, cat.id == state.selectedId, { onSelect(cat.id) })
+                }
+            }
+
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Right pane in RTL: Search + Channel list
+                Column(
+                    Modifier
+                        .weight(0.54f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SearchBox(
+                        state.query,
+                        onQuery,
+                        Ar.searchChannels,
+                        Modifier.fillMaxWidth(),
+                    )
+                    ChannelColumn(
+                        state = state,
+                        channels = channels,
+                        favoriteIds = favoriteIds,
+                        previewId = previewChannel?.id,
+                        onPreview = onPreview,
+                        onPlayAt = onPlayAt,
+                        onToggleFavorite = onToggleFavorite,
+                        onGuide = onGuide,
+                        onRetry = onRetry,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                }
+
+                // Left pane in RTL: Compact Live Video Preview without EPG card overflow
+                PreviewPanel(
+                    channel = previewChannel,
+                    isFavorite = previewChannel?.id in favoriteIds,
+                    onPlay = { previewChannel?.let(onPlayChannel) },
+                    onToggleFavorite = { previewChannel?.let(onToggleFavorite) },
+                    onGuide = onGuide,
+                    showEpg = false,
+                    modifier = Modifier
+                        .weight(0.46f)
+                        .fillMaxHeight(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhonePortraitLiveLayout(
+    state: LiveUiState,
+    channels: List<Channel>,
+    favoriteIds: Set<String>,
+    previewChannel: Channel?,
+    onPreview: (Channel) -> Unit,
+    onPlayAt: (Int) -> Unit,
+    onPlayChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
     onGuide: (Channel) -> Unit,
     onSelect: (String) -> Unit,
@@ -485,15 +619,30 @@ private fun NarrowLiveLayout(
 ) {
     Column(Modifier.fillMaxSize()) {
         SahabTopBar(current = Routes.LIVE, onBack = onBack)
+
+        if (previewChannel != null) {
+            PreviewPanel(
+                channel = previewChannel,
+                isFavorite = previewChannel.id in favoriteIds,
+                onPlay = { onPlayChannel(previewChannel) },
+                onToggleFavorite = { onToggleFavorite(previewChannel) },
+                onGuide = onGuide,
+                showEpg = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
+
         SearchBox(
             state.query,
             onQuery,
             Ar.searchChannels,
-            Modifier.padding(horizontal = appDp(16), vertical = appDp(4)),
+            Modifier.padding(horizontal = appDp(12), vertical = appDp(4)),
         )
         LazyRow(
-            modifier = Modifier.padding(vertical = appDp(6)),
-            contentPadding = PaddingValues(horizontal = appDp(16)),
+            modifier = Modifier.padding(vertical = appDp(4)),
+            contentPadding = PaddingValues(horizontal = appDp(12)),
             horizontalArrangement = Arrangement.spacedBy(appDp(8)),
         ) {
             item(key = FAV_CAT_ID) {
@@ -510,8 +659,8 @@ private fun NarrowLiveLayout(
             state = state,
             channels = channels,
             favoriteIds = favoriteIds,
-            previewId = null,
-            onPreview = {},
+            previewId = previewChannel?.id,
+            onPreview = onPreview,
             onPlayAt = onPlayAt,
             onToggleFavorite = onToggleFavorite,
             onGuide = onGuide,
@@ -600,7 +749,11 @@ private fun ChannelColumn(
                 fontWeight = FontWeight.Bold,
                 color = Palette.TextDim,
             )
-            Tag(Ar.dpadReady, Palette.Gold, fontSize = appSp(10))
+            if (LocalIsTv.current) {
+                Tag(Ar.dpadReady, Palette.Gold, fontSize = appSp(10))
+            } else if (channels.isNotEmpty()) {
+                Tag(Ar.itemsCount(channels.size), Palette.Glow, fontSize = appSp(10))
+            }
         }
 
         Spacer(Modifier.height(appDp(4)))
@@ -805,6 +958,7 @@ private fun PreviewPanel(
     onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
     onGuide: (Channel) -> Unit,
+    showEpg: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val container = LocalContainer.current
@@ -1043,60 +1197,62 @@ private fun PreviewPanel(
             }
         }
 
-        // Card 2: EPG Schedule
-        GlassPanel(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            shape = RoundedCornerShape(appDp(24)),
-            padding = appDp(16),
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        // Card 2: EPG Schedule (shown on Tablet/TV where vertical space allows both video and schedule)
+        if (showEpg) {
+            GlassPanel(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                shape = RoundedCornerShape(appDp(24)),
+                padding = appDp(16),
             ) {
-                DotTitle(Ar.epgTitle, Palette.Gold, fontSize = appSp(14))
-                Text(today, fontSize = appSp(11), color = Palette.TextDim)
-            }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DotTitle(Ar.epgTitle, Palette.Gold, fontSize = appSp(14))
+                    Text(today, fontSize = appSp(11), color = Palette.TextDim)
+                }
 
-            Spacer(Modifier.height(appDp(10)))
+                Spacer(Modifier.height(appDp(10)))
 
-            if (channel == null) {
-                Text(Ar.pickChannel, fontSize = appSp(13), color = Palette.TextDim)
-            } else {
-                val now = System.currentTimeMillis() / 1000
-                val past = programs.lastOrNull { it.end <= now }
-                val current = programs.firstOrNull { now in it.start until it.end }
-                val upcoming = programs.filter { it.start > (current?.start ?: now) }.take(2)
-
-                if (past == null && current == null && upcoming.isEmpty()) {
-                    Text(Ar.noEpgShort, fontSize = appSp(13), color = Palette.TextDim)
+                if (channel == null) {
+                    Text(Ar.pickChannel, fontSize = appSp(13), color = Palette.TextDim)
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(appDp(8))) {
-                        past?.let { prog ->
-                            EpgScheduleRow(
-                                time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
-                                title = prog.title.ifBlank { Ar.noName },
-                                state = EpgRowState.ENDED,
-                                onClick = { onGuide(channel) },
-                            )
-                        }
-                        current?.let { prog ->
-                            EpgScheduleRow(
-                                time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
-                                title = prog.title.ifBlank { Ar.noName },
-                                state = EpgRowState.NOW,
-                                onClick = { onGuide(channel) },
-                            )
-                        }
-                        upcoming.forEach { prog ->
-                            EpgScheduleRow(
-                                time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
-                                title = prog.title.ifBlank { Ar.noName },
-                                state = EpgRowState.SOON,
-                                onClick = { onGuide(channel) },
-                            )
+                    val now = System.currentTimeMillis() / 1000
+                    val past = programs.lastOrNull { it.end <= now }
+                    val current = programs.firstOrNull { now in it.start until it.end }
+                    val upcoming = programs.filter { it.start > (current?.start ?: now) }.take(2)
+
+                    if (past == null && current == null && upcoming.isEmpty()) {
+                        Text(Ar.noEpgShort, fontSize = appSp(13), color = Palette.TextDim)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(appDp(8))) {
+                            past?.let { prog ->
+                                EpgScheduleRow(
+                                    time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                                    title = prog.title.ifBlank { Ar.noName },
+                                    state = EpgRowState.ENDED,
+                                    onClick = { onGuide(channel) },
+                                )
+                            }
+                            current?.let { prog ->
+                                EpgScheduleRow(
+                                    time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                                    title = prog.title.ifBlank { Ar.noName },
+                                    state = EpgRowState.NOW,
+                                    onClick = { onGuide(channel) },
+                                )
+                            }
+                            upcoming.forEach { prog ->
+                                EpgScheduleRow(
+                                    time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                                    title = prog.title.ifBlank { Ar.noName },
+                                    state = EpgRowState.SOON,
+                                    onClick = { onGuide(channel) },
+                                )
+                            }
                         }
                     }
                 }

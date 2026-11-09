@@ -29,11 +29,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -115,6 +115,8 @@ import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Program
 import com.saydlawy.sahab.data.SeriesDetails
+import com.saydlawy.sahab.ui.DisplayMode
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.components.EpgDialog
 import com.saydlawy.sahab.ui.components.GlassButton
@@ -176,6 +178,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     val context = LocalContext.current
     val view = LocalView.current
     val isTv = LocalIsTv.current
+    val displayMode = LocalDisplayMode.current
     val repo = container.repo
 
     var playlist by remember { mutableStateOf(request.items) }
@@ -202,7 +205,10 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var showTracks by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
-    var showQuickChannelsDrawer by remember { mutableStateOf(isLive && playlist.size > 1) }
+    // Only auto-open the floating quick channels drawer on large Tablet/TV screens — never cover the video on phones!
+    var showQuickChannelsDrawer by remember {
+        mutableStateOf(isLive && playlist.size > 1 && displayMode == DisplayMode.TABLET_OR_TV)
+    }
     var showEpisodesDrawer by remember { mutableStateOf(false) }
     var skipIntroDismissed by remember { mutableStateOf(false) }
     var retryKey by remember { mutableIntStateOf(0) }
@@ -214,7 +220,6 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     var seriesDetails by remember { mutableStateOf<SeriesDetails?>(null) }
     val rootFocus = remember { FocusRequester() }
 
-    // Fetch cached/network SeriesDetails when playing a series episode so the VOD drawer shows seasons, thumbnails & plots
     LaunchedEffect(item.groupId, item.kind) {
         if (item.kind == Kind.EPISODE && item.groupId.isNotBlank()) {
             seriesDetails = runCatching { repo.seriesDetails(item.groupId) }.getOrNull()
@@ -299,27 +304,42 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         interactions++
     }
 
-    // Immersive full screen, landscape on phones, screen kept awake.
-    DisposableEffect(Unit) {
+    val toggleOrientation: () -> Unit = {
+        val activity = context.findActivity()
+        if (activity != null && !isTv) {
+            activity.requestedOrientation = if (displayMode == DisplayMode.PHONE_PORTRAIT) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+        }
+    }
+
+    // Keep screen awake; hide system bars only in landscape / TV mode so portrait phone has normal status bar spacing.
+    DisposableEffect(displayMode) {
         val activity = context.findActivity()
         val window = activity?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        controller?.hide(WindowInsetsCompat.Type.systemBars())
-        val previousOrientation = activity?.requestedOrientation
-        if (!isTv && activity != null) activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (displayMode != DisplayMode.PHONE_PORTRAIT) {
+            controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
         view.keepScreenOn = true
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
-            if (!isTv && activity != null) {
-                activity.requestedOrientation = previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            }
             view.keepScreenOn = false
         }
     }
 
     DisposableEffect(Unit) {
+        val activity = context.findActivity()
+        val previousOrientation = activity?.requestedOrientation
         onDispose {
+            if (!isTv && activity != null) {
+                activity.requestedOrientation = previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
             saveNow()
             exo.release()
         }
@@ -370,7 +390,6 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         onDispose { exo.removeListener(listener) }
     }
 
-    // Load whatever is selected: a new item, a retry, an auto-reconnect, or the fallback stream format.
     LaunchedEffect(index, playlist, retryKey, formatAttempt, autoReconnectCount) {
         error = null
         buffering = true
@@ -400,11 +419,10 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    // Position clock; also saves progress now and then.
     LaunchedEffect(exo) {
         var ticks = 0
         while (true) {
-            if (controlsVisible || showEpisodesDrawer) {
+            if (controlsVisible || showEpisodesDrawer || displayMode == DisplayMode.PHONE_PORTRAIT) {
                 position = exo.currentPosition.coerceAtLeast(0L)
                 bufferedPosition = exo.bufferedPosition.coerceAtLeast(position)
                 duration = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
@@ -418,7 +436,6 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    // What is on now and next, for live channels.
     LaunchedEffect(item.id, isLive) {
         epg = emptyList()
         if (isLive) {
@@ -533,213 +550,351 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(OsdSurfaceLowest)
-                .focusRequester(rootFocus)
-                .focusable()
-                .onPreviewKeyEvent(onKey),
-        ) {
-            // 1. Underlying ExoPlayer Video Surface
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                        player = exo
-                    }
-                },
-                update = { it.resizeMode = ResizeModes[resizeIndex % ResizeModes.size] },
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            // Tap catcher to toggle OSD
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = {
-                            if (showEpisodesDrawer) {
-                                showEpisodesDrawer = false
-                            } else {
-                                controlsVisible = !controlsVisible
-                            }
-                            interactions++
-                        })
+        when (displayMode) {
+            // =========================================================================
+            // MODE A: PHONE PORTRAIT — Vertical stacked layout (16:9 video top + list below)
+            // =========================================================================
+            DisplayMode.PHONE_PORTRAIT -> {
+                PhonePortraitPlayerScreen(
+                    exo = exo,
+                    item = item,
+                    playlist = playlist,
+                    currentIndex = index,
+                    isLive = isLive,
+                    isPlaying = isPlaying,
+                    buffering = buffering,
+                    reconnecting = reconnecting,
+                    error = error,
+                    position = position,
+                    bufferedPosition = bufferedPosition,
+                    duration = duration,
+                    playbackSpeed = playbackSpeed,
+                    tracks = tracks,
+                    textOff = textOff,
+                    hasVideoOverride = hasVideoOverride,
+                    currentProgram = currentProgram,
+                    nextProgram = nextProgram,
+                    seriesDetails = seriesDetails,
+                    controlsVisible = controlsVisible,
+                    resizeMode = ResizeModes[resizeIndex % ResizeModes.size],
+                    onToggleControls = {
+                        controlsVisible = !controlsVisible
+                        interactions++
                     },
-            )
-
-            // Buffering / Reconnecting Center Indicator
-            if ((buffering || reconnecting) && error == null) {
-                Column(
-                    Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    CircularProgressIndicator(color = OsdCyan, trackColor = Color.White.copy(alpha = 0.15f))
-                    if (reconnecting) {
-                        Text(
-                            Ar.reconnecting,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OsdCyan,
-                        )
-                    }
-                }
+                    onBack = onBack,
+                    onTogglePlay = togglePlay,
+                    onSeekBy = seekBy,
+                    onSeekTo = { target ->
+                        exo.seekTo(target.coerceAtLeast(0L))
+                        position = target
+                        interactions++
+                    },
+                    onPrev = zapPrevious,
+                    onNext = zapNext,
+                    onSelectPlaylistIndex = goTo,
+                    onSelectEpisode = playEpisodeFromDrawer,
+                    onCycleSpeed = cycleSpeed,
+                    onCycleResize = {
+                        resizeIndex = (resizeIndex + 1) % ResizeModes.size
+                        interactions++
+                    },
+                    onOpenTracks = { showTracks = true },
+                    onOpenGuide = { showGuide = true },
+                    onEnterLandscape = toggleOrientation,
+                    onRetry = {
+                        autoReconnectCount = 0
+                        formatAttempt = 0
+                        retryKey++
+                    },
+                )
             }
 
-            // 2. Main OSD Overlay: Live TV OSD (ExoPlayer/) vs VOD Player OSD (media-player/)
-            AnimatedVisibility(
-                visible = controlsVisible && error == null,
-                enter = fadeIn(tween(220)),
-                exit = fadeOut(tween(180)),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                if (isLive) {
-                    LiveExoPlayerOsd(
-                        item = item,
-                        playlist = playlist,
-                        currentIndex = index,
-                        currentProgram = currentProgram,
-                        nextProgram = nextProgram,
-                        isPlaying = isPlaying,
-                        position = position,
-                        duration = duration,
-                        bufferedPosition = bufferedPosition,
-                        tracks = tracks,
-                        textOff = textOff,
-                        hasVideoOverride = hasVideoOverride,
-                        formatExt = repo.liveExtensions().getOrElse(formatAttempt) { "m3u8" }.uppercase(Locale.US),
-                        showQuickDrawer = showQuickChannelsDrawer,
-                        onToggleQuickDrawer = {
-                            showQuickChannelsDrawer = !showQuickChannelsDrawer
-                            interactions++
-                        },
-                        onSelectChannel = goTo,
-                        onBack = onBack,
-                        onTogglePlay = togglePlay,
-                        onSeekBy = seekBy,
-                        onPrevChannel = zapPrevious,
-                        onNextChannel = zapNext,
-                        onOpenTracks = {
-                            showTracks = true
-                            interactions++
-                        },
-                        onOpenGuide = {
-                            showGuide = true
-                            interactions++
-                        },
-                        onCycleResize = {
-                            resizeIndex = (resizeIndex + 1) % ResizeModes.size
-                            interactions++
-                        },
-                    )
-                } else {
-                    VodMediaPlayerOsd(
-                        item = item,
-                        playlistCount = seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size,
-                        isPlaying = isPlaying,
-                        position = position,
-                        bufferedPosition = bufferedPosition,
-                        duration = duration,
-                        playbackSpeed = playbackSpeed,
-                        tracks = tracks,
-                        textOff = textOff,
-                        hasVideoOverride = hasVideoOverride,
-                        showSkipIntro = !skipIntroDismissed && position in 3_000L..110_000L,
-                        onSkipIntro = {
-                            skipIntroDismissed = true
-                            seekBy(85_000L)
-                        },
-                        onBack = onBack,
-                        onTogglePlay = togglePlay,
-                        onSeekBy = seekBy,
-                        onSeekTo = { target ->
-                            exo.seekTo(target.coerceAtLeast(0L))
-                            position = target
-                            interactions++
-                        },
-                        onPrev = zapPrevious,
-                        onNext = zapNext,
-                        onCycleSpeed = cycleSpeed,
-                        onCycleResize = {
-                            resizeIndex = (resizeIndex + 1) % ResizeModes.size
-                            interactions++
-                        },
-                        onOpenTracks = {
-                            showTracks = true
-                            interactions++
-                        },
-                        onToggleEpisodesDrawer = {
-                            showEpisodesDrawer = !showEpisodesDrawer
-                            interactions++
-                        },
-                        onInteract = { interactions++ },
-                    )
-                }
-            }
-
-            // 3. Side Episodes Drawer for VOD (media-player/screen.png)
-            if (!isLive) {
-                AnimatedVisibility(
-                    visible = showEpisodesDrawer && error == null,
-                    enter = slideInHorizontally(tween(320)) { -it } + fadeIn(tween(220)),
-                    exit = slideOutHorizontally(tween(260)) { -it } + fadeOut(tween(180)),
-                    modifier = Modifier.align(Alignment.CenterEnd), // Left side in RTL
-                ) {
-                    VodEpisodesDrawer(
-                        currentItem = item,
-                        playlist = playlist,
-                        currentIndex = index,
-                        seriesDetails = seriesDetails,
-                        position = position,
-                        duration = duration,
-                        onSelectPlaylistIndex = { idx ->
-                            goTo(idx)
-                        },
-                        onSelectEpisode = { ep ->
-                            playEpisodeFromDrawer(ep)
-                        },
-                        onClose = { showEpisodesDrawer = false },
-                    )
-                }
-            }
-
-            // Error state overlay
-            error?.let { message ->
-                Column(
+            // =========================================================================
+            // MODE B & C: PHONE LANDSCAPE vs TABLET / TV FULLSCREEN
+            // =========================================================================
+            else -> {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(OsdSurfaceLow.copy(alpha = 0.94f))
-                        .border(1.dp, OsdOutlineVariant.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .fillMaxSize()
+                        .background(OsdSurfaceLowest)
+                        .focusRequester(rootFocus)
+                        .focusable()
+                        .onPreviewKeyEvent(onKey),
                 ) {
-                    Text(
-                        message,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = OsdOnSurface,
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                useController = false
+                                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                )
+                                player = exo
+                            }
+                        },
+                        update = { it.resizeMode = ResizeModes[resizeIndex % ResizeModes.size] },
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    Spacer(Modifier.height(18.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        GlassButton(
-                            Ar.retry,
-                            {
-                                autoReconnectCount = 0
-                                formatAttempt = 0
-                                retryKey++
+
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = {
+                                    if (showEpisodesDrawer) {
+                                        showEpisodesDrawer = false
+                                    } else if (showQuickChannelsDrawer && displayMode == DisplayMode.PHONE_LANDSCAPE) {
+                                        showQuickChannelsDrawer = false
+                                    } else {
+                                        controlsVisible = !controlsVisible
+                                    }
+                                    interactions++
+                                })
                             },
-                            primary = true,
-                            autoFocus = true,
-                        )
-                        GlassButton(Ar.back, onBack)
+                    )
+
+                    if ((buffering || reconnecting) && error == null) {
+                        Column(
+                            Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            CircularProgressIndicator(color = OsdCyan, trackColor = Color.White.copy(alpha = 0.15f))
+                            if (reconnecting) {
+                                Text(
+                                    Ar.reconnecting,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = OsdCyan,
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = controlsVisible && error == null,
+                        enter = fadeIn(tween(220)),
+                        exit = fadeOut(tween(180)),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        if (displayMode == DisplayMode.PHONE_LANDSCAPE) {
+                            // Clean, uncluttered Phone Landscape OSD (Video-first, organized bottom layer)
+                            PhoneLandscapePlayerOsd(
+                                item = item,
+                                isLive = isLive,
+                                playlistCount = seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size,
+                                currentProgram = currentProgram,
+                                isPlaying = isPlaying,
+                                position = position,
+                                bufferedPosition = bufferedPosition,
+                                duration = duration,
+                                playbackSpeed = playbackSpeed,
+                                tracks = tracks,
+                                textOff = textOff,
+                                hasVideoOverride = hasVideoOverride,
+                                showSkipIntro = !isLive && !skipIntroDismissed && position in 3_000L..110_000L,
+                                onSkipIntro = {
+                                    skipIntroDismissed = true
+                                    seekBy(85_000L)
+                                },
+                                onBack = onBack,
+                                onTogglePlay = togglePlay,
+                                onSeekBy = seekBy,
+                                onSeekTo = { target ->
+                                    exo.seekTo(target.coerceAtLeast(0L))
+                                    position = target
+                                    interactions++
+                                },
+                                onPrev = zapPrevious,
+                                onNext = zapNext,
+                                onCycleSpeed = cycleSpeed,
+                                onCycleResize = {
+                                    resizeIndex = (resizeIndex + 1) % ResizeModes.size
+                                    interactions++
+                                },
+                                onOpenTracks = {
+                                    showTracks = true
+                                    interactions++
+                                },
+                                onOpenGuide = {
+                                    showGuide = true
+                                    interactions++
+                                },
+                                onToggleDrawer = {
+                                    if (isLive) showQuickChannelsDrawer = !showQuickChannelsDrawer
+                                    else showEpisodesDrawer = !showEpisodesDrawer
+                                    interactions++
+                                },
+                                onRotateToPortrait = toggleOrientation,
+                            )
+                        } else if (isLive) {
+                            // Tablet & TV Rich Live OSD
+                            LiveExoPlayerOsd(
+                                item = item,
+                                playlist = playlist,
+                                currentIndex = index,
+                                currentProgram = currentProgram,
+                                nextProgram = nextProgram,
+                                isPlaying = isPlaying,
+                                position = position,
+                                duration = duration,
+                                bufferedPosition = bufferedPosition,
+                                tracks = tracks,
+                                textOff = textOff,
+                                hasVideoOverride = hasVideoOverride,
+                                formatExt = repo.liveExtensions().getOrElse(formatAttempt) { "m3u8" }.uppercase(Locale.US),
+                                showQuickDrawer = showQuickChannelsDrawer,
+                                onToggleQuickDrawer = {
+                                    showQuickChannelsDrawer = !showQuickChannelsDrawer
+                                    interactions++
+                                },
+                                onSelectChannel = goTo,
+                                onBack = onBack,
+                                onTogglePlay = togglePlay,
+                                onSeekBy = seekBy,
+                                onPrevChannel = zapPrevious,
+                                onNextChannel = zapNext,
+                                onOpenTracks = {
+                                    showTracks = true
+                                    interactions++
+                                },
+                                onOpenGuide = {
+                                    showGuide = true
+                                    interactions++
+                                },
+                                onCycleResize = {
+                                    resizeIndex = (resizeIndex + 1) % ResizeModes.size
+                                    interactions++
+                                },
+                            )
+                        } else {
+                            // Tablet & TV Rich VOD OSD
+                            VodMediaPlayerOsd(
+                                item = item,
+                                playlistCount = seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size,
+                                isPlaying = isPlaying,
+                                position = position,
+                                bufferedPosition = bufferedPosition,
+                                duration = duration,
+                                playbackSpeed = playbackSpeed,
+                                tracks = tracks,
+                                textOff = textOff,
+                                hasVideoOverride = hasVideoOverride,
+                                showSkipIntro = !skipIntroDismissed && position in 3_000L..110_000L,
+                                onSkipIntro = {
+                                    skipIntroDismissed = true
+                                    seekBy(85_000L)
+                                },
+                                onBack = onBack,
+                                onTogglePlay = togglePlay,
+                                onSeekBy = seekBy,
+                                onSeekTo = { target ->
+                                    exo.seekTo(target.coerceAtLeast(0L))
+                                    position = target
+                                    interactions++
+                                },
+                                onPrev = zapPrevious,
+                                onNext = zapNext,
+                                onCycleSpeed = cycleSpeed,
+                                onCycleResize = {
+                                    resizeIndex = (resizeIndex + 1) % ResizeModes.size
+                                    interactions++
+                                },
+                                onOpenTracks = {
+                                    showTracks = true
+                                    interactions++
+                                },
+                                onToggleEpisodesDrawer = {
+                                    showEpisodesDrawer = !showEpisodesDrawer
+                                    interactions++
+                                },
+                                onInteract = { interactions++ },
+                            )
+                        }
+                    }
+
+                    // Slide-Over Quick Channels Drawer for Phone Landscape when requested
+                    if (isLive && displayMode == DisplayMode.PHONE_LANDSCAPE) {
+                        AnimatedVisibility(
+                            visible = showQuickChannelsDrawer && error == null,
+                            enter = slideInHorizontally(tween(280)) { -it } + fadeIn(tween(200)),
+                            exit = slideOutHorizontally(tween(240)) { -it } + fadeOut(tween(160)),
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                        ) {
+                            PhoneLandscapeChannelsDrawer(
+                                playlist = playlist,
+                                currentIndex = index,
+                                currentProgram = currentProgram,
+                                onSelectChannel = { idx ->
+                                    goTo(idx)
+                                    showQuickChannelsDrawer = false
+                                },
+                                onClose = { showQuickChannelsDrawer = false },
+                            )
+                        }
+                    }
+
+                    // Side Episodes Drawer for VOD
+                    if (!isLive) {
+                        AnimatedVisibility(
+                            visible = showEpisodesDrawer && error == null,
+                            enter = slideInHorizontally(tween(320)) { -it } + fadeIn(tween(220)),
+                            exit = slideOutHorizontally(tween(260)) { -it } + fadeOut(tween(180)),
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                        ) {
+                            VodEpisodesDrawer(
+                                currentItem = item,
+                                playlist = playlist,
+                                currentIndex = index,
+                                seriesDetails = seriesDetails,
+                                position = position,
+                                duration = duration,
+                                compact = displayMode == DisplayMode.PHONE_LANDSCAPE,
+                                onSelectPlaylistIndex = { idx ->
+                                    goTo(idx)
+                                    if (displayMode == DisplayMode.PHONE_LANDSCAPE) showEpisodesDrawer = false
+                                },
+                                onSelectEpisode = { ep ->
+                                    playEpisodeFromDrawer(ep)
+                                    if (displayMode == DisplayMode.PHONE_LANDSCAPE) showEpisodesDrawer = false
+                                },
+                                onClose = { showEpisodesDrawer = false },
+                            )
+                        }
+                    }
+
+                    error?.let { message ->
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(OsdSurfaceLow.copy(alpha = 0.94f))
+                                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                                .padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                message,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OsdOnSurface,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                GlassButton(
+                                    Ar.retry,
+                                    {
+                                        autoReconnectCount = 0
+                                        formatAttempt = 0
+                                        retryKey++
+                                    },
+                                    primary = true,
+                                    autoFocus = true,
+                                )
+                                GlassButton(Ar.back, onBack)
+                            }
+                        }
                     }
                 }
             }
@@ -755,7 +910,880 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
 }
 
 // ============================================================================
-// 1. LIVE TV EXOPLAYER OSD (Matches ExoPlayer/code.html & ExoPlayer/screen.png)
+// MODE A: PHONE PORTRAIT PLAYER LAYOUT (Vertical: 16:9 Video + Info + List)
+// ============================================================================
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun PhonePortraitPlayerScreen(
+    exo: ExoPlayer,
+    item: PlayItem,
+    playlist: List<PlayItem>,
+    currentIndex: Int,
+    isLive: Boolean,
+    isPlaying: Boolean,
+    buffering: Boolean,
+    reconnecting: Boolean,
+    error: String?,
+    position: Long,
+    bufferedPosition: Long,
+    duration: Long,
+    playbackSpeed: Float,
+    tracks: Tracks,
+    textOff: Boolean,
+    hasVideoOverride: Boolean,
+    currentProgram: Program?,
+    nextProgram: Program?,
+    seriesDetails: SeriesDetails?,
+    controlsVisible: Boolean,
+    resizeMode: Int,
+    onToggleControls: () -> Unit,
+    onBack: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onSeekBy: (Long) -> Unit,
+    onSeekTo: (Long) -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onSelectPlaylistIndex: (Int) -> Unit,
+    onSelectEpisode: (Episode) -> Unit,
+    onCycleSpeed: () -> Unit,
+    onCycleResize: () -> Unit,
+    onOpenTracks: () -> Unit,
+    onOpenGuide: () -> Unit,
+    onEnterLandscape: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val videoBadge = remember(tracks, item.title) {
+        SahabPlayer.videoBadge(tracks, qualityOf(item.title) ?: "FHD")
+    }
+    val audioLabel = remember(tracks) { SahabPlayer.activeAudioLabel(tracks) }
+    val qualityLabel = remember(tracks, hasVideoOverride) {
+        SahabPlayer.activeQualityButtonLabel(tracks, hasVideoOverride, isLive)
+    }
+
+    val allEpisodes = seriesDetails?.episodes.orEmpty()
+    val seasons = remember(seriesDetails) { seriesDetails?.seasons.orEmpty() }
+    val currentEpObj = remember(allEpisodes, item.id) { allEpisodes.firstOrNull { it.id == item.id } }
+    var selectedSeason by remember(currentEpObj, seasons) {
+        mutableIntStateOf(currentEpObj?.season ?: seasons.firstOrNull() ?: 1)
+    }
+    val seasonEpisodes = remember(allEpisodes, selectedSeason) {
+        if (allEpisodes.isEmpty()) emptyList() else allEpisodes.filter { it.season == selectedSeason }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(OsdSurfaceLowest),
+    ) {
+        // 1. Top 16:9 Video Viewport
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .background(Color.Black),
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                        player = exo
+                    }
+                },
+                update = { it.resizeMode = resizeMode },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { onToggleControls() })
+                    },
+            )
+
+            if ((buffering || reconnecting) && error == null) {
+                CircularProgressIndicator(
+                    color = OsdCyan,
+                    trackColor = Color.White.copy(alpha = 0.15f),
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+
+            // Touch Overlay inside 16:9 Video
+            if (controlsVisible && error == null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.48f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    // Top Row inside video: Back + Live/Quality + Fullscreen Landscape Button
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OsdIconSquareButton(
+                            icon = Ic.Back,
+                            description = Ar.back,
+                            onClick = onBack,
+                            size = 38.dp,
+                            circle = true,
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (isLive) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(Palette.Live)
+                                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                                ) {
+                                    Text(Ar.liveBadge, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                            FormatChip(videoBadge, OsdPrimary)
+                            OsdIconSquareButton(
+                                icon = Ic.Aspect,
+                                description = Ar.fullscreen,
+                                onClick = onEnterLandscape,
+                                size = 38.dp,
+                                circle = true,
+                            )
+                        }
+                    }
+
+                    // Center Transport Row (LTR for standard media order)
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (playlist.size > 1) {
+                                OsdIconSquareButton(Ic.Previous, Ar.previous, onPrev, size = 40.dp, circle = true)
+                            }
+                            OsdIconSquareButton(Ic.Previous, "-10", { onSeekBy(-SEEK_STEP_MS) }, size = 42.dp, circle = true, label = "-10")
+                            OsdPrimaryPlayButton(
+                                isPlaying = isPlaying,
+                                onClick = onTogglePlay,
+                                size = 56.dp,
+                                cornerRadius = 28.dp,
+                            )
+                            OsdIconSquareButton(Ic.Next, "+10", { onSeekBy(SEEK_STEP_MS) }, size = 42.dp, circle = true, label = "+10")
+                            if (playlist.size > 1) {
+                                OsdIconSquareButton(Ic.Next, Ar.next, onNext, size = 40.dp, circle = true)
+                            }
+                        }
+                    }
+
+                    // Bottom Scrubber inside video
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0.85f
+                        val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0.95f
+                        GradientTimelineBar(
+                            progress = progressFraction,
+                            buffered = bufferedFraction,
+                            showChapters = !isLive,
+                            onSeekToFraction = if (!isLive && duration > 0L) {
+                                { frac -> onSeekTo((duration * frac).toLong()) }
+                            } else null,
+                            onSeekBy = onSeekBy,
+                        )
+                        if (!isLive) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(formatDuration(position), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text(formatDuration(duration), fontSize = 11.sp, color = OsdOnSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+
+            error?.let { message ->
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(message, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(Modifier.height(8.dp))
+                    GlassButton(Ar.retry, onRetry, primary = true)
+                }
+            }
+        }
+
+        // 2. Channel / Title Metadata & Quick Action Toolbar (Below Video)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(OsdSurfaceLow)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (item.icon.isNotBlank()) {
+                    RemoteImage(
+                        url = item.icon,
+                        fallbackText = item.title,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(OsdSurfaceHighest)
+                            .padding(4.dp),
+                        contentScale = if (isLive) ContentScale.Fit else ContentScale.Crop,
+                    )
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        item.title,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val sub = if (isLive) {
+                        currentProgram?.title?.takeIf { it.isNotBlank() }
+                            ?: nextProgram?.let { "${Ar.nextShowing}: ${it.title}" }
+                            ?: "بث مباشر فائق الوضوح"
+                    } else {
+                        item.subtitle.ifBlank { "مشاهدة مباشرة عبر مشغل سحاب Media3" }
+                    }
+                    Text(
+                        sub,
+                        fontSize = 13.sp,
+                        color = OsdPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            // Scrollable Action Pills Row (Never crowded!)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 2.dp),
+            ) {
+                item {
+                    OsdPillButton(
+                        label = Ar.fullscreen,
+                        leadingIcon = Ic.Aspect,
+                        iconTint = OsdOnPrimary,
+                        highlighted = true,
+                        onClick = onEnterLandscape,
+                    )
+                }
+                item {
+                    OsdPillButton(
+                        label = audioLabel,
+                        leadingIcon = Ic.Equalizer,
+                        iconTint = OsdCyan,
+                        onClick = onOpenTracks,
+                    )
+                }
+                item {
+                    OsdPillButton(
+                        label = qualityLabel,
+                        leadingIcon = Ic.Quality,
+                        iconTint = OsdPrimary,
+                        onClick = onOpenTracks,
+                    )
+                }
+                if (isLive) {
+                    item {
+                        OsdPillButton(
+                            label = Ar.guide,
+                            leadingIcon = Ic.Clock,
+                            iconTint = OsdTertiary,
+                            onClick = onOpenGuide,
+                        )
+                    }
+                } else {
+                    item {
+                        OsdPillButton(
+                            label = String.format(Locale.US, "%.2fx", playbackSpeed).replace(".00x", ".0x"),
+                            leadingIcon = Ic.Speed,
+                            iconTint = OsdCyan,
+                            onClick = onCycleSpeed,
+                        )
+                    }
+                }
+                item {
+                    OsdPillButton(
+                        label = "أبعاد الشاشة",
+                        leadingIcon = Ic.Aspect,
+                        iconTint = OsdOnSurfaceVariant,
+                        onClick = onCycleResize,
+                    )
+                }
+            }
+        }
+
+        // 3. Vertical Channels or Episodes List (Takes remaining screen height without overlapping video)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (isLive) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "دليل القنوات السريع",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OsdPrimary,
+                    )
+                    Text(
+                        "${currentIndex + 1} / ${playlist.size}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OsdCyan,
+                    )
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                ) {
+                    itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
+                        val active = idx == currentIndex
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (active) OsdPrimaryContainer.copy(alpha = 0.38f)
+                                    else OsdSurfaceContainer.copy(alpha = 0.85f),
+                                )
+                                .border(
+                                    width = if (active) 1.5.dp else 1.dp,
+                                    color = if (active) OsdPrimary else OsdOutlineVariant.copy(alpha = 0.30f),
+                                    shape = RoundedCornerShape(14.dp),
+                                )
+                                .clickable { onSelectPlaylistIndex(idx) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                String.format(Locale.US, "%02d", idx + 1),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (active) OsdCyan else OsdOnSurfaceVariant,
+                            )
+                            RemoteImage(
+                                url = ch.icon,
+                                fallbackText = ch.title,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(OsdSurfaceHighest)
+                                    .padding(3.dp),
+                                contentScale = ContentScale.Fit,
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    ch.title,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (active) Color.White else OsdOnSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    if (active && currentProgram != null) currentProgram.title else "بث مباشر",
+                                    fontSize = 12.sp,
+                                    color = if (active) OsdCyan else OsdOnSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (active) {
+                                Icon(Ic.Equalizer, contentDescription = null, tint = OsdCyan, modifier = Modifier.size(20.dp))
+                            } else {
+                                val q = qualityOf(ch.title) ?: "HD"
+                                FormatChip(q, if (q == "4K") OsdPrimary else OsdOnSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Series Episodes or Movie Playlist in Portrait
+                if (seasons.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(vertical = 2.dp),
+                    ) {
+                        items(seasons, key = { it }) { sNum ->
+                            val selected = sNum == selectedSeason
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (selected) OsdPrimary else OsdSurfaceHigh)
+                                    .clickable { selectedSeason = sNum }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    Ar.season(sNum),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selected) OsdOnPrimary else OsdOnSurface,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                ) {
+                    if (seasonEpisodes.isNotEmpty()) {
+                        itemsIndexed(seasonEpisodes, key = { _, ep -> ep.id }) { _, ep ->
+                            val isCurrent = ep.id == item.id
+                            val isWatched = currentEpObj != null &&
+                                (ep.season < currentEpObj.season ||
+                                    (ep.season == currentEpObj.season && ep.number < currentEpObj.number))
+                            val isNext = currentEpObj != null &&
+                                ep.season == currentEpObj.season &&
+                                ep.number == currentEpObj.number + 1
+                            EpisodeDrawerCard(
+                                number = ep.number,
+                                title = ep.title,
+                                plot = ep.plot.ifBlank { "حلقة كاملة من ${item.title}" },
+                                imageUrl = ep.image.ifBlank { seriesDetails?.cover.orEmpty() }.ifBlank { item.icon },
+                                durationText = ep.duration.ifBlank { "45:00" },
+                                isCurrent = isCurrent,
+                                isWatched = isWatched,
+                                isNext = isNext,
+                                progressFraction = if (isCurrent && duration > 0L) (position.toFloat() / duration).coerceIn(0.05f, 1f) else 0.45f,
+                                remainingMinutes = if (isCurrent && duration > position) ((duration - position) / 60_000L).toInt().coerceAtLeast(1) else 25,
+                                onClick = { onSelectEpisode(ep) },
+                            )
+                        }
+                    } else {
+                        itemsIndexed(playlist, key = { i, p -> "${p.id}_$i" }) { idx, p ->
+                            EpisodeDrawerCard(
+                                number = idx + 1,
+                                title = p.subtitle.ifBlank { p.title },
+                                plot = p.title,
+                                imageUrl = p.icon,
+                                durationText = if (idx == currentIndex && duration > 0L) formatDuration(duration) else "FHD",
+                                isCurrent = idx == currentIndex,
+                                isWatched = idx < currentIndex,
+                                isNext = idx == currentIndex + 1,
+                                progressFraction = if (idx == currentIndex && duration > 0L) (position.toFloat() / duration).coerceIn(0.05f, 1f) else 0.5f,
+                                remainingMinutes = 25,
+                                onClick = { onSelectPlaylistIndex(idx) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// MODE B: PHONE LANDSCAPE OSD (Video-first, clean top/bottom bars, no clutter)
+// ============================================================================
+
+@Composable
+private fun PhoneLandscapePlayerOsd(
+    item: PlayItem,
+    isLive: Boolean,
+    playlistCount: Int,
+    currentProgram: Program?,
+    isPlaying: Boolean,
+    position: Long,
+    bufferedPosition: Long,
+    duration: Long,
+    playbackSpeed: Float,
+    tracks: Tracks,
+    textOff: Boolean,
+    hasVideoOverride: Boolean,
+    showSkipIntro: Boolean,
+    onSkipIntro: () -> Unit,
+    onBack: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onSeekBy: (Long) -> Unit,
+    onSeekTo: (Long) -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onCycleSpeed: () -> Unit,
+    onCycleResize: () -> Unit,
+    onOpenTracks: () -> Unit,
+    onOpenGuide: () -> Unit,
+    onToggleDrawer: () -> Unit,
+    onRotateToPortrait: () -> Unit,
+) {
+    val videoBadge = remember(tracks, item.title) {
+        SahabPlayer.videoBadge(tracks, qualityOf(item.title) ?: "FHD")
+    }
+    val audioLabel = remember(tracks) { SahabPlayer.activeAudioLabel(tracks) }
+    val qualityLabel = remember(tracks, hasVideoOverride) {
+        SahabPlayer.activeQualityButtonLabel(tracks, hasVideoOverride, isLive)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        OsdSurfaceLowest.copy(alpha = 0.78f),
+                        Color.Transparent,
+                        OsdSurfaceLowest.copy(alpha = 0.85f),
+                    ),
+                ),
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        // 1. Compact Top Bar: Back + Title + Subtitle + Quick Action Buttons
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(OsdSurfaceLow.copy(alpha = 0.82f))
+                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                OsdIconSquareButton(Ic.Back, Ar.back, onBack, size = 38.dp, circle = true)
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            item.title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (isLive) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Palette.Live.copy(alpha = 0.25f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(Ar.liveBadge, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = OsdError)
+                            }
+                        }
+                        FormatChip(videoBadge, OsdPrimary)
+                    }
+                    val sub = if (isLive) currentProgram?.title.orEmpty() else item.subtitle
+                    if (sub.isNotBlank()) {
+                        Text(
+                            sub,
+                            fontSize = 12.sp,
+                            color = OsdOnSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (playlistCount > 1 || item.kind == Kind.EPISODE) {
+                    OsdPillButton(
+                        label = if (isLive) "القنوات ($playlistCount)" else "الحلقات ($playlistCount)",
+                        leadingIcon = Ic.List,
+                        iconTint = OsdPrimary,
+                        onClick = onToggleDrawer,
+                    )
+                }
+                if (isLive) {
+                    OsdIconSquareButton(Ic.Clock, Ar.guide, onOpenGuide, size = 38.dp)
+                }
+                OsdIconSquareButton(Ic.Aspect, "أبعاد العرض", onCycleResize, size = 38.dp)
+                OsdIconSquareButton(Ic.Refresh, "الوضع الرأسي", onRotateToPortrait, size = 38.dp)
+            }
+        }
+
+        // 2. Center Transport Controls (Large, touch-friendly, uncluttered)
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Row(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalArrangement = Arrangement.spacedBy(22.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (playlistCount > 1) {
+                    OsdIconSquareButton(Ic.Previous, Ar.previous, onPrev, size = 44.dp, circle = true)
+                }
+                OsdIconSquareButton(
+                    icon = Ic.Previous,
+                    description = "-10",
+                    label = "-10",
+                    onClick = { onSeekBy(-SEEK_STEP_MS) },
+                    size = 46.dp,
+                    circle = true,
+                )
+                OsdPrimaryPlayButton(
+                    isPlaying = isPlaying,
+                    onClick = onTogglePlay,
+                    size = 60.dp,
+                    cornerRadius = 30.dp,
+                    showOuterRing = true,
+                )
+                OsdIconSquareButton(
+                    icon = Ic.Next,
+                    description = "+10",
+                    label = "+10",
+                    onClick = { onSeekBy(SEEK_STEP_MS) },
+                    size = 46.dp,
+                    circle = true,
+                )
+                if (playlistCount > 1) {
+                    OsdIconSquareButton(Ic.Next, Ar.next, onNext, size = 44.dp, circle = true)
+                }
+            }
+        }
+
+        if (showSkipIntro) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(OsdPrimaryContainer)
+                    .border(1.dp, OsdCyan, RoundedCornerShape(14.dp))
+                    .clickable(onClick = onSkipIntro)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("تخطي المقدمة", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Icon(Ic.FastForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+        }
+
+        // 3. Organized Bottom Layer: Timeline + Track Pills
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(OsdSurfaceLow.copy(alpha = 0.88f))
+                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0.85f
+            val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0.95f
+
+            GradientTimelineBar(
+                progress = progressFraction,
+                buffered = bufferedFraction,
+                showChapters = !isLive,
+                onSeekToFraction = if (!isLive && duration > 0L) {
+                    { frac -> onSeekTo((duration * frac).toLong()) }
+                } else null,
+                onSeekBy = onSeekBy,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isLive) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(OsdCyan))
+                        Text("طرف البث الحي (Live Edge)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
+                        Text(formatDuration(position), fontSize = 12.sp, color = OsdOnSurface)
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(formatDuration(position), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("/", fontSize = 12.sp, color = OsdOutline)
+                        Text(formatDuration(duration), fontSize = 12.sp, color = OsdOnSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        val rem = (duration - position).coerceAtLeast(0L)
+                        Text("المتبقي: -${formatDuration(rem)}", fontSize = 11.sp, color = OsdTertiary)
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OsdPillButton(
+                        label = audioLabel,
+                        leadingIcon = Ic.Equalizer,
+                        iconTint = OsdCyan,
+                        onClick = onOpenTracks,
+                    )
+                    OsdPillButton(
+                        label = if (textOff) "الترجمة" else "الترجمة: مفعلة",
+                        leadingIcon = Ic.Subtitles,
+                        iconTint = OsdTertiary,
+                        onClick = onOpenTracks,
+                    )
+                    OsdPillButton(
+                        label = qualityLabel,
+                        leadingIcon = Ic.Quality,
+                        iconTint = OsdPrimary,
+                        onClick = onOpenTracks,
+                    )
+                    if (!isLive) {
+                        OsdPillButton(
+                            label = String.format(Locale.US, "%.2fx", playbackSpeed).replace(".00x", ".0x"),
+                            leadingIcon = Ic.Speed,
+                            iconTint = OsdCyan,
+                            onClick = onCycleSpeed,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhoneLandscapeChannelsDrawer(
+    playlist: List<PlayItem>,
+    currentIndex: Int,
+    currentProgram: Program?,
+    onSelectChannel: (Int) -> Unit,
+    onClose: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(320.dp)
+            .fillMaxHeight()
+            .background(OsdSurfaceLowest.copy(alpha = 0.96f))
+            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.45f), RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Ic.List, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(20.dp))
+                Text(
+                    "دليل القنوات (${currentIndex + 1}/${playlist.size})",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+            OsdIconSquareButton(Ic.Close, Ar.close, onClose, size = 34.dp, circle = true)
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
+                val active = idx == currentIndex
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (active) OsdPrimaryContainer.copy(alpha = 0.42f) else OsdSurfaceHigh.copy(alpha = 0.70f))
+                        .border(1.dp, if (active) OsdPrimary else Color.Transparent, RoundedCornerShape(12.dp))
+                        .clickable { onSelectChannel(idx) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        String.format(Locale.US, "%02d", idx + 1),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (active) OsdCyan else OsdOnSurfaceVariant,
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            ch.title,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OsdOnSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (active && currentProgram != null) {
+                            Text(
+                                currentProgram.title,
+                                fontSize = 11.sp,
+                                color = OsdCyan,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (active) {
+                        Icon(Ic.Equalizer, contentDescription = null, tint = OsdCyan, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// MODE C1: TABLET & TV LIVE EXOPLAYER OSD (Matches ExoPlayer/screen.png)
 // ============================================================================
 
 @Composable
@@ -807,7 +1835,6 @@ private fun LiveExoPlayerOsd(
     )
 
     Box(Modifier.fillMaxSize()) {
-        // Layered Cinematic Scrims for TV Legibility
         Box(
             Modifier
                 .fillMaxSize()
@@ -839,7 +1866,6 @@ private fun LiveExoPlayerOsd(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                // Right Side (RTL Start): Back Button + Broadcaster Identity + Channel Title
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -852,7 +1878,6 @@ private fun LiveExoPlayerOsd(
                         size = 46.dp,
                     )
 
-                    // Channel Logo Box with bottom gradient bar
                     Box(
                         modifier = Modifier
                             .width(56.dp)
@@ -905,7 +1930,6 @@ private fun LiveExoPlayerOsd(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            // Pulsing "مباشر • REC" badge
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(50))
@@ -957,12 +1981,10 @@ private fun LiveExoPlayerOsd(
 
                 Spacer(Modifier.width(12.dp))
 
-                // Left Side (RTL End): Real-Time Stream Performance Telemetry Pill + Clock Widget
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    // Telemetry Pill
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
@@ -997,7 +2019,6 @@ private fun LiveExoPlayerOsd(
                         }
                     }
 
-                    // Clock & Weather Widget
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -1024,14 +2045,13 @@ private fun LiveExoPlayerOsd(
                 }
             }
 
-            // CENTER STAGE: Sync Toast & Floating Quick Channels EPG Drawer (Left-aligned in RTL)
+            // CENTER STAGE: Sync Toast & Adaptive Quick Channels EPG Drawer
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(vertical = 10.dp),
             ) {
-                // Ambient Center Sync Indicator Toast
                 Row(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -1056,13 +2076,12 @@ private fun LiveExoPlayerOsd(
                     )
                 }
 
-                // Quick Channels EPG Overlay Drawer (Left side in RTL, matching ExoPlayer/screen.png)
                 if (showQuickDrawer && playlist.isNotEmpty()) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .width(300.dp)
-                            .heightIn(max = 360.dp)
+                            .fillMaxHeight()
                             .clip(RoundedCornerShape(20.dp))
                             .background(OsdSurfaceLow.copy(alpha = 0.92f))
                             .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(20.dp))
@@ -1072,7 +2091,7 @@ private fun LiveExoPlayerOsd(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 6.dp),
+                                .padding(bottom = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -1104,7 +2123,9 @@ private fun LiveExoPlayerOsd(
 
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
                         ) {
                             itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
                                 val active = idx == currentIndex
@@ -1208,7 +2229,6 @@ private fun LiveExoPlayerOsd(
                     .padding(horizontal = 18.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // 1. Live Edge & Progress Bar Row
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1279,13 +2299,11 @@ private fun LiveExoPlayerOsd(
                     )
                 }
 
-                // 2. D-Pad Remote Button Controls Toolbar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Right Wing (RTL Start): Channel Step & Transport
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1320,12 +2338,10 @@ private fun LiveExoPlayerOsd(
                         )
                     }
 
-                    // Center Wing: Audio, Subtitle & Video Quality Switchers
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        // Audio / Commentator Selector
                         OsdTwoLineTrackButton(
                             topLabel = "الصوت / المعلق",
                             bottomLabel = audioLabel,
@@ -1333,14 +2349,12 @@ private fun LiveExoPlayerOsd(
                             iconTint = OsdCyan,
                             onClick = onOpenTracks,
                         )
-                        // Subtitle Selector
                         OsdPillButton(
                             label = subtitleLabel,
                             leadingIcon = Ic.Subtitles,
                             iconTint = OsdTertiary,
                             onClick = onOpenTracks,
                         )
-                        // Video Quality Switcher
                         OsdPillButton(
                             label = qualityBtnLabel,
                             leadingIcon = Ic.Quality,
@@ -1349,7 +2363,6 @@ private fun LiveExoPlayerOsd(
                         )
                     }
 
-                    // Left Wing (RTL End): Aspect Ratio, Full EPG, Quick Channels Drawer Toggle
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1374,11 +2387,9 @@ private fun LiveExoPlayerOsd(
                     }
                 }
 
-                // 3. TV Remote D-Pad Navigation Legend / Bottom Help Hint
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(0.5.dp, Color.Transparent, RoundedCornerShape(0.dp))
                         .padding(top = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
@@ -1411,7 +2422,7 @@ private fun LiveExoPlayerOsd(
 }
 
 // ============================================================================
-// 2. VOD MEDIA PLAYER OSD (Matches media-player/code.html & media-player/screen.png)
+// MODE C2: TABLET & TV VOD MEDIA PLAYER OSD (Matches media-player/screen.png)
 // ============================================================================
 
 @Composable
@@ -1458,7 +2469,6 @@ private fun VodMediaPlayerOsd(
     )
 
     Box(Modifier.fillMaxSize()) {
-        // Cinematic Vignettes & Scrim Gradients
         Box(
             Modifier
                 .fillMaxSize()
@@ -1490,7 +2500,6 @@ private fun VodMediaPlayerOsd(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                // Right Side (RTL Start): Circular Back Button & Show Metadata
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -1550,7 +2559,6 @@ private fun VodMediaPlayerOsd(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Box(Modifier.size(5.dp).clip(CircleShape).background(OsdOutlineVariant))
-                            // Format Badges: 4K Ultra HD | HDR10+ | Dolby Vision | Atmos 5.1
                             FormatChip("4K Ultra HD", OsdPrimary)
                             FormatChip("HDR10+", OsdCyan)
                             FormatChip("Dolby Vision", OsdOnSurface)
@@ -1561,12 +2569,10 @@ private fun VodMediaPlayerOsd(
 
                 Spacer(Modifier.width(12.dp))
 
-                // Left Side (RTL End): Media3 Buffer Telemetry + Speed Pill + Clock
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    // Live ExoPlayer Buffer / Throughput Telemetry
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
@@ -1585,7 +2591,6 @@ private fun VodMediaPlayerOsd(
                         Text("Media3 Buffer", fontSize = 10.sp, color = OsdOutline)
                     }
 
-                    // Playback Rate Pill (Interactive!)
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
@@ -1604,7 +2609,6 @@ private fun VodMediaPlayerOsd(
                         )
                     }
 
-                    // Clock Widget
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1615,7 +2619,7 @@ private fun VodMediaPlayerOsd(
                 }
             }
 
-            // 2. CENTER FLOATING AREA: Active Subtitle Pill & Smart "Skip Intro" Prompt
+            // 2. CENTER FLOATING AREA
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1623,7 +2627,6 @@ private fun VodMediaPlayerOsd(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom,
             ) {
-                // Active Subtitle Info Pill
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
@@ -1646,7 +2649,6 @@ private fun VodMediaPlayerOsd(
                     }
                 }
 
-                // Smart Floating "Skip Intro" Prompt
                 if (showSkipIntro) {
                     var skipFocused by remember { mutableStateOf(false) }
                     Row(
@@ -1704,7 +2706,6 @@ private fun VodMediaPlayerOsd(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // Timeline & Seekbar with Chapter Markers
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
                     val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0f
@@ -1720,7 +2721,6 @@ private fun VodMediaPlayerOsd(
                         onSeekBy = onSeekBy,
                     )
 
-                    // Time Metadata Display
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1754,13 +2754,11 @@ private fun VodMediaPlayerOsd(
                     }
                 }
 
-                // Main Controls Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Right Wing (RTL Start): Episodes Drawer Toggle + Audio + Subtitles
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1813,7 +2811,6 @@ private fun VodMediaPlayerOsd(
                         )
                     }
 
-                    // Center Wing: Core ExoPlayer Transport Controls (Circular TV D-Pad Oriented)
                     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1863,7 +2860,6 @@ private fun VodMediaPlayerOsd(
                         }
                     }
 
-                    // Left Wing (RTL End): Quality + Aspect Ratio + Settings
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1889,7 +2885,6 @@ private fun VodMediaPlayerOsd(
                     }
                 }
 
-                // 5. D-PAD NAVIGATION HINTS BAR (ANDROID TV REMOTE)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1927,6 +2922,7 @@ private fun VodEpisodesDrawer(
     seriesDetails: SeriesDetails?,
     position: Long,
     duration: Long,
+    compact: Boolean = false,
     onSelectPlaylistIndex: (Int) -> Unit,
     onSelectEpisode: (Episode) -> Unit,
     onClose: () -> Unit,
@@ -1949,15 +2945,14 @@ private fun VodEpisodesDrawer(
 
     Column(
         modifier = Modifier
-            .width(410.dp)
+            .width(if (compact) 340.dp else 410.dp)
             .widthIn(max = 420.dp)
             .fillMaxHeight()
             .background(OsdSurfaceLowest.copy(alpha = 0.96f))
             .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(if (compact) 14.dp else 20.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
     ) {
-        // Drawer Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1967,11 +2962,11 @@ private fun VodEpisodesDrawer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(Ic.Series, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(26.dp))
+                Icon(Ic.Series, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(24.dp))
                 Column {
                     Text(
                         if (currentItem.kind == Kind.EPISODE) "حلقات المسلسل" else "قائمة التشغيل",
-                        fontSize = 18.sp,
+                        fontSize = if (compact) 16.sp else 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                     )
@@ -1993,7 +2988,6 @@ private fun VodEpisodesDrawer(
             )
         }
 
-        // Season Selector Tabs
         if (seasons.isNotEmpty()) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2006,7 +3000,7 @@ private fun VodEpisodesDrawer(
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (selected) OsdPrimary else OsdSurfaceHigh.copy(alpha = 0.80f))
                             .clickable { selectedSeason = seasonNum }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 16.dp, vertical = 7.dp),
                     ) {
                         Text(
                             Ar.season(seasonNum),
@@ -2019,12 +3013,11 @@ private fun VodEpisodesDrawer(
             }
         }
 
-        // Episodes Scrollable Card List
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (seasonEpisodes.isNotEmpty()) {
                 itemsIndexed(seasonEpisodes, key = { _, ep -> ep.id }) { _, ep ->
@@ -2073,31 +3066,32 @@ private fun VodEpisodesDrawer(
             }
         }
 
-        // Drawer Footer Quick Action
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        if (!compact) {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Icon(Ic.CheckCircle, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(18.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Ic.CheckCircle, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(18.dp))
+                    Text(
+                        "مخزن مؤقتاً عبر Media3 للاستجابة الفورية",
+                        fontSize = 11.sp,
+                        color = OsdPrimary,
+                    )
+                }
                 Text(
-                    "مخزن مؤقتاً عبر Media3 للاستجابة الفورية",
+                    "كاش ذكي",
                     fontSize = 11.sp,
-                    color = OsdPrimary,
+                    fontWeight = FontWeight.Bold,
+                    color = OsdCyan,
                 )
             }
-            Text(
-                "كاش ذكي",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = OsdCyan,
-            )
         }
     }
 }
@@ -2140,11 +3134,10 @@ private fun EpisodeDrawerCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Thumbnail Container
             Box(
                 modifier = Modifier
-                    .width(120.dp)
-                    .height(74.dp)
+                    .width(114.dp)
+                    .height(70.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(OsdSurfaceLowest),
             ) {
@@ -2172,7 +3165,7 @@ private fun EpisodeDrawerCard(
                         else -> Ic.Play
                     }
                     val overlayTint = if (isWatched) OsdCyan else Color.White
-                    Icon(overlayIcon, contentDescription = null, tint = overlayTint, modifier = Modifier.size(26.dp))
+                    Icon(overlayIcon, contentDescription = null, tint = overlayTint, modifier = Modifier.size(24.dp))
                 }
 
                 if (isCurrent) {
@@ -2204,7 +3197,6 @@ private fun EpisodeDrawerCard(
                 }
             }
 
-            // Meta Details
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -2212,19 +3204,19 @@ private fun EpisodeDrawerCard(
                 when {
                     isCurrent -> Text(
                         "الحلقة الحالية قيد المشاهدة",
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = OsdPrimary,
                     )
                     isWatched -> Text(
                         "تمت المشاهدة بالكامل",
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = OsdCyan,
                     )
                     isNext -> Text(
                         "الحلقة التالية",
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = OsdPrimary,
                     )
@@ -2241,7 +3233,7 @@ private fun EpisodeDrawerCard(
 
                 Text(
                     plot,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     color = if (isCurrent) OsdTertiary else OsdOutline,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -2252,8 +3244,8 @@ private fun EpisodeDrawerCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("متبقي $remainingMinutes دقيقة", fontSize = 10.sp, color = OsdPrimary)
-                        Text("4K UHD", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = OsdPrimary)
+                        Text("متبقي $remainingMinutes دقيقة", fontSize = 11.sp, color = OsdPrimary)
+                        Text("4K UHD", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = OsdPrimary)
                     }
                 }
             }
@@ -2279,7 +3271,6 @@ private fun GradientTimelineBar(
     val shown = (dragFraction ?: progress).coerceIn(0f, 1f)
     val bufShown = buffered.coerceIn(shown, 1f)
 
-    // Keep timeline LTR so progress grows left-to-right or follows standard media scrubbers
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Canvas(
             modifier = Modifier
@@ -2328,7 +3319,6 @@ private fun GradientTimelineBar(
             val top = (size.height - trackHeight) / 2f
             val radius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
 
-            // Base track
             drawRoundRect(
                 color = OsdSurfaceHighest.copy(alpha = 0.85f),
                 topLeft = Offset(0f, top),
@@ -2336,7 +3326,6 @@ private fun GradientTimelineBar(
                 cornerRadius = radius,
             )
 
-            // Buffered segment
             drawRoundRect(
                 color = OsdOutlineVariant.copy(alpha = 0.65f),
                 topLeft = Offset(0f, top),
@@ -2344,7 +3333,6 @@ private fun GradientTimelineBar(
                 cornerRadius = radius,
             )
 
-            // Active glowing gradient progress bar (Violet -> Lilac -> Electric Cyan)
             val activeWidth = (size.width * shown).coerceAtLeast(trackHeight)
             drawRoundRect(
                 brush = Brush.horizontalGradient(
@@ -2355,7 +3343,6 @@ private fun GradientTimelineBar(
                 cornerRadius = radius,
             )
 
-            // Chapter markers
             if (showChapters) {
                 val chapters = floatArrayOf(0.15f, 0.42f, 0.85f)
                 for (ch in chapters) {
@@ -2369,7 +3356,6 @@ private fun GradientTimelineBar(
                 }
             }
 
-            // Playhead thumb
             val thumbX = (size.width * shown).coerceIn(8.dp.toPx(), size.width - 8.dp.toPx())
             val center = Offset(thumbX, size.height / 2f)
             val outerRadius = if (focused || dragFraction != null) 10.dp.toPx() else 8.dp.toPx()
@@ -2486,7 +3472,7 @@ private fun OsdPillButton(
 
     Row(
         modifier = Modifier
-            .height(40.dp)
+            .height(38.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .border(
@@ -2501,7 +3487,7 @@ private fun OsdPillButton(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (leadingIcon != null) {
-            Icon(leadingIcon, contentDescription = null, tint = activeIconTint, modifier = Modifier.size(17.dp))
+            Icon(leadingIcon, contentDescription = null, tint = activeIconTint, modifier = Modifier.size(16.dp))
         }
         Text(
             label,
@@ -2511,7 +3497,7 @@ private fun OsdPillButton(
             maxLines = 1,
         )
         if (trailingIcon != null) {
-            Icon(trailingIcon, contentDescription = null, tint = activeIconTint, modifier = Modifier.size(17.dp))
+            Icon(trailingIcon, contentDescription = null, tint = activeIconTint, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -2630,7 +3616,7 @@ private fun TracksDialog(tracks: Tracks, exo: ExoPlayer, onDismiss: () -> Unit) 
                 .border(1.5.dp, OsdPrimary.copy(alpha = 0.45f), RoundedCornerShape(26.dp))
                 .padding(20.dp),
         ) {
-            Text(Ar.tracks, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = OsdOnSurface)
+            Text(Ar.tracks, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = OsdOnSurface)
             Spacer(Modifier.height(12.dp))
             LazyColumn(
                 contentPadding = PaddingValues(vertical = 4.dp),
@@ -2724,7 +3710,7 @@ private fun TrackRow(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             text = label,
-            fontSize = 17.sp,
+            fontSize = 16.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = OsdOnSurface,
             maxLines = 1,

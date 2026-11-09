@@ -42,7 +42,9 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.MovieDetails
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.DotTitle
@@ -145,21 +147,63 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                     val item = PlayItem(Kind.MOVIE, details.id, details.name, icon = details.image, ext = details.ext)
 
                     BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val wide = maxWidth >= 780.dp
-                        val hPad = if (wide) 36.dp else 18.dp
+                        val displayMode = LocalDisplayMode.current
+                        val hPad = when (displayMode) {
+                            DisplayMode.TABLET_OR_TV -> 36.dp
+                            DisplayMode.PHONE_LANDSCAPE -> 20.dp
+                            DisplayMode.PHONE_PORTRAIT -> 16.dp
+                        }
 
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScroll(rememberScrollState())
-                                .padding(horizontal = hPad, vertical = 16.dp),
+                                .padding(horizontal = hPad, vertical = 14.dp),
                         ) {
-                            if (wide) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(36.dp),
-                                    verticalAlignment = Alignment.Top,
-                                ) {
-                                    MoviePosterFrame(details.image, details.name, Modifier.width(270.dp))
+                            when (displayMode) {
+                                DisplayMode.TABLET_OR_TV -> {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(36.dp),
+                                        verticalAlignment = Alignment.Top,
+                                    ) {
+                                        MoviePosterFrame(details.image, details.name, Modifier.width(270.dp))
+                                        MovieInfoPanel(
+                                            details = details,
+                                            resumeMs = resumeMs,
+                                            durationMs = durationMs,
+                                            isFavorite = isFavorite,
+                                            onToggleFavorite = { vm.toggleFavorite(details) },
+                                            item = item,
+                                            onPlay = onPlay,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
+                                DisplayMode.PHONE_LANDSCAPE -> {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                        verticalAlignment = Alignment.Top,
+                                    ) {
+                                        MoviePosterFrame(details.image, details.name, Modifier.width(168.dp))
+                                        MovieInfoPanel(
+                                            details = details,
+                                            resumeMs = resumeMs,
+                                            durationMs = durationMs,
+                                            isFavorite = isFavorite,
+                                            onToggleFavorite = { vm.toggleFavorite(details) },
+                                            item = item,
+                                            onPlay = onPlay,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
+                                DisplayMode.PHONE_PORTRAIT -> {
+                                    MoviePosterFrame(
+                                        details.image,
+                                        details.name,
+                                        Modifier.width(190.dp).align(Alignment.CenterHorizontally),
+                                    )
+                                    Spacer(Modifier.height(18.dp))
                                     MovieInfoPanel(
                                         details = details,
                                         resumeMs = resumeMs,
@@ -168,26 +212,9 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                         onToggleFavorite = { vm.toggleFavorite(details) },
                                         item = item,
                                         onPlay = onPlay,
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
-                            } else {
-                                MoviePosterFrame(
-                                    details.image,
-                                    details.name,
-                                    Modifier.width(200.dp).align(Alignment.CenterHorizontally),
-                                )
-                                Spacer(Modifier.height(20.dp))
-                                MovieInfoPanel(
-                                    details = details,
-                                    resumeMs = resumeMs,
-                                    durationMs = durationMs,
-                                    isFavorite = isFavorite,
-                                    onToggleFavorite = { vm.toggleFavorite(details) },
-                                    item = item,
-                                    onPlay = onPlay,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
                             }
                             Spacer(Modifier.height(48.dp))
                         }

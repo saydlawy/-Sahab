@@ -77,12 +77,13 @@ fun AppRoot(container: AppContainer) {
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val isTv = LocalIsTv.current
-            val scale = when {
-                isTv -> 1f
-                maxWidth > maxHeight -> (maxHeight.value / 720f).coerceIn(0.85f, 1.15f)
-                else -> (minOf(maxWidth.value, maxHeight.value) / 400f).coerceIn(0.75f, 1.0f)
-            }
-            CompositionLocalProvider(LocalAppScale provides scale) {
+            val windowInfo = computeAdaptiveWindowInfo(maxWidth, maxHeight, isTv)
+            val scale = 1f
+            CompositionLocalProvider(
+                LocalAppScale provides scale,
+                LocalWindowInfo provides windowInfo,
+                LocalDisplayMode provides windowInfo.mode,
+            ) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -90,7 +91,7 @@ fun AppRoot(container: AppContainer) {
                 ) {
                     if (!onPlayer) DreamyBackground()
                     val contentModifier =
-                        if (onPlayer) Modifier.fillMaxSize()
+                        if (onPlayer && windowInfo.mode != DisplayMode.PHONE_PORTRAIT) Modifier.fillMaxSize()
                         else Modifier.fillMaxSize().safeDrawingPadding()
                     Box(contentModifier) {
                         val startRoute = start

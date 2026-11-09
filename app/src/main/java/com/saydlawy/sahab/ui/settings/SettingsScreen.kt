@@ -42,7 +42,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.UserInfo
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassButton
@@ -75,10 +77,11 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             contentAlignment = Alignment.TopCenter,
         ) {
-            val wide = maxWidth >= 860.dp
+            val displayMode = LocalDisplayMode.current
+            val wide = displayMode != DisplayMode.PHONE_PORTRAIT && maxWidth >= 660.dp
 
             Column(
                 modifier = Modifier.widthIn(max = 980.dp).fillMaxWidth(),
