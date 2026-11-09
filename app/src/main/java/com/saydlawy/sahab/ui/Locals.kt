@@ -33,6 +33,7 @@ object Routes {
     const val SERIES = "series"
     const val FAVORITES = "favorites"
     const val SETTINGS = "settings"
+    const val SPORTS = "sports"
     const val PLAYER = "player"
     const val MOVIE_PATTERN = "movie/{id}"
     const val SERIES_PATTERN = "series/{id}"

@@ -25,6 +25,7 @@ import androidx.navigation.navArgument
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.ui.browse.BrowseScreen
+import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.DreamyBackground
 import com.saydlawy.sahab.ui.detail.MovieDetailScreen
 import com.saydlawy.sahab.ui.detail.SeriesDetailScreen
@@ -97,6 +98,13 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             BrowseScreen(series = true, onBack = back, onOpenItem = { open(Routes.series(it)) })
         }
         composable(Routes.FAVORITES) { FavoritesScreen(onBack = back, onOpen = open, onPlay = play) }
+        composable(Routes.SPORTS) {
+            MessageBox(
+                message = "قريباً — قسم الرياضة",
+                actionLabel = "رجوع",
+                onAction = back,
+            )
+        }
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onBack = back,

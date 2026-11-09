@@ -1,198 +1,198 @@
 package com.saydlawy.sahab.ui.home
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
-import com.saydlawy.sahab.AppContainer
-import com.saydlawy.sahab.data.Kind
-import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
-import com.saydlawy.sahab.data.RecentItem
-import com.saydlawy.sahab.data.UserInfo
+import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
-import com.saydlawy.sahab.ui.appViewModel
-import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.GlassIconButton
 import com.saydlawy.sahab.ui.components.Ic
-import com.saydlawy.sahab.ui.components.ProgressLine
-import com.saydlawy.sahab.ui.components.RemoteImage
-import com.saydlawy.sahab.ui.components.SectionTitle
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
-import com.saydlawy.sahab.util.formatDate
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import com.saydlawy.sahab.ui.LocalIsTv
 import kotlinx.coroutines.delay
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.time.LocalDateTime
 
-class HomeViewModel(container: AppContainer) : ViewModel() {
+private val FocusBlue = Color(0xFF7DC4FF)
+private val DimText = Color(0xFF9AA7D6)
 
-    val recents: StateFlow<List<RecentItem>> = container.prefs.recents
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private val _info = MutableStateFlow<UserInfo?>(container.repo.userInfo)
-    val info: StateFlow<UserInfo?> = _info.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            try {
-                _info.value = container.repo.refreshUserInfo()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // The subscription line simply stays as it was.
-            }
-        }
-    }
-}
-
-private data class Tile(val icon: ImageVector, val label: String, val sub: String, val route: String, val gradient: List<Color>)
+private data class Category(
+    val label: String,
+    val sub: String,
+    val route: String,
+    val icon: ImageVector,
+    val art: Brush,
+)
 
 @Composable
 fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val isTv = LocalIsTv.current
 
+    val categories = remember {
+        listOf(
+            Category(Ar.live, Ar.liveSub, Routes.LIVE, Ic.Tv,
+                Brush.linearGradient(listOf(Color(0xFF4FC3FF), Color(0xFF1B5FD6), Color(0xFF0B1F5C)))),
+            Category(Ar.movies, Ar.moviesSub, Routes.MOVIES, Ic.Movie,
+                Brush.linearGradient(listOf(Color(0xFFFF8AD8), Color(0xFF9B2FD6), Color(0xFF2A0B5C)))),
+            Category(Ar.series, Ar.seriesSub, Routes.SERIES, Ic.Series,
+                Brush.linearGradient(listOf(Color(0xFFFFB36B), Color(0xFFD83D7A), Color(0xFF3A0B2E)))),
+        )
+    }
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF05060F), Color(0xFF0B0F24), Color(0xFF1B2352))
+                )
+            )
+    ) {
+        val s = (maxHeight.value / 720f).coerceIn(0.7f, 2f)
+        val wide = isTv || maxWidth > maxHeight
+
+        if (wide) {
+            WideHome(s, categories, autoFocus = isTv, onOpen = onOpen)
+        } else {
+            PhoneHome(categories, onOpen)
+        }
+    }
+}
+
+@Composable
+private fun WideHome(
+    s: Float,
+    categories: List<Category>,
+    autoFocus: Boolean,
+    onOpen: (String) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = (56 * s).dp, vertical = (40 * s).dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Column(
+            Modifier.width((300 * s).dp).fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy((22 * s).dp),
+        ) {
+            ActionIcons(size = (44 * s).dp, onOpen = onOpen)
+            SportsCard(Modifier.fillMaxWidth(), s) { onOpen(Routes.SPORTS) }
+            ClockWeather(s)
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        Row(horizontalArrangement = Arrangement.spacedBy((22 * s).dp)) {
+            categories.forEachIndexed { i, cat ->
+                CategoryCard(
+                    cat = cat,
+                    modifier = Modifier.width((200 * s).dp).height((320 * s).dp),
+                    s = s,
+                    autoFocus = autoFocus && i == 0,
+                    onClick = { onOpen(cat.route) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhoneHome(categories: List<Category>, onOpen: (String) -> Unit) {
     Column(
-        modifier = Modifier
+        Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(
-                horizontal = if (isTv) 48.dp else 20.dp,
-                vertical = if (isTv) 28.dp else 16.dp,
-            ),
-        verticalArrangement = Arrangement.spacedBy(if (isTv) 22.dp else 16.dp),
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        HomeHeader(isTv, onOpen)
-        WidgetsRow(isTv)
-        MainTiles(isTv, onOpen)
-        Spacer(Modifier.height(24.dp))
+        ActionIcons(size = 44.dp, onOpen = onOpen)
+        ClockWeather(s = 0.8f)
+        SportsCard(Modifier.fillMaxWidth(), 0.8f) { onOpen(Routes.SPORTS) }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            categories.forEach { cat ->
+                CategoryCard(
+                    cat = cat,
+                    modifier = Modifier.weight(1f).aspectRatio(0.625f),
+                    s = 0.6f,
+                    autoFocus = false,
+                    onClick = { onOpen(cat.route) },
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun HomeHeader(isTv: Boolean, onOpen: (String) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+private fun ActionIcons(size: androidx.compose.ui.unit.Dp, onOpen: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        GlassIconButton(Ic.Heart, Ar.favorites, { onOpen(Routes.FAVORITES) }, size = size)
+        GlassIconButton(Ic.Settings, Ar.settings, { onOpen(Routes.SETTINGS) }, size = size)
+    }
+}
+
+@Composable
+private fun SportsCard(modifier: Modifier, s: Float, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.04f else 1f, label = "sportsScale")
+    val shape = RoundedCornerShape((20 * s).dp)
+
+    Column(
+        modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.06f))
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) FocusBlue else Color.White.copy(alpha = 0.12f),
+                shape = shape,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding((20 * s).dp),
+        verticalArrangement = Arrangement.spacedBy((6 * s).dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(if (isTv) 54.dp else 42.dp)
-                .clip(CircleShape)
-                .background(Palette.Accent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Ic.Play, contentDescription = null, tint = Color.White,
-                modifier = Modifier.size(if (isTv) 26.dp else 22.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Ic.Football, null, tint = FocusBlue, modifier = Modifier.size((18 * s).dp))
+            Text("مباريات اليوم", fontSize = (15 * s).sp, color = DimText)
         }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                Ar.appName,
-                fontSize = if (isTv) 26.sp else 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-            )
-            Text(
-                Ar.tagline,
-                fontSize = if (isTv) 13.sp else 11.sp,
-                color = Palette.TextDim,
-                maxLines = 1,
-            )
-        }
-        GlassIconButton(
-            icon = Ic.Heart,
-            description = Ar.favorites,
-            onClick = { onOpen(Routes.FAVORITES) },
-            size = if (isTv) 52.dp else 44.dp,
+        Text(
+            "الفريق الأول  vs  الفريق الثاني",
+            fontSize = (19 * s).sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White,
+            maxLines = 1,
         )
-        GlassIconButton(
-            icon = Ic.Settings,
-            description = Ar.settings,
-            onClick = { onOpen(Routes.SETTINGS) },
-            size = if (isTv) 52.dp else 44.dp,
-        )
+        Text("9:00 م", fontSize = (14 * s).sp, color = FocusBlue)
     }
 }
 
 @Composable
-private fun WidgetsRow(isTv: Boolean) {
-    if (isTv) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            ClockWidget(Modifier.weight(1f))
-            WeatherWidget(Modifier.weight(1f))
-            SportsWidget(Modifier.weight(1f))
-            PrayerWidget(Modifier.weight(1f))
-        }
-    } else {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { ClockWidget(Modifier.width(200.dp)) }
-            item { WeatherWidget(Modifier.width(200.dp)) }
-            item { SportsWidget(Modifier.width(220.dp)) }
-            item { PrayerWidget(Modifier.width(200.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun ClockWidget(modifier: Modifier) {
+private fun ClockWeather(s: Float) {
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -200,197 +200,76 @@ private fun ClockWidget(modifier: Modifier) {
             now = LocalDateTime.now()
         }
     }
-    val timeStr = now.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.forLanguageTag("ar")))
-    val dateStr = now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", Locale.forLanguageTag("ar")))
+    val ar = Locale.forLanguageTag("ar")
+    val time = now.format(DateTimeFormatter.ofPattern("hh:mm", ar))
+    val date = now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", ar))
 
-    GlassCard(
-        onClick = {},
-        modifier = modifier.height(112.dp),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("الساعة", fontSize = 11.sp, color = Palette.TextDim)
-                Spacer(Modifier.height(4.dp))
-                Text(timeStr, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Text, maxLines = 1)
-                Spacer(Modifier.height(2.dp))
-                Text(dateStr, fontSize = 11.sp, color = Palette.TextDim, maxLines = 1)
-            }
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Palette.Cyan.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Ic.Clock, contentDescription = null, tint = Palette.Cyan, modifier = Modifier.size(22.dp))
-            }
+    Column(Modifier.padding(horizontal = (8 * s).dp), verticalArrangement = Arrangement.spacedBy((10 * s).dp)) {
+        Text(time, fontSize = (72 * s).sp, fontWeight = FontWeight.Light, color = Color.White, maxLines = 1)
+        Text(date, fontSize = (17 * s).sp, color = DimText, maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Ic.Sun, null, tint = Palette.Peach, modifier = Modifier.size((32 * s).dp))
+            Text("27° · الكويت", fontSize = (20 * s).sp, color = Color.White)
         }
     }
 }
 
 @Composable
-private fun WeatherWidget(modifier: Modifier) {
-    GlassCard(
-        onClick = {},
-        modifier = modifier.height(112.dp),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("الطقس", fontSize = 11.sp, color = Palette.TextDim)
-                Spacer(Modifier.height(4.dp))
-                Text("27°", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                Spacer(Modifier.height(2.dp))
-                Text("الكويت · سماء صافية", fontSize = 11.sp, color = Palette.TextDim, maxLines = 1)
-            }
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Palette.Peach.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Ic.Sun, contentDescription = null, tint = Palette.Peach, modifier = Modifier.size(24.dp))
-            }
+private fun CategoryCard(
+    cat: Category,
+    modifier: Modifier,
+    s: Float,
+    autoFocus: Boolean,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val requester = remember { FocusRequester() }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "cardScale")
+    val shape = RoundedCornerShape((18 * s).dp)
+
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) {
+            delay(100)
+            requester.requestFocus()
         }
     }
-}
 
-@Composable
-private fun SportsWidget(modifier: Modifier) {
-    GlassCard(
-        onClick = {},
-        modifier = modifier.height(112.dp),
-        shape = RoundedCornerShape(18.dp),
+    Box(
+        modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .shadow(
+                elevation = if (focused) 24.dp else 0.dp,
+                shape = shape,
+                ambientColor = FocusBlue,
+                spotColor = FocusBlue,
+            )
+            .clip(shape)
+            .background(cat.art)
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) FocusBlue else Color.White.copy(alpha = 0.12f),
+                shape = shape,
+            )
+            .focusRequester(requester)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
     ) {
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))
+            )
+        )
+        Icon(
+            cat.icon, null,
+            tint = Color.White.copy(alpha = 0.9f),
+            modifier = Modifier.align(Alignment.TopStart).padding((20 * s).dp).size((44 * s).dp),
+        )
         Column(
-            modifier = Modifier.fillMaxSize().padding(14.dp),
-            verticalArrangement = Arrangement.Center,
+            Modifier.align(Alignment.BottomStart).padding((20 * s).dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("مباريات اليوم", fontSize = 11.sp, color = Palette.TextDim, modifier = Modifier.weight(1f))
-                Icon(Ic.Football, contentDescription = null, tint = Palette.Cyan, modifier = Modifier.size(14.dp))
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "الفريق الأول  vs  الفريق الثاني",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                maxLines = 1,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text("9:00 م", fontSize = 11.sp, color = Palette.TextDim)
-        }
-    }
-}
-
-@Composable
-private fun PrayerWidget(modifier: Modifier) {
-    GlassCard(
-        onClick = {},
-        modifier = modifier.height(112.dp),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("الصلاة القادمة", fontSize = 11.sp, color = Palette.TextDim)
-                Spacer(Modifier.height(4.dp))
-                Text("العصر", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                Spacer(Modifier.height(2.dp))
-                Text("متبقي ساعتان", fontSize = 11.sp, color = Palette.Cyan, maxLines = 1)
-            }
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(Palette.Violet.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Ic.Moon, contentDescription = null, tint = Palette.Violet, modifier = Modifier.size(22.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun MainTiles(isTv: Boolean, onOpen: (String) -> Unit) {
-    val tiles = listOf(
-        Tile(Ic.Tv, Ar.live, Ar.liveSub, Routes.LIVE, listOf(Color(0xFF1E3C72), Color(0xFF2A5298))),
-        Tile(Ic.Movie, Ar.movies, Ar.moviesSub, Routes.MOVIES, listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0))),
-        Tile(Ic.Series, Ar.series, Ar.seriesSub, Routes.SERIES, listOf(Color(0xFFF953C6), Color(0xFFB91D73))),
-    )
-
-    if (isTv) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            tiles.forEachIndexed { index, tile ->
-                BigTile(tile, Modifier.weight(1f).height(210.dp), index == 0, onOpen)
-            }
-        }
-    } else {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            tiles.forEachIndexed { index, tile ->
-                BigTile(tile, Modifier.fillMaxWidth().height(150.dp), index == 0, onOpen)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BigTile(tile: Tile, modifier: Modifier, autoFocus: Boolean, onOpen: (String) -> Unit) {
-    val isTv = LocalIsTv.current
-    GlassCard(
-        onClick = { onOpen(tile.route) },
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        autoFocus = autoFocus,
-        fill = Brush.linearGradient(tile.gradient),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(20.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(if (isTv) 64.dp else 56.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    tile.icon, contentDescription = null, tint = Color.White,
-                    modifier = Modifier.size(if (isTv) 34.dp else 30.dp),
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                tile.label,
-                fontSize = if (isTv) 24.sp else 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                tile.sub,
-                fontSize = if (isTv) 13.sp else 12.sp,
-                color = Color.White.copy(alpha = 0.85f),
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-            )
+            Text(cat.label, fontSize = (22 * s).sp, fontWeight = FontWeight.Medium, color = Color.White, maxLines = 1)
+            Text(cat.sub, fontSize = (13 * s).sp, color = Color.White.copy(alpha = 0.85f), maxLines = 1)
         }
     }
 }
