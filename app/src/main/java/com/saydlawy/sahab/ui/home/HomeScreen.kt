@@ -1,6 +1,18 @@
 package com.saydlawy.sahab.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
@@ -42,6 +55,12 @@ import java.util.Locale
 private val FocusBlue = Color(0xFF7DC4FF)
 private val DimText = Color(0xFF9AA7D6)
 
+// === Change images here ===
+private const val BG_URL = "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?q=80&w=1920&auto=format&fit=crop"
+private const val LIVE_BG = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=800&auto=format&fit=crop"
+private const val MOVIES_BG = "https://images.unsplash.com/photo-1485846234645-a62644f84728?q=80&w=800&auto=format&fit=crop"
+private const val SERIES_BG = "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?q=80&w=800&auto=format&fit=crop"
+
 private data class Category(
     val label: String,
     val sub: String,
@@ -54,37 +73,72 @@ private data class Category(
 @Composable
 fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val isTv = LocalIsTv.current
+    val scrollState = rememberScrollState()
 
     val categories = remember {
         listOf(
             Category(Ar.live, Ar.liveSub, Routes.LIVE, Ic.Tv,
                 Brush.linearGradient(listOf(Color(0xFF4FC3FF), Color(0xFF1B5FD6), Color(0xFF0B1F5C))),
-                "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=800&auto=format&fit=crop"),
+                LIVE_BG),
             Category(Ar.movies, Ar.moviesSub, Routes.MOVIES, Ic.Movie,
                 Brush.linearGradient(listOf(Color(0xFFFF8AD8), Color(0xFF9B2FD6), Color(0xFF2A0B5C))),
-                "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop"),
+                MOVIES_BG),
             Category(Ar.series, Ar.seriesSub, Routes.SERIES, Ic.Series,
                 Brush.linearGradient(listOf(Color(0xFFFFB36B), Color(0xFFD83D7A), Color(0xFF3A0B2E))),
-                "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?q=80&w=800&auto=format&fit=crop"),
+                SERIES_BG),
         )
+    }
+
+    var showWidgets by remember { mutableStateOf(false) }
+    var showLive by remember { mutableStateOf(false) }
+    var showMovies by remember { mutableStateOf(false) }
+    var showSeries by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(60); showWidgets = true
+        delay(80); showLive = true
+        delay(80); showMovies = true
+        delay(80); showSeries = true
     }
 
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF05060F), Color(0xFF0B0F24), Color(0xFF1B2352))
-                )
-            )
+            .background(Color(0xFF05060F))
     ) {
-        val s = (maxHeight.value / 720f).coerceIn(0.7f, 2f)
         val wide = isTv || maxWidth > maxHeight
 
+        // Layer 1: Background image (parallax on phone)
+        val bgParallax = if (wide) 0f else scrollState.value * 0.3f
+        RemoteImage(
+            url = BG_URL,
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(0.22f)
+                .graphicsLayer { translationY = -bgParallax },
+            contentScale = ContentScale.Crop,
+        )
+
+        // Layer 2: Dark gradient overlay
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.35f),
+                            Color.Black.copy(alpha = 0.75f),
+                            Color(0xFF05060F).copy(alpha = 0.96f),
+                        )
+                    )
+                )
+        )
+
+        // Layer 3: Content
+        val s = (maxHeight.value / 720f).coerceIn(0.7f, 2f)
         if (wide) {
-            WideHome(s, categories, autoFocus = isTv, onOpen = onOpen)
+            WideHome(s, categories, isTv, onOpen, showWidgets, showLive, showMovies, showSeries)
         } else {
-            PhoneHome(categories, onOpen)
+            PhoneHome(categories, onOpen, scrollState, showWidgets, showLive, showMovies, showSeries)
         }
     }
 }
@@ -95,7 +149,9 @@ private fun WideHome(
     categories: List<Category>,
     autoFocus: Boolean,
     onOpen: (String) -> Unit,
+    showWidgets: Boolean, showLive: Boolean, showMovies: Boolean, showSeries: Boolean,
 ) {
+    val shows = listOf(showLive, showMovies, showSeries)
     Row(
         Modifier
             .fillMaxSize()
@@ -107,47 +163,85 @@ private fun WideHome(
             verticalArrangement = Arrangement.spacedBy((22 * s).dp),
         ) {
             ActionIcons(size = (44 * s).dp, onOpen = onOpen)
-            SportsCard(Modifier.fillMaxWidth(), s) { onOpen(Routes.SPORTS) }
-            ClockWeather(s)
+            AnimatedVisibility(
+                visible = showWidgets,
+                enter = fadeIn(tween(400)) + slideInVertically(tween(400), initialOffsetY = { it / 6 }),
+            ) {
+                SportsCard(Modifier.fillMaxWidth(), s) { onOpen(Routes.SPORTS) }
+            }
+            AnimatedVisibility(
+                visible = showWidgets,
+                enter = fadeIn(tween(500, delayMillis = 100)) + slideInVertically(tween(500, delayMillis = 100), initialOffsetY = { it / 6 }),
+            ) {
+                ClockWeather(s)
+            }
         }
 
         Spacer(Modifier.weight(1f))
 
         Row(horizontalArrangement = Arrangement.spacedBy((22 * s).dp)) {
             categories.forEachIndexed { i, cat ->
-                CategoryCard(
-                    cat = cat,
-                    modifier = Modifier.width((200 * s).dp).height((320 * s).dp),
-                    s = s,
-                    autoFocus = autoFocus && i == 0,
-                    onClick = { onOpen(cat.route) },
-                )
+                AnimatedVisibility(
+                    visible = shows[i],
+                    enter = fadeIn(tween(450)) + scaleIn(tween(450), initialScale = 0.92f),
+                ) {
+                    CategoryCard(
+                        cat = cat,
+                        modifier = Modifier.width((200 * s).dp).height((320 * s).dp),
+                        s = s,
+                        autoFocus = autoFocus && i == 0,
+                        onClick = { onOpen(cat.route) },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PhoneHome(categories: List<Category>, onOpen: (String) -> Unit) {
+private fun PhoneHome(
+    categories: List<Category>,
+    onOpen: (String) -> Unit,
+    scrollState: ScrollState,
+    showWidgets: Boolean, showLive: Boolean, showMovies: Boolean, showSeries: Boolean,
+) {
+    val shows = listOf(showLive, showMovies, showSeries)
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         ActionIcons(size = 44.dp, onOpen = onOpen)
-        ClockWeather(s = 0.8f)
-        SportsCard(Modifier.fillMaxWidth(), 0.8f) { onOpen(Routes.SPORTS) }
+        AnimatedVisibility(
+            visible = showWidgets,
+            enter = fadeIn(tween(400)) + slideInVertically(tween(400), initialOffsetY = { it / 6 }),
+        ) {
+            ClockWeather(s = 0.8f)
+        }
+        AnimatedVisibility(
+            visible = showWidgets,
+            enter = fadeIn(tween(500, delayMillis = 100)) + slideInVertically(tween(500, delayMillis = 100), initialOffsetY = { it / 6 }),
+        ) {
+            SportsCard(Modifier.fillMaxWidth(), 0.8f) { onOpen(Routes.SPORTS) }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            categories.forEach { cat ->
-                CategoryCard(
-                    cat = cat,
-                    modifier = Modifier.weight(1f).aspectRatio(0.625f),
-                    s = 0.6f,
-                    autoFocus = false,
-                    onClick = { onOpen(cat.route) },
-                )
+            categories.forEachIndexed { i, cat ->
+                Box(Modifier.weight(1f)) {
+                    AnimatedVisibility(
+                        visible = shows[i],
+                        enter = fadeIn(tween(450)) + scaleIn(tween(450), initialScale = 0.92f),
+                    ) {
+                        CategoryCard(
+                            cat = cat,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(0.625f),
+                            s = 0.6f,
+                            autoFocus = false,
+                            onClick = { onOpen(cat.route) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -210,8 +304,19 @@ private fun ClockWeather(s: Float) {
     val time = now.format(DateTimeFormatter.ofPattern("hh:mm", ar))
     val date = now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", ar))
 
-    Column(Modifier.padding(horizontal = (8 * s).dp), verticalArrangement = Arrangement.spacedBy((10 * s).dp)) {
-        Text(time, fontSize = (72 * s).sp, fontWeight = FontWeight.Light, color = Color.White, maxLines = 1)
+    Column(
+        Modifier.padding(horizontal = (8 * s).dp),
+        verticalArrangement = Arrangement.spacedBy((10 * s).dp),
+    ) {
+        Crossfade(targetState = time, animationSpec = tween(500), label = "clockFade") { target ->
+            Text(
+                target,
+                fontSize = (72 * s).sp,
+                fontWeight = FontWeight.Light,
+                color = Color.White,
+                maxLines = 1,
+            )
+        }
         Text(date, fontSize = (17 * s).sp, color = DimText, maxLines = 1)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(Ic.Sun, null, tint = Palette.Peach, modifier = Modifier.size((32 * s).dp))
@@ -233,9 +338,21 @@ private fun CategoryCard(
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "cardScale")
     val shape = RoundedCornerShape((18 * s).dp)
 
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulseAlpha",
+    )
+    val glowAlpha = if (focused) pulseAlpha else 0f
+
     LaunchedEffect(autoFocus) {
         if (autoFocus) {
-            delay(100)
+            delay(400)
             requester.requestFocus()
         }
     }
@@ -246,36 +363,36 @@ private fun CategoryCard(
             .shadow(
                 elevation = if (focused) 24.dp else 0.dp,
                 shape = shape,
-                ambientColor = FocusBlue,
-                spotColor = FocusBlue,
+                ambientColor = FocusBlue.copy(alpha = glowAlpha),
+                spotColor = FocusBlue.copy(alpha = glowAlpha),
             )
             .clip(shape)
             .background(cat.art)
             .border(
                 width = if (focused) 2.dp else 1.dp,
-                color = if (focused) FocusBlue else Color.White.copy(alpha = 0.12f),
+                color = if (focused) FocusBlue.copy(alpha = 0.4f + 0.6f * glowAlpha) else Color.White.copy(alpha = 0.12f),
                 shape = shape,
             )
             .focusRequester(requester)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
     ) {
-        // 1. الصورة الخلفية
         RemoteImage(
             url = cat.bgUrl,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
         )
-        // 2. تدرج داكن فوق الصورة لضمان قراءة النص
         Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.2f),
-                        Color.Black.copy(alpha = 0.85f)
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.25f),
+                            Color.Black.copy(alpha = 0.85f),
+                        )
                     )
                 )
-            )
         )
         Icon(
             cat.icon, null,
