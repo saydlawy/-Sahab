@@ -22,6 +22,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.saydlawy.sahab.ui.sports.SportsScreen
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -137,14 +138,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         }
         composable(Routes.FAVORITES) { FavoritesScreen(onBack = back, onOpen = open, onPlay = play) }
         composable(Routes.SPORTS) {
-            Column(Modifier.fillMaxSize()) {
-                SahabTopBar(current = Routes.SPORTS, onBack = back)
-                MessageBox(
-                    message = Ar.sportsSoon,
-                    actionLabel = Ar.live,
-                    onAction = { nav.navigate(Routes.LIVE) { launchSingleTop = true } },
-                )
-            }
+            SportsScreen()
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(
