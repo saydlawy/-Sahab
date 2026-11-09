@@ -99,6 +99,9 @@ import androidx.compose.ui.draw.alpha
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 
 private const val SPACE_EARTH_BG_URL =
     "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1920&q=85"
@@ -106,13 +109,16 @@ private const val SPACE_EARTH_BG_URL =
 private const val STADIUM_MATCH_PREVIEW_URL =
     "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=1000&q=80"
 
-private const val UCL_BANNER_URL =
-    "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=600&q=80"
+
+private const val FAV_CAT_ID = "__FAVORITES__"
+private const val ALL_CAT_ID = "__ALL__"
 
 data class LiveUiState(
     val categories: List<Category> = emptyList(),
-    val selectedId: String? = null,
+    val selectedId: String? = ALL_CAT_ID,
     val channels: List<Channel> = emptyList(),
+    val categoryCounts: Map<String, Int> = emptyMap(),
+    val totalCount: Int = 0,
     val query: String = "",
     val searchResults: List<Channel>? = null,
     val loadingCategories: Boolean = true,
@@ -143,8 +149,40 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
             _state.update { it.copy(loadingCategories = true, error = null) }
             try {
                 val categories = repo.liveCategories()
-                _state.update { it.copy(categories = categories, loadingCategories = false) }
-                categories.firstOrNull()?.let { select(it.id) }
+                // Load all channels to compute per-category counts and total
+                val allChannels = try {
+                    repo.liveChannels(null).also { searchPool = it }
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                // Compute counts only if server sent categoryId
+                val counts = HashMap<String, Int>()
+                allChannels.forEach { ch ->
+                    val cid = ch.categoryId
+                    if (cid.isNotBlank()) {
+                        counts[cid] = (counts[cid] ?: 0) + 1
+                    }
+                }
+                _state.update {
+                    it.copy(
+                        categories = categories,
+                        loadingCategories = false,
+                        totalCount = allChannels.size,
+                        categoryCounts = counts,
+                    )
+                }
+                // Set initial selection
+                if (allChannels.isNotEmpty()) {
+                    _state.update {
+                        it.copy(
+                            selectedId = ALL_CAT_ID,
+                            channels = allChannels,
+                            loadingChannels = false,
+                        )
+                    }
+                } else {
+                    categories.firstOrNull()?.let { select(it.id) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -155,15 +193,47 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 
     fun select(categoryId: String) {
         channelsJob?.cancel()
+        if (categoryId == FAV_CAT_ID) {
+            _state.update {
+                it.copy(selectedId = FAV_CAT_ID, loadingChannels = false, error = null)
+            }
+            return
+        }
+        if (categoryId == ALL_CAT_ID) {
+            val cached = searchPool
+            if (!cached.isNullOrEmpty()) {
+                _state.update {
+                    it.copy(
+                        selectedId = ALL_CAT_ID,
+                        channels = cached,
+                        loadingChannels = false,
+                        error = null,
+                    )
+                }
+                return
+            }
+        }
         _state.update { it.copy(selectedId = categoryId, loadingChannels = true, error = null) }
         channelsJob = viewModelScope.launch {
             try {
-                val channels = repo.liveChannels(categoryId)
-                _state.update { it.copy(channels = channels, loadingChannels = false) }
+                val targetId = if (categoryId == ALL_CAT_ID) null else categoryId
+                val channels = repo.liveChannels(targetId)
+                if (categoryId == ALL_CAT_ID) searchPool = channels
+                _state.update {
+                    it.copy(
+                        channels = channels,
+                        loadingChannels = false,
+                        categoryCounts = if (categoryId != ALL_CAT_ID && categoryId != FAV_CAT_ID) {
+                            it.categoryCounts + (categoryId to channels.size)
+                        } else it.categoryCounts,
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(loadingChannels = false, channels = emptyList(), error = e.userMessage()) }
+                _state.update {
+                    it.copy(loadingChannels = false, channels = emptyList(), error = e.userMessage())
+                }
             }
         }
     }
@@ -209,10 +279,20 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     var guideFor by remember { mutableStateOf<Channel?>(null) }
     var previewChannel by remember { mutableStateOf<Channel?>(null) }
 
-    val channels = state.visibleChannels
+    val rawChannels = state.visibleChannels
+    val channels = remember(rawChannels, state.selectedId, favoriteIds) {
+        if (state.selectedId == FAV_CAT_ID && state.searchResults == null) {
+            rawChannels.filter { it.id in favoriteIds }
+        } else {
+            rawChannels
+        }
+    }
+
     val playAt: (Int) -> Unit = { index ->
-        val items = channels.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
-        onPlay(PlayRequest(items, index))
+        if (channels.isNotEmpty() && index in channels.indices) {
+            val items = channels.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
+            onPlay(PlayRequest(items, index))
+        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -256,7 +336,7 @@ private fun LiveHeader(onBack: () -> Unit) {
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(1000)
+            delay(1000)
             now = LocalDateTime.now()
         }
     }
@@ -269,7 +349,7 @@ private fun LiveHeader(onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GlassIconButton(Ic.Back, Ar.back, onBack, size = 44.dp)
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(14.dp))
         Box(
             Modifier.size(42.dp).clip(CircleShape).background(Palette.Accent),
             contentAlignment = Alignment.Center,
@@ -286,6 +366,38 @@ private fun LiveHeader(onBack: () -> Unit) {
             Text(timeStr, fontSize = 22.sp, fontWeight = FontWeight.Light, color = Color.White)
             Text(dateStr, fontSize = 12.sp, color = Color(0xFF9AA7D6))
         }
+        Spacer(Modifier.width(14.dp))
+        HeaderCircleButton(icon = Ic.Settings, description = "الإعدادات", onClick = {})
+        Spacer(Modifier.width(8.dp))
+        HeaderCircleButton(icon = Ic.Person, description = "الحساب", onClick = {})
+    }
+}
+
+@Composable
+private fun HeaderCircleButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(
+                if (focused) Color(0xFF8055E8).copy(alpha = 0.45f)
+                else Color(0xFF232946).copy(alpha = 0.78f)
+            )
+            .border(
+                width = 1.dp,
+                color = if (focused) Color(0xFFB37FEB) else Color.White.copy(alpha = 0.18f),
+                shape = CircleShape,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -310,60 +422,67 @@ private fun WideLiveLayout(
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
         )
-        Box(Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(
-                Color(0xFF050716).copy(alpha = 0.72f),
-                Color(0xFF080D24).copy(alpha = 0.84f),
-                Color(0xFF0D0B28).copy(alpha = 0.92f),
-                Color(0xFF1A0E3E).copy(alpha = 0.96f),
-            ))
-        ))
-        Column(Modifier.fillMaxSize()) {
-        LiveHeader(onBack = onBack)
-        SearchBox(
-            state.query,
-            onQuery,
-            Ar.searchChannels,
-            Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF050716).copy(alpha = 0.72f),
+                        Color(0xFF080D24).copy(alpha = 0.84f),
+                        Color(0xFF0D0B28).copy(alpha = 0.92f),
+                        Color(0xFF1A0E3E).copy(alpha = 0.96f),
+                    )
+                )
+            )
         )
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val showPreview = maxWidth >= 750.dp
-            val sidebarWidth = (maxWidth * 0.15f).coerceIn(140.dp, 200.dp)
-            val previewWidth = (maxWidth * 0.24f).coerceIn(220.dp, 340.dp)
-            val hPad = (maxWidth * 0.02f).coerceIn(12.dp, 24.dp)
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = hPad, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                CategorySidebar(
-                    categories = state.categories,
-                    selectedId = state.selectedId,
-                    onSelect = onSelect,
-                    modifier = Modifier.width(sidebarWidth).fillMaxHeight(),
-                )
-                ChannelColumn(
-                    state = state,
-                    favoriteIds = favoriteIds,
-                    previewId = previewChannel?.id,
-                    onPreview = onPreview,
-                    onPlayAt = onPlayAt,
-                    onToggleFavorite = onToggleFavorite,
-                    onGuide = onGuide,
-                    onRetry = onRetry,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-                if (showPreview) {
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            Column(Modifier.fillMaxSize()) {
+                LiveHeader(onBack = onBack)
+
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(28.dp),
+                ) {
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        SearchBox(
+                            state.query,
+                            onQuery,
+                            Ar.searchChannels,
+                            Modifier.fillMaxWidth(),
+                        )
+                        CategorySidebar(
+                            categories = state.categories,
+                            selectedId = state.selectedId,
+                            onSelect = onSelect,
+                            totalCount = state.totalCount,
+                            categoryCounts = state.categoryCounts,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                        )
+                    }
+                    ChannelColumn(
+                        state = state,
+                        favoriteIds = favoriteIds,
+                        previewId = previewChannel?.id,
+                        onPreview = onPreview,
+                        onPlayAt = onPlayAt,
+                        onToggleFavorite = onToggleFavorite,
+                        onGuide = onGuide,
+                        onRetry = onRetry,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
                     PreviewPanel(
                         channel = previewChannel,
                         onGuide = onGuide,
-                        modifier = Modifier.width(previewWidth).fillMaxHeight(),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
             }
         }
-    }
     }
 }
 
@@ -421,6 +540,8 @@ private fun CategorySidebar(
     categories: List<Category>,
     selectedId: String?,
     onSelect: (String) -> Unit,
+    totalCount: Int,
+    categoryCounts: Map<String, Int>,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -428,19 +549,26 @@ private fun CategorySidebar(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 4.dp),
     ) {
-        item {
-            Text(
-                "الفئات",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        item(key = FAV_CAT_ID) {
+            SidebarFavoritesChip(
+                selected = selectedId == FAV_CAT_ID,
+                onClick = { onSelect(FAV_CAT_ID) },
+            )
+        }
+        item(key = ALL_CAT_ID) {
+            VerticalCategoryChip(
+                label = "الكل",
+                selected = selectedId == ALL_CAT_ID || selectedId == null,
+                count = if (totalCount > 0) totalCount else null,
+                onClick = { onSelect(ALL_CAT_ID) },
             )
         }
         items(categories, key = { it.id }) { cat ->
+            val count = categoryCounts[cat.id]
             VerticalCategoryChip(
                 label = cat.name,
                 selected = cat.id == selectedId,
+                count = if (count != null && count > 0) count else null,
                 onClick = { onSelect(cat.id) },
             )
         }
@@ -448,7 +576,58 @@ private fun CategorySidebar(
 }
 
 @Composable
-private fun VerticalCategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun SidebarFavoritesChip(selected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val active = selected || focused
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clip(shape)
+            .background(
+                if (active) Color(0xFF8055E8).copy(alpha = 0.55f)
+                else Color.White.copy(alpha = 0.06f)
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) Color(0xFF7DC4FF)
+                else if (selected) Color(0xFF8055E8).copy(alpha = 0.8f)
+                else Color.White.copy(alpha = 0.10f),
+                shape = shape,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "المفضلة",
+                fontSize = 16.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                color = if (active) Color.White else Palette.TextDim,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Ic.Heart,
+                contentDescription = null,
+                tint = if (active) Color(0xFFFF5C8D) else Palette.TextDim,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun VerticalCategoryChip(
+    label: String,
+    selected: Boolean,
+    count: Int? = null,
+    onClick: () -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(14.dp)
     val bg = when {
@@ -471,16 +650,31 @@ private fun VerticalCategoryChip(label: String, selected: Boolean, onClick: () -
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
-        contentAlignment = Alignment.CenterStart,
     ) {
-        Text(
-            label,
-            fontSize = 16.sp,
-            fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
-            color = if (focused || selected) Color.White else Palette.TextDim,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                fontSize = 16.sp,
+                fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
+                color = if (focused || selected) Color.White else Palette.TextDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (count != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    count.toString(),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (focused || selected) Color.White.copy(alpha = 0.85f)
+                    else Palette.TextDim.copy(alpha = 0.7f),
+                )
+            }
+        }
     }
 }
 
@@ -579,106 +773,6 @@ private fun ChannelColumn(
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        LatestMatchesBottomStrip(
-            channels = channels,
-            onPlayChannel = { ch ->
-                val idx = channels.indexOfFirst { it.id == ch.id }
-                if (idx >= 0) onPlayAt(idx)
-            },
-        )
-    }
-}
-
-@Composable
-private fun LatestMatchesBottomStrip(
-    channels: List<Channel>,
-    onPlayChannel: (Channel) -> Unit,
-) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(bottom = 6.dp, end = 4.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("أحدث المباريات", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Spacer(Modifier.width(8.dp))
-            Box(Modifier.width(3.dp).height(16.dp).clip(RoundedCornerShape(50)).background(Color(0xFFA855F7)))
-        }
-        Row(
-            Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(14.dp))
-                .background(Color(0xFF171C32).copy(alpha = 0.92f))
-                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(
-                Modifier.width(100.dp).fillMaxHeight().clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(10.dp))
-                    .clickable { channels.firstOrNull()?.let(onPlayChannel) },
-            ) {
-                RemoteImage(
-                    url = UCL_BANNER_URL,
-                    fallbackText = "Match",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-            Box(
-                Modifier.size(44.dp).clip(CircleShape).background(Color.White)
-                    .clickable { channels.firstOrNull { it.name.contains("bein", ignoreCase = true) }?.let(onPlayChannel) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("beIN", fontSize = 11.sp, fontWeight = FontWeight.Black, color = Color(0xFF3B0764))
-                    Text("SPORTS", fontSize = 6.sp, fontWeight = FontWeight.Bold, color = Color(0xFF3B0764))
-                }
-            }
-            MatchBrandTile(
-                title = "mbc",
-                bgColors = listOf(Color(0xFFEF4444), Color(0xFF991B1B)),
-                onClick = { channels.firstOrNull { it.name.contains("mbc", ignoreCase = true) }?.let(onPlayChannel) },
-                modifier = Modifier.weight(1f),
-            )
-            MatchBrandTile(
-                title = "العربية",
-                bgColors = listOf(Color(0xFF6D28D9), Color(0xFF4C1D95)),
-                onClick = { channels.firstOrNull { it.name.contains("arab", ignoreCase = true) }?.let(onPlayChannel) },
-                modifier = Modifier.weight(1f),
-            )
-            MatchBrandTile(
-                title = "العربية",
-                bgColors = listOf(Color(0xFF5B21B6), Color(0xFF3B0764)),
-                onClick = { channels.firstOrNull { it.name.contains("arab", ignoreCase = true) }?.let(onPlayChannel) },
-                modifier = Modifier.weight(1f),
-            )
-            Box(
-                Modifier.size(28.dp).clip(CircleShape)
-                    .clickable { channels.firstOrNull()?.let(onPlayChannel) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Ic.Next, null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun MatchBrandTile(
-    title: String,
-    bgColors: List<Color>,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier.fillMaxHeight().clip(RoundedCornerShape(10.dp))
-            .background(Brush.verticalGradient(bgColors))
-            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(title, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1)
     }
 }
 
@@ -708,22 +802,33 @@ private fun ChannelRow(
     val shape = RoundedCornerShape(16.dp)
     val borderColor = when {
         focused -> Color(0xFF7DC4FF)
-        isPreviewed -> Color(0xFF8055E8).copy(alpha = 0.7f)
+        isPreviewed -> Color(0xFF7DC4FF).copy(alpha = 0.75f)
         else -> Color.White.copy(alpha = 0.08f)
     }
     val bg = when {
         focused -> Color(0xFF8055E8).copy(alpha = 0.20f)
-        isPreviewed -> Color.White.copy(alpha = 0.08f)
+        isPreviewed -> Color(0xFF7DC4FF).copy(alpha = 0.10f)
         else -> Color.White.copy(alpha = 0.04f)
     }
+    val borderWidth = if (focused || isPreviewed) 2.dp else 1.dp
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(72.dp)
+            .then(
+                if (isPreviewed && !focused) {
+                    Modifier.shadow(
+                        elevation = 10.dp,
+                        shape = shape,
+                        ambientColor = Color(0xFF7DC4FF),
+                        spotColor = Color(0xFF7DC4FF),
+                    )
+                } else Modifier
+            )
             .clip(shape)
             .background(bg)
-            .border(if (focused) 2.dp else 1.dp, borderColor, shape)
+            .border(borderWidth, borderColor, shape)
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocus()
@@ -948,8 +1053,22 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
 
         if (channel != null) {
 
+            Spacer(Modifier.height(10.dp))
+            // 5 round control buttons (stop / record / search / fullscreen / mute)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PlayerControlButton(icon = Ic.Pause, description = "إيقاف", onClick = {})
+                PlayerControlButton(icon = Ic.Close, description = "تسجيل", onClick = {}, isRed = true)
+                PlayerControlButton(icon = Ic.Search, description = "دليل البرامج", onClick = { onGuide(channel) })
+                PlayerControlButton(icon = Ic.Aspect, description = "ملء الشاشة", onClick = {})
+                PlayerControlButton(icon = Ic.Tracks, description = "كتم الصوت", onClick = {})
+            }
+
             Spacer(Modifier.height(4.dp))
-            Text("دليل البرامج", fontSize = 13.sp, color = Palette.Cyan, fontWeight = FontWeight.Bold)
+            Text("دليل البرامج الإلكتروني", fontSize = 13.sp, color = Palette.Cyan, fontWeight = FontWeight.Bold)
 
             val now = System.currentTimeMillis() / 1000
             val current = programs.firstOrNull { now in it.start until it.end }
@@ -977,18 +1096,39 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
             }
 
             Spacer(Modifier.weight(1f))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Palette.Accent)
-                    .clickable { onGuide(channel) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("فتح الدليل الكامل", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            }
         }
+    }
+}
+
+@Composable
+private fun PlayerControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    isRed: Boolean = false,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val bg = when {
+        isRed -> Color(0xFFE53935).copy(alpha = 0.85f)
+        focused -> Color(0xFF8055E8).copy(alpha = 0.55f)
+        else -> Color(0xFF232946).copy(alpha = 0.85f)
+    }
+    val borderColor = when {
+        isRed -> Color(0xFFE53935)
+        focused -> Color(0xFF7DC4FF)
+        else -> Color.White.copy(alpha = 0.15f)
+    }
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .border(if (focused) 2.dp else 1.dp, borderColor, CircleShape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(16.dp))
     }
 }
 
