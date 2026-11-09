@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class SportsViewModel : ViewModel() {
     private val api = SportsApi(OkHttpClient())
@@ -20,13 +23,21 @@ class SportsViewModel : ViewModel() {
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     init {
-        fetchLiveMatches()
+        fetchMatches()
     }
 
-    fun fetchLiveMatches() {
+    fun fetchMatches() {
         viewModelScope.launch {
             _isLoading.value = true
-            val result = api.getLiveMatches()
+            // نجلب المباريات المباشرة أولاً
+            var result = api.getLiveMatches()
+            
+            // إذا لم توجد مباريات مباشرة، نجلب مباريات اليوم
+            if (result.isEmpty()) {
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                result = api.getFixturesByDate(today)
+            }
+            
             _matches.value = result
             _isLoading.value = false
         }

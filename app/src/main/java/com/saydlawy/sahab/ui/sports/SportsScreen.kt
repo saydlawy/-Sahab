@@ -2,7 +2,9 @@ package com.saydlawy.sahab.ui.sports
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -44,9 +46,9 @@ fun SportsScreen(viewModel: SportsViewModel = viewModel()) {
         val isWideScreen = maxWidth > 800.dp
 
         Column(modifier = Modifier.fillMaxSize()) {
-            TopHeaderBar()
+            TopHeaderBar(isWideScreen)
             Spacer(modifier = Modifier.height(16.dp))
-            FilterBar()
+            FilterBar(isWideScreen)
             Spacer(modifier = Modifier.height(16.dp))
 
             if (isLoading) {
@@ -55,7 +57,7 @@ fun SportsScreen(viewModel: SportsViewModel = viewModel()) {
                 }
             } else if (matches.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("لا توجد مباريات مباشرة حالياً", color = Color.White, fontSize = 18.sp)
+                    Text("لا توجد مباريات اليوم", color = Color.White, fontSize = 18.sp)
                 }
             } else {
                 val featuredMatch = matches.first()
@@ -72,7 +74,7 @@ fun SportsScreen(viewModel: SportsViewModel = viewModel()) {
                         }
                     }
                 } else {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {
                         FeaturedMatchCard(match = featuredMatch)
                         Spacer(modifier = Modifier.height(16.dp))
                         MatchDetailPanel(match = featuredMatch)
@@ -87,7 +89,7 @@ fun SportsScreen(viewModel: SportsViewModel = viewModel()) {
 fun FeaturedMatchCard(match: Match) {
     Box(
         modifier = Modifier
-            .fillMaxWidth()
+            .widthIn(min = 350.dp) // لضمان عدم انضغاط البطاقة في الموبايل
             .clip(RoundedCornerShape(16.dp))
             .background(CardBg)
             .border(1.dp, PrimaryAccent, RoundedCornerShape(16.dp))
@@ -115,7 +117,6 @@ fun FeaturedMatchCard(match: Match) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // الفريق المضيف
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(match.homeTeam.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -127,14 +128,12 @@ fun FeaturedMatchCard(match: Match) {
                     }
                 }
 
-                // النتيجة
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("${match.homeScore ?: 0} : ${match.awayScore ?: 0}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(match.commentator, color = CyanAccent, fontSize = 12.sp)
                 }
 
-                // الفريق الضيف
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)).border(1.dp, Color.White, CircleShape), contentAlignment = Alignment.Center) {
                         Text("الشعار", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -181,7 +180,7 @@ fun FeaturedMatchCard(match: Match) {
 fun MatchDetailPanel(match: Match) {
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .widthIn(min = 350.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(CardBg)
             .border(1.dp, Color.DarkGray, RoundedCornerShape(16.dp))
@@ -192,7 +191,7 @@ fun MatchDetailPanel(match: Match) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("مركز تفاصيل المباراة والإحصائيات", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("مركز تفاصيل المباراة", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Text("مباشر الآن", color = Color.White, modifier = Modifier.background(LiveRed, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp)
         }
 
@@ -213,7 +212,6 @@ fun MatchDetailPanel(match: Match) {
         Text("إحصائيات المباراة اللحظية", color = Color.Gray, fontSize = 12.sp)
         Spacer(modifier = Modifier.height(8.dp))
         
-        // شريط الاستحواذ (بيانات تجريبية لحين ربط API الإحصائيات)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("58% ${match.homeTeam.name}", color = LiveRed, fontSize = 12.sp)
             Text("الاستحواذ", color = Color.Gray, fontSize = 12.sp)
@@ -224,7 +222,7 @@ fun MatchDetailPanel(match: Match) {
             Box(modifier = Modifier.fillMaxWidth(0.58f).fillMaxHeight().background(LiveRed))
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Button(
             onClick = { },
@@ -238,7 +236,7 @@ fun MatchDetailPanel(match: Match) {
 }
 
 @Composable
-fun TopHeaderBar() {
+fun TopHeaderBar(isWideScreen: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -247,39 +245,42 @@ fun TopHeaderBar() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("✕", color = Color.White, fontSize = 20.sp, modifier = Modifier.padding(end = 16.dp))
             Text("سحاب IPTV", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.width(16.dp))
-            Box(modifier = Modifier.background(CardBg, RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp)) {
-                Text("• الرياضة ومباريات اليوم", color = Color.LightGray, fontSize = 12.sp)
+            if (isWideScreen) {
+                Spacer(modifier = Modifier.width(16.dp))
+                Box(modifier = Modifier.background(CardBg, RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Text("• الرياضة ومباريات اليوم", color = Color.LightGray, fontSize = 12.sp)
+                }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("• محدث تلقائياً", color = Color.Green, fontSize = 12.sp)
-            Spacer(modifier = Modifier.width(16.dp))
-            Box(modifier = Modifier.background(CardBg, RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp)) {
-                Text("جدول الترتيب", color = Color.White, fontSize = 12.sp)
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Box(modifier = Modifier.background(CardBg, RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp)) {
-                Text("قائمة الهدافين", color = Color.White, fontSize = 12.sp)
+            if (isWideScreen) {
+                Spacer(modifier = Modifier.width(16.dp))
+                Box(modifier = Modifier.background(CardBg, RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Text("جدول الترتيب", color = Color.White, fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(modifier = Modifier.background(CardBg, RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Text("قائمة الهدافين", color = Color.White, fontSize = 12.sp)
+                }
             }
         }
     }
 }
 
 @Composable
-fun FilterBar() {
+fun FilterBar(isWideScreen: Boolean) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("• الدوري المصري الممتاز", color = Color.White, modifier = Modifier.background(PrimaryAccent, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
-            Text("دوري أبطال أوروبا", color = Color.Gray, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
-            Text("الدوري الإنجليزي", color = Color.Gray, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
+        Text("• الدوري المصري الممتاز", color = Color.White, modifier = Modifier.background(PrimaryAccent, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
+        Text("دوري أبطال أوروبا", color = Color.Gray, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
+        Text("الدوري الإنجليزي", color = Color.Gray, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
+        if (isWideScreen) {
+            Spacer(modifier = Modifier.width(32.dp))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("الخميس - أمس", color = Color.Gray, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
-            Text("الجمعة - اليوم", color = Color.White, modifier = Modifier.background(PrimaryAccent, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
-        }
+        Text("الخميس - أمس", color = Color.Gray, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
+        Text("الجمعة - اليوم", color = Color.White, modifier = Modifier.background(PrimaryAccent, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 14.sp)
     }
 }
