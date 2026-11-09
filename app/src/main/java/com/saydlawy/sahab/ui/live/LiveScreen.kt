@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -76,6 +77,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.util.formatClock
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 
 data class LiveUiState(
     val categories: List<Category> = emptyList(),
@@ -175,6 +185,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val favorites by LocalContainer.current.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
     val favoriteIds = remember(favorites) { favorites.filter { it.kind == Kind.LIVE }.map { it.id }.toSet() }
     var guideFor by remember { mutableStateOf<Channel?>(null) }
+    var previewChannel by remember { mutableStateOf<Channel?>(null) }
 
     val channels = state.visibleChannels
     val playAt: (Int) -> Unit = { index ->
@@ -183,67 +194,33 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 720.dp
-        Column(Modifier.fillMaxSize()) {
-            ScreenHeader(Ar.live, onBack) {
-                if (wide) {
-                    SearchBox(state.query, vm::onQuery, Ar.searchChannels, Modifier.width(380.dp))
-                }
-            }
-            if (!wide) {
-                SearchBox(
-                    state.query,
-                    vm::onQuery,
-                    Ar.searchChannels,
-                    Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                )
-            }
-
-            when {
-                state.loadingCategories -> LoadingBox()
-                state.categories.isEmpty() -> MessageBox(
-                    message = state.error ?: Ar.noCategories,
-                    actionLabel = Ar.retry,
-                    onAction = vm::loadCategories,
-                )
-                wide -> Row(Modifier.fillMaxSize()) {
-                    CategoryPane(
-                        categories = state.categories,
-                        selectedId = state.selectedId,
-                        onSelect = vm::select,
-                        wide = true,
-                        modifier = Modifier
-                            .width(270.dp)
-                            .fillMaxHeight(),
-                    )
-                    ChannelList(
-                        state = state,
-                        favoriteIds = favoriteIds,
-                        onPlayAt = playAt,
-                        onToggleFavorite = vm::toggleFavorite,
-                        onGuide = { guideFor = it },
-                        onRetry = { state.selectedId?.let(vm::select) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                else -> Column(Modifier.fillMaxSize()) {
-                    CategoryPane(
-                        categories = state.categories,
-                        selectedId = state.selectedId,
-                        onSelect = vm::select,
-                        wide = false,
-                    )
-                    ChannelList(
-                        state = state,
-                        favoriteIds = favoriteIds,
-                        onPlayAt = playAt,
-                        onToggleFavorite = vm::toggleFavorite,
-                        onGuide = { guideFor = it },
-                        onRetry = { state.selectedId?.let(vm::select) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
+        val wide = maxWidth >= 900.dp
+        if (wide) {
+            WideLiveLayout(
+                state = state,
+                favoriteIds = favoriteIds,
+                previewChannel = previewChannel ?: channels.firstOrNull(),
+                onPreview = { previewChannel = it },
+                onPlayAt = playAt,
+                onToggleFavorite = vm::toggleFavorite,
+                onGuide = { guideFor = it },
+                onSelect = vm::select,
+                onQuery = vm::onQuery,
+                onBack = onBack,
+                onRetry = { state.selectedId?.let(vm::select) },
+            )
+        } else {
+            NarrowLiveLayout(
+                state = state,
+                favoriteIds = favoriteIds,
+                onPlayAt = playAt,
+                onToggleFavorite = vm::toggleFavorite,
+                onGuide = { guideFor = it },
+                onSelect = vm::select,
+                onQuery = vm::onQuery,
+                onBack = onBack,
+                onRetry = { state.selectedId?.let(vm::select) },
+            )
         }
     }
 
@@ -253,9 +230,214 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
 }
 
 @Composable
-private fun ChannelList(
+private fun WideLiveLayout(
     state: LiveUiState,
     favoriteIds: Set<String>,
+    previewChannel: Channel?,
+    onPreview: (Channel) -> Unit,
+    onPlayAt: (Int) -> Unit,
+    onToggleFavorite: (Channel) -> Unit,
+    onGuide: (Channel) -> Unit,
+    onSelect: (String) -> Unit,
+    onQuery: (String) -> Unit,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF05060F), Color(0xFF0B0F24), Color(0xFF1B2352)),
+                )
+            ),
+    ) {
+        ScreenHeader(Ar.live, onBack) {
+            SearchBox(state.query, onQuery, Ar.searchChannels, Modifier.width(340.dp))
+        }
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            CategorySidebar(
+                categories = state.categories,
+                selectedId = state.selectedId,
+                onSelect = onSelect,
+                modifier = Modifier.width(220.dp).fillMaxHeight(),
+            )
+            ChannelColumn(
+                state = state,
+                favoriteIds = favoriteIds,
+                previewId = previewChannel?.id,
+                onPreview = onPreview,
+                onPlayAt = onPlayAt,
+                onToggleFavorite = onToggleFavorite,
+                onGuide = onGuide,
+                onRetry = onRetry,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            )
+            PreviewPanel(
+                channel = previewChannel,
+                onGuide = onGuide,
+                modifier = Modifier.width(340.dp).fillMaxHeight(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NarrowLiveLayout(
+    state: LiveUiState,
+    favoriteIds: Set<String>,
+    onPlayAt: (Int) -> Unit,
+    onToggleFavorite: (Channel) -> Unit,
+    onGuide: (Channel) -> Unit,
+    onSelect: (String) -> Unit,
+    onQuery: (String) -> Unit,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        ScreenHeader(Ar.live, onBack) {}
+        SearchBox(
+            state.query,
+            onQuery,
+            Ar.searchChannels,
+            Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+        )
+        if (state.categories.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.padding(vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.categories, key = { it.id }) { cat ->
+                    HorizontalCategoryChip(
+                        label = cat.name,
+                        selected = cat.id == state.selectedId,
+                        onClick = { onSelect(cat.id) },
+                    )
+                }
+            }
+        }
+        ChannelColumn(
+            state = state,
+            favoriteIds = favoriteIds,
+            previewId = null,
+            onPreview = {},
+            onPlayAt = onPlayAt,
+            onToggleFavorite = onToggleFavorite,
+            onGuide = onGuide,
+            onRetry = onRetry,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun CategorySidebar(
+    categories: List<Category>,
+    selectedId: String?,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(vertical = 4.dp),
+    ) {
+        item {
+            Text(
+                "الفئات",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Palette.Text,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+        items(categories, key = { it.id }) { cat ->
+            VerticalCategoryChip(
+                label = cat.name,
+                selected = cat.id == selectedId,
+                onClick = { onSelect(cat.id) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun VerticalCategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(14.dp)
+    val bg = when {
+        focused -> Color(0xFF8055E8).copy(alpha = 0.35f)
+        selected -> Color(0xFF8055E8).copy(alpha = 0.20f)
+        else -> Color.White.copy(alpha = 0.05f)
+    }
+    val borderColor = when {
+        focused -> Color(0xFF7DC4FF)
+        selected -> Color(0xFF8055E8).copy(alpha = 0.7f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clip(shape)
+            .background(bg)
+            .border(if (focused) 2.dp else 1.dp, borderColor, shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            label,
+            fontSize = 16.sp,
+            fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
+            color = if (focused || selected) Color.White else Palette.TextDim,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun HorizontalCategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+    val bg = when {
+        focused -> Color(0xFF8055E8).copy(alpha = 0.35f)
+        selected -> Color(0xFF8055E8).copy(alpha = 0.25f)
+        else -> Color.White.copy(alpha = 0.06f)
+    }
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, if (selected) Color(0xFF8055E8) else Color.White.copy(alpha = 0.10f), shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+    ) {
+        Text(
+            label,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = Palette.Text,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun ChannelColumn(
+    state: LiveUiState,
+    favoriteIds: Set<String>,
+    previewId: String?,
+    onPreview: (Channel) -> Unit,
     onPlayAt: (Int) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
     onGuide: (Channel) -> Unit,
@@ -264,27 +446,56 @@ private fun ChannelList(
 ) {
     val channels = state.visibleChannels
     val listState = rememberLazyListState()
-    val isTv = LocalIsTv.current
-    val hPad = if (isTv) 48.dp else 20.dp
-    Box(modifier.fillMaxSize()) {
-        when {
-            state.busy && channels.isEmpty() -> LoadingBox()
-            state.error != null && channels.isEmpty() -> MessageBox(state.error, actionLabel = Ar.retry, onAction = onRetry)
-            channels.isEmpty() -> MessageBox(Ar.noChannels)
-            else -> LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().focusRestorer(),
-                contentPadding = PaddingValues(horizontal = hPad, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                itemsIndexed(channels, key = { _, channel -> channel.id }) { index, channel ->
-                    ChannelRow(
-                        channel = channel,
-                        isFavorite = channel.id in favoriteIds,
-                        onPlay = { onPlayAt(index) },
-                        onToggleFavorite = { onToggleFavorite(channel) },
-                        onGuide = { onGuide(channel) },
-                    )
+
+    Column(modifier) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "قائمة القنوات",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Palette.Text,
+                modifier = Modifier.weight(1f),
+            )
+            if (channels.isNotEmpty()) {
+                Text(
+                    "${channels.size}",
+                    fontSize = 14.sp,
+                    color = Palette.Cyan,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                state.busy && channels.isEmpty() -> LoadingBox()
+                state.error != null && channels.isEmpty() -> MessageBox(
+                    state.error,
+                    actionLabel = Ar.retry,
+                    onAction = onRetry,
+                )
+                channels.isEmpty() -> MessageBox(Ar.noChannels)
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().focusRestorer(),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
+                        ChannelRow(
+                            channel = channel,
+                            index = index + 1,
+                            isFavorite = channel.id in favoriteIds,
+                            isPreviewed = channel.id == previewId,
+                            onPlay = { onPlayAt(index) },
+                            onFocus = { onPreview(channel) },
+                            onToggleFavorite = { onToggleFavorite(channel) },
+                            onGuide = { onGuide(channel) },
+                        )
+                    }
                 }
             }
         }
@@ -294,8 +505,11 @@ private fun ChannelList(
 @Composable
 private fun ChannelRow(
     channel: Channel,
+    index: Int,
     isFavorite: Boolean,
+    isPreviewed: Boolean,
     onPlay: () -> Unit,
+    onFocus: () -> Unit,
     onToggleFavorite: () -> Unit,
     onGuide: () -> Unit,
 ) {
@@ -310,81 +524,300 @@ private fun ChannelRow(
             null
         }
     }
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(16.dp)
+    val borderColor = when {
+        focused -> Color(0xFF7DC4FF)
+        isPreviewed -> Color(0xFF8055E8).copy(alpha = 0.7f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    val bg = when {
+        focused -> Color(0xFF8055E8).copy(alpha = 0.20f)
+        isPreviewed -> Color.White.copy(alpha = 0.08f)
+        else -> Color.White.copy(alpha = 0.04f)
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(78.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .height(72.dp)
+            .clip(shape)
+            .background(bg)
+            .border(if (focused) 2.dp else 1.dp, borderColor, shape)
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocus()
+            }
+            .clickable(onClick = onPlay)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        GlassCard(
-            onClick = onPlay,
-            onLongClick = onToggleFavorite,
+        Text(
+            index.toString(),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = Palette.TextDim,
+            modifier = Modifier.width(28.dp),
+        )
+        RemoteImage(
+            url = channel.icon,
             modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            shape = RoundedCornerShape(20.dp),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RemoteImage(
-                    url = channel.icon,
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .padding(5.dp),
-                    contentScale = ContentScale.Fit,
+                .size(52.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White.copy(alpha = 0.08f))
+                .padding(4.dp),
+            contentScale = ContentScale.Fit,
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    channel.name,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Palette.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
+                qualityOf(channel.name)?.let { q ->
+                    Spacer(Modifier.width(8.dp))
+                    QualityBadge(q)
+                }
+                val program = now
+                if (program != null) {
+                    Spacer(Modifier.width(8.dp))
+                    LiveBadge()
+                }
+            }
+            val program = now
+            if (program != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = channel.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Palette.Text,
+                        "${formatClock(program.start)} - ${formatClock(program.end)}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Palette.Cyan,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        program.title.ifBlank { Ar.noName },
+                        fontSize = 13.sp,
+                        color = Palette.TextDim,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
-                    val program = now
-                    if (program != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "${formatClock(program.start)} - ${formatClock(program.end)}",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Palette.Cyan,
-                                maxLines = 1,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = program.title.ifBlank { Ar.noName },
-                                fontSize = 14.sp,
-                                color = Palette.TextDim,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        Spacer(Modifier.height(5.dp))
-                        val total = (program.end - program.start).coerceAtLeast(1)
-                        ProgressLine((System.currentTimeMillis() / 1000 - program.start).toFloat() / total)
-                    }
+                }
+                val total = (program.end - program.start).coerceAtLeast(1)
+                val progress = ((System.currentTimeMillis() / 1000 - program.start).toFloat() / total).coerceIn(0f, 1f)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.15f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress)
+                            .background(Palette.Cyan),
+                    )
                 }
             }
         }
-        GlassIconButton(Ic.List, Ar.guide, onGuide, size = 50.dp)
         GlassIconButton(
             icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
             description = Ar.favorites,
             onClick = onToggleFavorite,
-            size = 50.dp,
-            tint = if (isFavorite) Palette.Pink else Palette.Text,
+            size = 38.dp,
+            tint = if (isFavorite) Palette.Pink else Palette.TextDim,
         )
+        GlassIconButton(
+            icon = Ic.List,
+            description = Ar.guide,
+            onClick = onGuide,
+            size = 38.dp,
+        )
+    }
+}
+
+@Composable
+private fun LiveBadge() {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0xFFE53935))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(Color.White),
+        )
+        Text("مباشر", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+    }
+}
+
+@Composable
+private fun QualityBadge(q: String) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .border(1.dp, Palette.Peach.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Text(q, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Palette.Peach)
+    }
+}
+
+private fun qualityOf(name: String): String? {
+    val u = name.uppercase()
+    return when {
+        "4K" in u || "UHD" in u -> "4K"
+        "FHD" in u || "1080" in u -> "FHD"
+        "HD" in u -> "HD"
+        else -> null
+    }
+}
+
+@Composable
+private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier: Modifier = Modifier) {
+    val repo = LocalContainer.current.repo
+    val programs by produceState<List<Program>>(emptyList(), channel?.id) {
+        value = if (channel != null && channel.epgId.isNotBlank()) {
+            try { repo.shortEpg(channel.id, 6) } catch (e: Exception) { emptyList() }
+        } else emptyList()
+    }
+
+    Column(
+        modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(
+            "قيد المعاينة",
+            fontSize = 12.sp,
+            color = Palette.TextDim,
+            fontWeight = FontWeight.Medium,
+        )
+        if (channel == null) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("تنقّل بين القنوات لمعاينة البرامج", fontSize = 14.sp, color = Palette.TextDim)
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                RemoteImage(
+                    url = channel.icon,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White.copy(alpha = 0.08f))
+                        .padding(6.dp),
+                    contentScale = ContentScale.Fit,
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        channel.name,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Palette.Text,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Text("دليل البرامج", fontSize = 13.sp, color = Palette.Cyan, fontWeight = FontWeight.Bold)
+
+            val now = System.currentTimeMillis() / 1000
+            val current = programs.firstOrNull { now in it.start until it.end }
+            val upcoming = programs.filter { it.start >= now }.take(3)
+
+            if (current == null && upcoming.isEmpty()) {
+                Text("لا تتوفر بيانات الدليل لهذه القناة", fontSize = 13.sp, color = Palette.TextDim)
+            } else {
+                current?.let { prog ->
+                    EpgMiniCard(
+                        title = prog.title.ifBlank { Ar.noName },
+                        time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                        progress = ((now - prog.start).toFloat() / (prog.end - prog.start).coerceAtLeast(1)).coerceIn(0f, 1f),
+                        highlight = true,
+                    )
+                }
+                upcoming.forEach { prog ->
+                    EpgMiniCard(
+                        title = prog.title.ifBlank { Ar.noName },
+                        time = "${formatClock(prog.start)} - ${formatClock(prog.end)}",
+                        progress = 0f,
+                        highlight = false,
+                    )
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Palette.Accent)
+                    .clickable { onGuide(channel) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("فتح الدليل الكامل", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpgMiniCard(title: String, time: String, progress: Float, highlight: Boolean) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (highlight) Color(0xFF3978FF).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.05f))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Palette.Text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(time, fontSize = 11.sp, color = Palette.TextDim)
+        }
+        if (highlight) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.15f)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(progress)
+                        .background(Palette.Cyan),
+                )
+            }
+        }
     }
 }
