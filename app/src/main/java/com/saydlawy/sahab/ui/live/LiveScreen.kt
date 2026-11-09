@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -78,6 +80,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.LocalAppScale
 import com.saydlawy.sahab.util.formatClock
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
@@ -346,30 +349,30 @@ private fun LiveHeader(onBack: () -> Unit) {
     val dateStr = now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", ar))
 
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().padding(horizontal = appDp(24), vertical = appDp(12)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GlassIconButton(Ic.Back, Ar.back, onBack, size = 44.dp)
-        Spacer(Modifier.width(14.dp))
+        GlassIconButton(Ic.Back, Ar.back, onBack, size = appDp(44))
+        Spacer(Modifier.width(appDp(14)))
         Box(
-            Modifier.size(42.dp).clip(CircleShape).background(Palette.Accent),
+            Modifier.size(appDp(42)).clip(CircleShape).background(Palette.Accent),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Ic.Play, null, tint = Color.White, modifier = Modifier.size(22.dp))
+            Icon(Ic.Play, null, tint = Color.White, modifier = Modifier.size(appDp(22)))
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(appDp(12)))
         Column {
-            Text("Live TV", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text(Ar.live, fontSize = 12.sp, color = Color(0xFF9AA7D6))
+            Text("Live TV", fontSize = appSp(22), fontWeight = FontWeight.Bold, color = Color.White)
+            Text(Ar.live, fontSize = appSp(12), color = Color(0xFF9AA7D6))
         }
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
-            Text(timeStr, fontSize = 22.sp, fontWeight = FontWeight.Light, color = Color.White)
-            Text(dateStr, fontSize = 12.sp, color = Color(0xFF9AA7D6))
+            Text(timeStr, fontSize = appSp(22), fontWeight = FontWeight.Light, color = Color.White)
+            Text(dateStr, fontSize = appSp(12), color = Color(0xFF9AA7D6))
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(appDp(14)))
         HeaderCircleButton(icon = Ic.Settings, description = "الإعدادات", onClick = {})
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(appDp(8)))
         HeaderCircleButton(icon = Ic.Person, description = "الحساب", onClick = {})
     }
 }
@@ -383,14 +386,14 @@ private fun HeaderCircleButton(
     var focused by remember { mutableStateOf(false) }
     Box(
         Modifier
-            .size(42.dp)
+            .size(appDp(42))
             .clip(CircleShape)
             .background(
                 if (focused) Color(0xFF8055E8).copy(alpha = 0.45f)
                 else Color(0xFF232946).copy(alpha = 0.78f)
             )
             .border(
-                width = 1.dp,
+                width = appDp(1),
                 color = if (focused) Color(0xFFB37FEB) else Color.White.copy(alpha = 0.18f),
                 shape = CircleShape,
             )
@@ -398,7 +401,7 @@ private fun HeaderCircleButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(appDp(20)))
     }
 }
 
@@ -443,12 +446,12 @@ private fun WideLiveLayout(
                     Modifier
                         .fillMaxSize()
                         .weight(1f)
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(28.dp),
+                        .padding(horizontal = appDp(24), vertical = appDp(12)),
+                    horizontalArrangement = Arrangement.spacedBy(appDp(28)),
                 ) {
                     Column(
                         Modifier.weight(1f).fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(appDp(12)),
                     ) {
                         SearchBox(
                             state.query,
@@ -505,13 +508,13 @@ private fun NarrowLiveLayout(
             state.query,
             onQuery,
             Ar.searchChannels,
-            Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            Modifier.padding(horizontal = appDp(20), vertical = appDp(4)),
         )
         if (state.categories.isNotEmpty()) {
             LazyRow(
-                modifier = Modifier.padding(vertical = 6.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = appDp(6)),
+                contentPadding = PaddingValues(horizontal = appDp(16)),
+                horizontalArrangement = Arrangement.spacedBy(appDp(8)),
             ) {
                 items(state.categories, key = { it.id }) { cat ->
                     HorizontalCategoryChip(
@@ -547,8 +550,8 @@ private fun CategorySidebar(
 ) {
     LazyColumn(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(appDp(8)),
+        contentPadding = PaddingValues(vertical = appDp(4)),
     ) {
         item(key = FAV_CAT_ID) {
             SidebarFavoritesChip(
@@ -580,18 +583,18 @@ private fun CategorySidebar(
 private fun SidebarFavoritesChip(selected: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val active = selected || focused
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(appDp(14))
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = appDp(52))
             .clip(shape)
             .background(
                 if (active) Color(0xFF8055E8).copy(alpha = 0.55f)
                 else Color.White.copy(alpha = 0.06f)
             )
             .border(
-                width = if (focused) 2.dp else 1.dp,
+                width = if (focused) appDp(2) else appDp(1),
                 color = if (focused) Color(0xFF7DC4FF)
                 else if (selected) Color(0xFF8055E8).copy(alpha = 0.8f)
                 else Color.White.copy(alpha = 0.10f),
@@ -599,7 +602,7 @@ private fun SidebarFavoritesChip(selected: Boolean, onClick: () -> Unit) {
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = appDp(14), vertical = appDp(14)),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -607,7 +610,7 @@ private fun SidebarFavoritesChip(selected: Boolean, onClick: () -> Unit) {
         ) {
             Text(
                 "المفضلة",
-                fontSize = 16.sp,
+                fontSize = appSp(16),
                 fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                 color = if (active) Color.White else Palette.TextDim,
                 modifier = Modifier.weight(1f),
@@ -616,7 +619,7 @@ private fun SidebarFavoritesChip(selected: Boolean, onClick: () -> Unit) {
                 Ic.Heart,
                 contentDescription = null,
                 tint = if (active) Color(0xFFFF5C8D) else Palette.TextDim,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(appDp(18)),
             )
         }
     }
@@ -630,7 +633,7 @@ private fun VerticalCategoryChip(
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(appDp(14))
     val bg = when {
         focused -> Color(0xFF8055E8).copy(alpha = 0.60f)
         selected -> Color(0xFF8055E8).copy(alpha = 0.45f)
@@ -644,13 +647,13 @@ private fun VerticalCategoryChip(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = appDp(52))
             .clip(shape)
             .background(bg)
-            .border(if (focused) 2.dp else 1.dp, borderColor, shape)
+            .border(if (focused) appDp(2) else appDp(1), borderColor, shape)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .padding(horizontal = appDp(14), vertical = appDp(14)),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -658,7 +661,7 @@ private fun VerticalCategoryChip(
         ) {
             Text(
                 label,
-                fontSize = 16.sp,
+                fontSize = appSp(16),
                 fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
                 color = if (focused || selected) Color.White else Palette.TextDim,
                 maxLines = 1,
@@ -666,10 +669,10 @@ private fun VerticalCategoryChip(
                 modifier = Modifier.weight(1f),
             )
             if (count != null) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(appDp(8)))
                 Text(
                     count.toString(),
-                    fontSize = 13.sp,
+                    fontSize = appSp(13),
                     fontWeight = FontWeight.Medium,
                     color = if (focused || selected) Color.White.copy(alpha = 0.85f)
                     else Palette.TextDim.copy(alpha = 0.7f),
@@ -692,14 +695,14 @@ private fun HorizontalCategoryChip(label: String, selected: Boolean, onClick: ()
         modifier = Modifier
             .clip(shape)
             .background(bg)
-            .border(1.dp, if (selected) Color(0xFF8055E8) else Color.White.copy(alpha = 0.10f), shape)
+            .border(appDp(1), if (selected) Color(0xFF8055E8) else Color.White.copy(alpha = 0.10f), shape)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = appDp(18), vertical = appDp(10)),
     ) {
         Text(
             label,
-            fontSize = 14.sp,
+            fontSize = appSp(14),
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = Palette.Text,
             maxLines = 1,
@@ -724,12 +727,12 @@ private fun ChannelColumn(
 
     Column(modifier) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth().padding(horizontal = appDp(8), vertical = appDp(6)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 "قائمة القنوات",
-                fontSize = 20.sp,
+                fontSize = appSp(20),
                 fontWeight = FontWeight.Bold,
                 color = Palette.Text,
                 modifier = Modifier.weight(1f),
@@ -737,7 +740,7 @@ private fun ChannelColumn(
             if (channels.isNotEmpty()) {
                 Text(
                     "${channels.size}",
-                    fontSize = 14.sp,
+                    fontSize = appSp(14),
                     color = Palette.Cyan,
                     fontWeight = FontWeight.Bold,
                 )
@@ -756,8 +759,8 @@ private fun ChannelColumn(
                 else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = appDp(4), vertical = appDp(4)),
+                    verticalArrangement = Arrangement.spacedBy(appDp(8)),
                 ) {
                     itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                         ChannelRow(
@@ -800,7 +803,7 @@ private fun ChannelRow(
         }
     }
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(appDp(16))
     val borderColor = when {
         focused -> Color(0xFF7DC4FF)
         isPreviewed -> Color(0xFF7DC4FF).copy(alpha = 0.75f)
@@ -811,16 +814,16 @@ private fun ChannelRow(
         isPreviewed -> Color(0xFF7DC4FF).copy(alpha = 0.10f)
         else -> Color.White.copy(alpha = 0.04f)
     }
-    val borderWidth = if (focused || isPreviewed) 2.dp else 1.dp
+    val borderWidth = if (focused || isPreviewed) appDp(2) else appDp(1)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
+            .height(appDp(72))
             .then(
                 if (isPreviewed && !focused) {
                     Modifier.shadow(
-                        elevation = 10.dp,
+                        elevation = appDp(10),
                         shape = shape,
                         ambientColor = Color(0xFF7DC4FF),
                         spotColor = Color(0xFF7DC4FF),
@@ -835,32 +838,32 @@ private fun ChannelRow(
                 if (it.isFocused) onFocus()
             }
             .clickable(onClick = onPlay)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = appDp(12)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(appDp(10)),
     ) {
         Text(
             index.toString(),
-            fontSize = 15.sp,
+            fontSize = appSp(15),
             fontWeight = FontWeight.Bold,
             color = Palette.TextDim,
-            modifier = Modifier.width(28.dp),
+            modifier = Modifier.width(appDp(28)),
         )
         RemoteImage(
             url = channel.icon,
             fallbackText = channel.name,
             modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .size(appDp(52))
+                .clip(RoundedCornerShape(appDp(12)))
                 .background(Color.White.copy(alpha = 0.08f))
-                .padding(4.dp),
+                .padding(appDp(4)),
             contentScale = ContentScale.Fit,
         )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(4))) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     channel.name,
-                    fontSize = 16.sp,
+                    fontSize = appSp(16),
                     fontWeight = FontWeight.Bold,
                     color = Palette.Text,
                     maxLines = 1,
@@ -868,12 +871,12 @@ private fun ChannelRow(
                     modifier = Modifier.weight(1f),
                 )
                 qualityOf(channel.name)?.let { q ->
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(appDp(8)))
                     QualityBadge(q)
                 }
                 val program = now
                 if (program != null) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(appDp(8)))
                     LiveBadge()
                 }
             }
@@ -882,15 +885,15 @@ private fun ChannelRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "${formatClock(program.start)} - ${formatClock(program.end)}",
-                        fontSize = 12.sp,
+                        fontSize = appSp(12),
                         fontWeight = FontWeight.Medium,
                         color = Palette.Cyan,
                         maxLines = 1,
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(appDp(8)))
                     Text(
                         program.title.ifBlank { Ar.noName },
-                        fontSize = 13.sp,
+                        fontSize = appSp(13),
                         color = Palette.TextDim,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -902,7 +905,7 @@ private fun ChannelRow(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(3.dp)
+                        .height(appDp(3))
                         .clip(RoundedCornerShape(50))
                         .background(Color.White.copy(alpha = 0.15f)),
                 ) {
@@ -919,14 +922,14 @@ private fun ChannelRow(
             icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
             description = Ar.favorites,
             onClick = onToggleFavorite,
-            size = 38.dp,
+            size = appDp(38),
             tint = if (isFavorite) Palette.Pink else Palette.TextDim,
         )
         GlassIconButton(
             icon = Ic.List,
             description = Ar.guide,
             onClick = onGuide,
-            size = 38.dp,
+            size = appDp(38),
         )
     }
 }
@@ -956,18 +959,18 @@ private fun LiveBadge() {
         Modifier
             .clip(RoundedCornerShape(50))
             .background(Color(0xFFE53935).copy(alpha = 0.9f))
-            .border(1.dp, Color(0xFFE53935).copy(alpha = glowAlpha), RoundedCornerShape(50))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .border(appDp(1), Color(0xFFE53935).copy(alpha = glowAlpha), RoundedCornerShape(50))
+            .padding(horizontal = appDp(8), vertical = appDp(3)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(appDp(4)),
     ) {
         Box(
             Modifier
-                .size(6.dp)
+                .size(appDp(6))
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = dotAlpha)),
         )
-        Text("مباشر", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text("مباشر", fontSize = appSp(10), fontWeight = FontWeight.Bold, color = Color.White)
     }
 }
 
@@ -975,11 +978,11 @@ private fun LiveBadge() {
 private fun QualityBadge(q: String) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .border(1.dp, Palette.Peach.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .clip(RoundedCornerShape(appDp(6)))
+            .border(appDp(1), Palette.Peach.copy(alpha = 0.7f), RoundedCornerShape(appDp(6)))
+            .padding(horizontal = appDp(6), vertical = appDp(2)),
     ) {
-        Text(q, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Palette.Peach)
+        Text(q, fontSize = appSp(10), fontWeight = FontWeight.Bold, color = Palette.Peach)
     }
 }
 
@@ -1004,17 +1007,17 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
 
     Column(
         modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(appDp(20)))
             .background(Color(0xFF181D32).copy(alpha = 0.92f))
-            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .border(appDp(1), Color.White.copy(alpha = 0.15f), RoundedCornerShape(appDp(20)))
+            .padding(appDp(18)),
+        verticalArrangement = Arrangement.spacedBy(appDp(14)),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(appDp(14)))
                 .background(Color.Black),
         ) {
             RemoteImage(
@@ -1028,20 +1031,20 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
                     Modifier
                         .fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .padding(horizontal = appDp(10), vertical = appDp(6))
                         .align(Alignment.TopStart),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RemoteImage(
                             url = channel.icon,
                             fallbackText = channel.name,
-                            modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)),
+                            modifier = Modifier.size(appDp(22)).clip(RoundedCornerShape(appDp(4))),
                             contentScale = ContentScale.Fit,
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(appDp(8)))
                         Text(
                             channel.name,
-                            fontSize = 13.sp,
+                            fontSize = appSp(13),
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             maxLines = 1,
@@ -1054,10 +1057,10 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
 
         if (channel != null) {
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(appDp(10)))
             // 5 round control buttons (stop / record / search / fullscreen / mute)
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = appDp(4)),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1068,15 +1071,15 @@ private fun PreviewPanel(channel: Channel?, onGuide: (Channel) -> Unit, modifier
                 PlayerControlButton(icon = Ic.Tracks, description = "كتم الصوت", onClick = {})
             }
 
-            Spacer(Modifier.height(4.dp))
-            Text("دليل البرامج الإلكتروني", fontSize = 13.sp, color = Palette.Cyan, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(appDp(4)))
+            Text("دليل البرامج الإلكتروني", fontSize = appSp(13), color = Palette.Cyan, fontWeight = FontWeight.Bold)
 
             val now = System.currentTimeMillis() / 1000
             val current = programs.firstOrNull { now in it.start until it.end }
             val upcoming = programs.filter { it.start >= now }.take(3)
 
             if (current == null && upcoming.isEmpty()) {
-                Text("لا تتوفر بيانات الدليل لهذه القناة", fontSize = 13.sp, color = Palette.TextDim)
+                Text("لا تتوفر بيانات الدليل لهذه القناة", fontSize = appSp(13), color = Palette.TextDim)
             } else {
                 current?.let { prog ->
                     EpgMiniCard(
@@ -1121,15 +1124,15 @@ private fun PlayerControlButton(
     }
     Box(
         modifier = Modifier
-            .size(38.dp)
+            .size(appDp(38))
             .clip(CircleShape)
             .background(bg)
-            .border(if (focused) 2.dp else 1.dp, borderColor, CircleShape)
+            .border(if (focused) appDp(2) else appDp(1), borderColor, CircleShape)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(16.dp))
+        Icon(icon, contentDescription = description, tint = Color.White, modifier = Modifier.size(appDp(16)))
     }
 }
 
@@ -1138,29 +1141,29 @@ private fun EpgMiniCard(title: String, time: String, progress: Float, highlight:
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(appDp(12)))
             .background(if (highlight) Color(0xFF3978FF).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.05f))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(appDp(10)),
+        verticalArrangement = Arrangement.spacedBy(appDp(4)),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 title,
-                fontSize = 13.sp,
+                fontSize = appSp(13),
                 fontWeight = FontWeight.Bold,
                 color = Palette.Text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(time, fontSize = 11.sp, color = Palette.TextDim)
+            Spacer(Modifier.width(appDp(8)))
+            Text(time, fontSize = appSp(11), color = Palette.TextDim)
         }
         if (highlight) {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(3.dp)
+                    .height(appDp(3))
                     .clip(RoundedCornerShape(50))
                     .background(Color.White.copy(alpha = 0.15f)),
             ) {
@@ -1174,3 +1177,10 @@ private fun EpgMiniCard(title: String, time: String, progress: Float, highlight:
         }
     }
 }
+
+@Composable
+private fun appSp(n: Int): TextUnit = (n * LocalAppScale.current).sp
+
+@Composable
+private fun appDp(n: Int): Dp = (n * LocalAppScale.current).dp
+

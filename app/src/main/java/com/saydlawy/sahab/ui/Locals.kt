@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -13,6 +14,9 @@ val LocalIsTv = staticCompositionLocalOf { false }
 
 /** True when the person asked for a lighter look (no moving background, no scaling animations). */
 val LocalLightEffects = staticCompositionLocalOf { false }
+
+/** Global scale multiplier (1f = TV baseline). */
+val LocalAppScale = compositionLocalOf { 1f }
 
 class SimpleFactory(private val build: () -> ViewModel) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

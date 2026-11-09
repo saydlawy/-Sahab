@@ -5,7 +5,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -54,14 +56,29 @@ fun AppRoot(container: AppContainer) {
     val onPlayer = entry?.destination?.route == Routes.PLAYER
 
     CompositionLocalProvider(LocalLightEffects provides light) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Palette.Bg),
-        ) {
-            if (!onPlayer) DreamyBackground()
-            val startRoute = start
-            if (startRoute != null) AppNavHost(nav, container, startRoute)
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val isTv = LocalIsTv.current
+            val scale = when {
+                isTv -> 1f
+                maxWidth > maxHeight -> (maxHeight.value / 720f).coerceIn(0.85f, 1.15f)
+                else -> (minOf(maxWidth.value, maxHeight.value) / 400f).coerceIn(0.75f, 1.0f)
+            }
+            CompositionLocalProvider(LocalAppScale provides scale) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Palette.Bg),
+                ) {
+                    if (!onPlayer) DreamyBackground()
+                    val contentModifier =
+                        if (onPlayer) Modifier.fillMaxSize()
+                        else Modifier.fillMaxSize().safeDrawingPadding()
+                    Box(contentModifier) {
+                        val startRoute = start
+                        if (startRoute != null) AppNavHost(nav, container, startRoute)
+                    }
+                }
+            }
         }
     }
 }

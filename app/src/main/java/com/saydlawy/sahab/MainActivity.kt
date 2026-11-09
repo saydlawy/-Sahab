@@ -2,6 +2,7 @@ package com.saydlawy.sahab
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import com.saydlawy.sahab.ui.AppRoot
@@ -14,6 +15,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val container = (application as SahabApp).container
         val tv = isTelevision(this)
         setContent {
