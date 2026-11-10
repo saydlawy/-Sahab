@@ -106,7 +106,7 @@ fun FixtureResponse.toAppMatch(): Match {
     }
     return Match(
         id = fixture.id,
-        league = League(fixture.id, translateLeagueName(league.id, league.name), league.country ?: "", league.logo ?: ""),
+        league = League(fixture.id, AllowedLeaguesConfig.translateLeagueName(league.id, league.name), league.country ?: "", league.logo ?: ""),
         homeTeam = Team(teams.home.id, teams.home.name, teams.home.logo ?: ""),
         awayTeam = Team(teams.away.id, teams.away.name, teams.away.logo ?: ""),
         homeScore = goals.home, awayScore = goals.away, status = statusEnum,
@@ -118,26 +118,3 @@ fun FixtureResponse.toAppMatch(): Match {
     )
 }
 
-private fun translateLeagueName(id: Int, defaultName: String): String {
-    return when (id) {
-        233 -> "الدوري المصري الممتاز"
-        307 -> "دوري روشن السعودي"
-        12 -> "دوري أبطال أفريقيا"
-        17 -> "دوري أبطال آسيا"
-        20 -> "كأس الكونفدرالية"
-        2 -> "دوري أبطال أوروبا"
-        3 -> "الدوري الأوروبي"
-        6 -> "كأس الأمم الأفريقية"
-        403 -> "كأس الأمم الأوروبية"
-        8 -> "كأس آسيا"
-        1 -> "كأس العالم"
-        452 -> "كأس العرب"
-        39 -> "الدوري الإنجليزي"
-        140 -> "الدوري الإسباني"
-        135 -> "الدوري الإيطالي"
-        78 -> "الدوري الألماني"
-        61 -> "الدوري الفرنسي"
-        203 -> "الدوري التركي"
-        else -> defaultName
-    }
-}

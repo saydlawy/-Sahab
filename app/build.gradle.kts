@@ -18,6 +18,8 @@ if (localPropertiesFile.exists()) {
 // Read from environment variable first (GitHub Actions), fallback to local.properties
 val tmdbApiKey: String = System.getenv("TMDB_API_KEY") ?: localProperties.getProperty("TMDB_API_KEY") ?: ""
 val apiFootballKey: String = System.getenv("API_FOOTBALL_KEY") ?: localProperties.getProperty("API_FOOTBALL_KEY") ?: ""
+val footballDataOrgKey: String = System.getenv("FOOTBALL_DATA_ORG_KEY") ?: localProperties.getProperty("FOOTBALL_DATA_ORG_KEY") ?: ""
+val theSportsDbKey: String = System.getenv("THESPORTSDB_KEY") ?: localProperties.getProperty("THESPORTSDB_KEY") ?: "3"
 val bzzoiroToken: String = System.getenv("BZZOIRO_API_TOKEN") ?: localProperties.getProperty("BZZOIRO_API_TOKEN") ?: ""
 
 val runNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
@@ -34,6 +36,8 @@ android {
         versionName = "1.0.$runNumber"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         buildConfigField("String", "API_FOOTBALL_KEY", "\"$apiFootballKey\"")
+        buildConfigField("String", "FOOTBALL_DATA_ORG_KEY", "\"$footballDataOrgKey\"")
+        buildConfigField("String", "THESPORTSDB_KEY", "\"$theSportsDbKey\"")
         buildConfigField("String", "BZZOIRO_API_TOKEN", "\"$bzzoiroToken\"")
     }
 

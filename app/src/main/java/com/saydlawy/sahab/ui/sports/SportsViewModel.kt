@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import com.saydlawy.sahab.data.sports.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,12 +45,8 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val api = SportsApi(okHttpClient)
-
-    // قائمة الـ IDs المسموح بها فقط (18 بطولة ودوري)
-    private val ALLOWED_LEAGUES = setOf(
-        233, 307, 12, 17, 20, 2, 3, 6, 403, 8, 1, 452, 39, 140, 135, 78, 61, 203
-    )
+    private val espnApi = EspnApi(okHttpClient)
+    private val apiFootball = SportsApi(okHttpClient)
 
     private var allFetchedMatches: List<Match> = emptyList()
 
@@ -79,13 +77,11 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun loadFromDatabaseThenFetch() {
         viewModelScope.launch {
-            // 1. قراءة البيانات من الكاش أولاً
             val cached = dao.getAllMatches().map { it.toMatch() }
             if (cached.isNotEmpty()) {
                 allFetchedMatches = cached
                 applyLeagueFilter()
             }
-            // 2. جلب البيانات الجديدة في الخلفية
             fetchMatchesFromApi()
         }
     }
@@ -116,40 +112,60 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
             if (allFetchedMatches.isEmpty()) _uiState.value = SportsUiState.Loading
 
             val currentFilter = _selectedDateFilter.value
-            val result: ApiResult<List<Match>> = if (currentFilter == DateFilter.LIVE) {
-                api.getLiveMatches()
-            } else {
-                api.getFixturesByDate(getFormattedDate(currentFilter.dayOffset))
+            val dateStr = getFormattedDate(currentFilter.dayOffset)
+            var resultMatches: List<Match> = emptyList()
+
+            // 1. خط الدفاع الأول: ESPN (مجاني وبدون مفتاح) - فقط إذا لم نكن نبحث عن المباشر حالياً
+            if (currentFilter != DateFilter.LIVE) {
+                val espnDeferred = AllowedLeaguesConfig.ESPN_SLUG_TO_ID.values.map { leagueId ->
+                    async { espnApi.getFixturesByDate(dateStr, leagueId) }
+                }
+                val espnResponses = espnDeferred.awaitAll()
+                resultMatches = espnResponses
+                    .filterIsInstance<ApiResult.Success<List<Match>>>()
+                    .flatMap { it.data }
             }
 
-            when (result) {
-                is ApiResult.Success -> {
-                    // فلترة النتائج لتشمل البطولات المسموح بها فقط
-                    val filteredByLeague = result.data.filter { ALLOWED_LEAGUES.contains(it.league.id) }
-                    
-                    // حفظ في قاعدة البيانات
-                    dao.insertMatches(filteredByLeague.map { it.toEntity() })
-                    
-                    // مسح البيانات الأقدم من شهر
-                    val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
-                    dao.deleteOldMatches(oneMonthAgo)
-
-                    // إعادة القراءة من الكاش بعد التحديث
-                    val updatedCache = dao.getAllMatches().map { it.toMatch() }
-                    allFetchedMatches = updatedCache
-
-                    val leagues = mutableListOf("كل البطولات")
-                    leagues.addAll(updatedCache.map { it.league.name }.distinct())
-                    _availableLeagues.value = leagues
-
-                    applyLeagueFilter()
+            // 2. خط الدفاع الثاني: API-Football (إذا فشل ESPN أو كنا نطلب المباشر)
+            if (resultMatches.isEmpty()) {
+                val apiResult = if (currentFilter == DateFilter.LIVE) {
+                    apiFootball.getLiveMatches()
+                } else {
+                    apiFootball.getFixturesByDate(dateStr)
                 }
-                is ApiResult.Error -> {
-                    if (allFetchedMatches.isEmpty()) {
-                        _uiState.value = SportsUiState.Error(result.message)
+
+                when (apiResult) {
+                    is ApiResult.Success -> resultMatches = apiResult.data
+                    is ApiResult.Error -> {
+                        if (allFetchedMatches.isEmpty()) {
+                            _uiState.value = SportsUiState.Error(apiResult.message)
+                        }
+                        _isLoading.value = false
+                        return@launch
                     }
                 }
             }
+
+            // 3. فلترة البطولات المسموح بها وحفظها في قاعدة البيانات
+            val filteredByLeague = resultMatches.filter { 
+                AllowedLeaguesConfig.ALLOWED_LEAGUES.contains(it.league.id) 
+            }
+            
+            dao.insertMatches(filteredByLeague.map { it.toEntity() })
+            
+            // مسح البيانات الأقدم من شهر
+            val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+            dao.deleteOldMatches(oneMonthAgo)
+
+            // إعادة القراءة من الكاش
+            val updatedCache = dao.getAllMatches().map { it.toMatch() }
+            allFetchedMatches = updatedCache
+
+            val leagues = mutableListOf("كل البطولات")
+            leagues.addAll(updatedCache.map { it.league.name }.distinct())
+            _availableLeagues.value = leagues
+
+            applyLeagueFilter()
             _isLoading.value = false
         }
     }

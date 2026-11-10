@@ -41,6 +41,8 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FOOTBALL_DATA_ORG_KEY: ${{ secrets.FOOTBALL_DATA_ORG_KEY }}
+          THESPORTSDB_KEY: ${{ secrets.THESPORTSDB_KEY }}
           BZZOIRO_API_TOKEN: ${{ secrets.BZZOIRO_API_TOKEN }}
         run: gradle :app:assembleRelease --no-daemon --stacktrace
 
