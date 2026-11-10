@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -55,9 +68,9 @@ def fetch_espn():
                     status = 'LIVE' if status_state == 'in' else 'FINISHED' if status_state == 'post' else 'UPCOMING'
                     date_str = event.get('date', '')
                     if save_match_if_new(cursor, {
-                        'id': hash(event.get('id', '')), 'leagueId': lid, 'leagueName': lname,
-                        'homeTeamId': hash(home.get('team', {}).get('id', '')), 'homeTeamName': home.get('team', {}).get('displayName', ''),
-                        'homeTeamLogo': home.get('team', {}).get('logo', ''), 'awayTeamId': hash(away.get('team', {}).get('id', '')),
+                        'id': stable_id(event.get('id', '')), 'leagueId': lid, 'leagueName': lname,
+                        'homeTeamId': stable_id(home.get('team', {}).get('id', '')), 'homeTeamName': home.get('team', {}).get('displayName', ''),
+                        'homeTeamLogo': home.get('team', {}).get('logo', ''), 'awayTeamId': stable_id(away.get('team', {}).get('id', '')),
                         'awayTeamName': away.get('team', {}).get('displayName', ''), 'awayTeamLogo': away.get('team', {}).get('logo', ''),
                         'homeScore': home.get('score'), 'awayScore': away.get('score'), 'status': status,
                         'date': date_str[:10], 'time': date_str[11:16]
@@ -86,9 +99,9 @@ def fetch_tsdb_today():
                 added = 0
                 for e in events:
                     if save_match_if_new(cursor, {
-                        'id': hash(e.get('idEvent')), 'leagueId': lid, 'leagueName': lname,
-                        'homeTeamId': hash(e.get('idHomeTeam')), 'homeTeamName': e.get('strHomeTeam', ''),
-                        'homeTeamLogo': e.get('strHomeTeamBadge', ''), 'awayTeamId': hash(e.get('idAwayTeam')),
+                        'id': stable_id(e.get('idEvent')), 'leagueId': lid, 'leagueName': lname,
+                        'homeTeamId': stable_id(e.get('idHomeTeam')), 'homeTeamName': e.get('strHomeTeam', ''),
+                        'homeTeamLogo': e.get('strHomeTeamBadge', ''), 'awayTeamId': stable_id(e.get('idAwayTeam')),
                         'awayTeamName': e.get('strAwayTeam', ''), 'awayTeamLogo': e.get('strAwayTeamBadge', ''),
                         'homeScore': int(e.get('intHomeScore')) if e.get('intHomeScore') else None,
                         'awayScore': int(e.get('intAwayScore')) if e.get('intAwayScore') else None,
@@ -119,9 +132,9 @@ def fetch_bzzoiro():
             added = 0
             for e in events:
                 if save_match_if_new(cursor, {
-                    'id': hash(str(e.get('id'))), 'leagueId': e.get('league', {}).get('id', 0),
-                    'leagueName': e.get('league', {}).get('name', ''), 'homeTeamId': hash(str(e.get('home_team', {}).get('id', ''))),
-                    'homeTeamName': e.get('home_team', {}).get('name', ''), 'awayTeamId': hash(str(e.get('away_team', {}).get('id', ''))),
+                    'id': stable_id(str(e.get('id'))), 'leagueId': e.get('league', {}).get('id', 0),
+                    'leagueName': e.get('league', {}).get('name', ''), 'homeTeamId': stable_id(str(e.get('home_team', {}).get('id', ''))),
+                    'homeTeamName': e.get('home_team', {}).get('name', ''), 'awayTeamId': stable_id(str(e.get('away_team', {}).get('id', ''))),
                     'awayTeamName': e.get('away_team', {}).get('name', ''), 'status': 'UPCOMING',
                     'date': e.get('start_time', '')[:10], 'time': e.get('start_time', '')[11:16]
                 }): added += 1
@@ -145,8 +158,8 @@ def fetch_openligadb():
             for m in matches:
                 if save_match_if_new(cursor, {
                     'id': m.get('matchID'), 'leagueId': 78, 'leagueName': 'الدوري الألماني',
-                    'homeTeamId': hash(m.get('team1', {}).get('teamName', '')), 'homeTeamName': m.get('team1', {}).get('teamName', ''),
-                    'homeTeamLogo': m.get('team1', {}).get('teamIconUrl', ''), 'awayTeamId': hash(m.get('team2', {}).get('teamName', '')),
+                    'homeTeamId': stable_id(m.get('team1', {}).get('teamName', '')), 'homeTeamName': m.get('team1', {}).get('teamName', ''),
+                    'homeTeamLogo': m.get('team1', {}).get('teamIconUrl', ''), 'awayTeamId': stable_id(m.get('team2', {}).get('teamName', '')),
                     'awayTeamName': m.get('team2', {}).get('teamName', ''), 'awayTeamLogo': m.get('team2', {}).get('teamIconUrl', ''),
                     'homeScore': m.get('goals', [{}])[-1].get('scoreTeam1') if m.get('goals') else None,
                     'awayScore': m.get('goals', [{}])[-1].get('scoreTeam2') if m.get('goals') else None,

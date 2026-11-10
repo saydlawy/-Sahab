@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time

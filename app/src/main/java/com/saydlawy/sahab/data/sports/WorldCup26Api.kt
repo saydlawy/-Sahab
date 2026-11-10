@@ -96,7 +96,20 @@ fun WorldCup26Event.toAppMatch(slug: String): Match? {
     val home = comp.competitors.firstOrNull { it.homeAway == "home" } ?: return null
     val away = comp.competitors.firstOrNull { it.homeAway == "away" } ?: return null
 
-    val lid = if (slug == "eng.1") 39 else if (slug == "esp.1") 140 else 0
+    val lid = when (slug) {
+        "egy.1" -> 233
+        "ksa.1" -> 307
+        "eng.1" -> 39
+        "esp.1" -> 140
+        "ita.1" -> 135
+        "ger.1" -> 78
+        "fra.1" -> 61
+        "tur.1" -> 203
+        "uefa.champions" -> 2
+        "uefa.europa" -> 3
+        "caf.champions" -> 12
+        else -> 0
+    }
     if (lid == 0) return null
 
     val statusEnum = when (comp.status.type.state) {
@@ -106,10 +119,10 @@ fun WorldCup26Event.toAppMatch(slug: String): Match? {
     }
 
     return Match(
-        id = id.hashCode(),
+        id = id.ifBlank { "${lid}_${home.team.displayName}_${away.team.displayName}_${date.take(10)}" }.stableId(),
         league = League(lid, AllowedLeaguesConfig.translateLeagueName(lid), "", ""),
-        homeTeam = Team(home.team.id.hashCode(), home.team.displayName, home.team.logo ?: ""),
-        awayTeam = Team(away.team.id.hashCode(), away.team.displayName, away.team.logo ?: ""),
+        homeTeam = Team(home.team.id.ifBlank { home.team.displayName }.stableId(), home.team.displayName, home.team.logo ?: ""),
+        awayTeam = Team(away.team.id.ifBlank { away.team.displayName }.stableId(), away.team.displayName, away.team.logo ?: ""),
         homeScore = home.score?.toIntOrNull(),
         awayScore = away.score?.toIntOrNull(),
         status = statusEnum,

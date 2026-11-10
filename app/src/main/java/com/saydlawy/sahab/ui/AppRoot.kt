@@ -138,7 +138,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         }
         composable(Routes.FAVORITES) { FavoritesScreen(onBack = back, onOpen = open, onPlay = play) }
         composable(Routes.SPORTS) {
-            SportsScreen()
+            SportsScreen(onClose = back)
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(

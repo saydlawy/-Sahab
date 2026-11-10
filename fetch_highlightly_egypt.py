@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -54,13 +67,13 @@ def fetch_egypt_matches(api_key, days_ahead=30):
                         continue  # تجاهل المباريات المنتهية أو الجارية
                     kickoff = m.get('date', target_date) + 'T' + m.get('time', '00:00')
                     if save_match_if_new(cursor, {
-                        'id': hash(str(m.get('id', ''))),
+                        'id': stable_id(str(m.get('id', ''))),
                         'leagueId': 233,
                         'leagueName': league.get('name', 'الدوري المصري الممتاز'),
-                        'homeTeamId': hash(str(home.get('id', ''))),
+                        'homeTeamId': stable_id(str(home.get('id', ''))),
                         'homeTeamName': home.get('name', ''),
                         'homeTeamLogo': home.get('logo', ''),
-                        'awayTeamId': hash(str(away.get('id', ''))),
+                        'awayTeamId': stable_id(str(away.get('id', ''))),
                         'awayTeamName': away.get('name', ''),
                         'awayTeamLogo': away.get('logo', ''),
                         'homeScore': None, 'awayScore': None, 'status': 'UPCOMING',
@@ -96,9 +109,9 @@ def fetch_egypt_matches(api_key, days_ahead=30):
                         if desc not in ['Not started', 'To be announced']:
                             continue
                         if save_match_if_new(cursor, {
-                            'id': hash(str(m.get('id', ''))), 'leagueId': 233, 'leagueName': 'الدوري المصري الممتاز',
-                            'homeTeamId': hash(str(home.get('id', ''))), 'homeTeamName': home.get('name', ''),
-                            'homeTeamLogo': home.get('logo', ''), 'awayTeamId': hash(str(away.get('id', ''))),
+                            'id': stable_id(str(m.get('id', ''))), 'leagueId': 233, 'leagueName': 'الدوري المصري الممتاز',
+                            'homeTeamId': stable_id(str(home.get('id', ''))), 'homeTeamName': home.get('name', ''),
+                            'homeTeamLogo': home.get('logo', ''), 'awayTeamId': stable_id(str(away.get('id', ''))),
                             'awayTeamName': away.get('name', ''), 'awayTeamLogo': away.get('logo', ''),
                             'homeScore': None, 'awayScore': None, 'status': 'UPCOMING',
                             'date': target_date, 'time': m.get('time', '00:00')

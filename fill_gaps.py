@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -58,13 +71,13 @@ def fetch_tsdb_today():
                 added = 0
                 for e in events:
                     match_data = {
-                        'id': hash(e.get('idEvent')),
+                        'id': stable_id(e.get('idEvent')),
                         'leagueId': lid,
                         'leagueName': lname,
-                        'homeTeamId': hash(e.get('idHomeTeam')),
+                        'homeTeamId': stable_id(e.get('idHomeTeam')),
                         'homeTeamName': e.get('strHomeTeam', ''),
                         'homeTeamLogo': e.get('strHomeTeamBadge', ''),
-                        'awayTeamId': hash(e.get('idAwayTeam')),
+                        'awayTeamId': stable_id(e.get('idAwayTeam')),
                         'awayTeamName': e.get('strAwayTeam', ''),
                         'awayTeamLogo': e.get('strAwayTeamBadge', ''),
                         'homeScore': int(e.get('intHomeScore')) if e.get('intHomeScore') else None,
@@ -109,12 +122,12 @@ def fetch_bzzoiro():
             added = 0
             for e in events:
                 match_data = {
-                    'id': hash(str(e.get('id'))),
+                    'id': stable_id(str(e.get('id'))),
                     'leagueId': 39,  # افتراضي، يمكن تحسينه لاحقاً
                     'leagueName': e.get('league', {}).get('name', 'بطولة'),
-                    'homeTeamId': hash(e.get('home_team', {}).get('name', '')),
+                    'homeTeamId': stable_id(e.get('home_team', {}).get('name', '')),
                     'homeTeamName': e.get('home_team', {}).get('name', ''),
-                    'awayTeamId': hash(e.get('away_team', {}).get('name', '')),
+                    'awayTeamId': stable_id(e.get('away_team', {}).get('name', '')),
                     'awayTeamName': e.get('away_team', {}).get('name', ''),
                     'homeScore': e.get('home_score'),
                     'awayScore': e.get('away_score'),

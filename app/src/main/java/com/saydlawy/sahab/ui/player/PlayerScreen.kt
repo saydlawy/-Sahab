@@ -129,9 +129,9 @@ import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.findActivity
 import com.saydlawy.sahab.util.formatDuration
+import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 // Design tokens from ExoPlayer/DESIGN.md & media-player/DESIGN.md
@@ -1813,7 +1813,7 @@ private fun LiveExoPlayerOsd(
     onOpenGuide: () -> Unit,
     onCycleResize: () -> Unit,
 ) {
-    val nowTime = rememberNow().format(DateTimeFormatter.ofPattern("hh:mm a", Locale.US))
+    val nowTime = formatNowMillis(rememberNow(), "hh:mm a", Locale.US)
     val bitrateText = remember(tracks) { SahabPlayer.activeBitrateText(tracks, isLive = true) }
     val videoBadge = remember(tracks, item.title) {
         val q = qualityOf(item.title) ?: "4K HDR"
@@ -2451,7 +2451,7 @@ private fun VodMediaPlayerOsd(
     onToggleEpisodesDrawer: () -> Unit,
     onInteract: () -> Unit,
 ) {
-    val nowTime = rememberNow().format(DateTimeFormatter.ofPattern("hh:mm a", Locale.US))
+    val nowTime = formatNowMillis(rememberNow(), "hh:mm a", Locale.US)
     val bitrateText = remember(tracks) { SahabPlayer.activeBitrateText(tracks, isLive = false) }
     val audioLabel = remember(tracks) { SahabPlayer.activeAudioLabel(tracks) }
     val subtitleLabel = remember(tracks, textOff) { SahabPlayer.activeSubtitleLabel(tracks, textOff) }
@@ -3291,14 +3291,14 @@ private fun GradientTimelineBar(
                 .then(
                     if (onSeekToFraction != null) {
                         Modifier
-                            .pointerInput(Unit) {
+                            .pointerInput(onSeekToFraction) {
                                 detectTapGestures { offset ->
                                     if (size.width > 0) {
                                         onSeekToFraction((offset.x / size.width).coerceIn(0f, 1f))
                                     }
                                 }
                             }
-                            .pointerInput(Unit) {
+                            .pointerInput(onSeekToFraction) {
                                 detectHorizontalDragGestures(
                                     onDragEnd = {
                                         dragFraction?.let { onSeekToFraction(it) }

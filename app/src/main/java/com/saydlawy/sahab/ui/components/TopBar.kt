@@ -47,9 +47,8 @@ import com.saydlawy.sahab.ui.LocalTabNavigator
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.delay
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private data class NavTabItem(val route: String, val label: String)
@@ -99,14 +98,14 @@ fun BrandMark(subtitle: String?, logoSize: Dp = 48.dp, titleSize: Int = 22) {
     }
 }
 
-/** Ticking "now" value, refreshed every few seconds. */
+/** Ticking "now" epoch millis value, refreshed every few seconds (API 23+ compatible). */
 @Composable
-fun rememberNow(periodMs: Long = 5_000L): LocalDateTime {
-    var now by remember { mutableStateOf(LocalDateTime.now()) }
+fun rememberNow(periodMs: Long = 5_000L): Long {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(periodMs) {
         while (true) {
             delay(periodMs)
-            now = LocalDateTime.now()
+            now = System.currentTimeMillis()
         }
     }
     return now
@@ -117,8 +116,8 @@ fun rememberNow(periodMs: Long = 5_000L): LocalDateTime {
 fun ClockPill(extra: String? = null, modifier: Modifier = Modifier) {
     val now = rememberNow()
     val ar = Locale.forLanguageTag("ar")
-    val time = now.format(DateTimeFormatter.ofPattern("hh:mm a", ar))
-    val trailing = extra ?: now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", ar))
+    val time = formatNowMillis(now, "hh:mm a", ar)
+    val trailing = extra ?: formatNowMillis(now, "EEEE، d MMMM", ar)
     Row(
         modifier
             .clip(RoundedCornerShape(50))

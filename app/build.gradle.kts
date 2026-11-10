@@ -45,12 +45,17 @@ android {
         buildConfigField("String", "BZZOIRO_API_TOKEN", "\"$bzzoiroToken\"")
     }
 
+    val keystoreFile = rootProject.file("release-keystore.jks")
+    val hasReleaseKeystore = keystoreFile.exists() && keystoreFile.length() > 0L
+
     signingConfigs {
-        create("release") {
-            storeFile = rootProject.file("release-keystore.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
-            keyAlias = System.getenv("KEY_ALIAS") ?: "my_app_key"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: "my_app_key"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            }
         }
     }
 
@@ -58,7 +63,9 @@ android {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

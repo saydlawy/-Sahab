@@ -91,11 +91,15 @@ fun HighlightlyMatch.toAppMatch(): Match? {
         return null // Only keep future matches
     }
 
+    val safeId = if (id > 0) id else "hl_${homeTeam.name}_${awayTeam.name}_$date".stableId()
+    val safeHomeId = if (homeTeam.id > 0) homeTeam.id else homeTeam.name.stableId()
+    val safeAwayId = if (awayTeam.id > 0) awayTeam.id else awayTeam.name.stableId()
+
     return Match(
-        id = id,
+        id = safeId,
         league = League(233, "الدوري المصري الممتاز", "مصر", ""),
-        homeTeam = Team(homeTeam.id, homeTeam.name, homeTeam.logo ?: ""),
-        awayTeam = Team(awayTeam.id, awayTeam.name, awayTeam.logo ?: ""),
+        homeTeam = Team(safeHomeId, homeTeam.name, homeTeam.logo ?: ""),
+        awayTeam = Team(safeAwayId, awayTeam.name, awayTeam.logo ?: ""),
         homeScore = null,
         awayScore = null,
         status = MatchStatus.UPCOMING,

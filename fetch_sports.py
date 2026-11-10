@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -44,44 +57,46 @@ conn = sqlite3.connect(DB_NAME)
 cursor = conn.cursor()
 
 cursor.execute('''
-    CREATE TABLE IF NOT EXISTS matches (
-        id INTEGER PRIMARY KEY,
-        leagueId INTEGER,
-        leagueName TEXT,
-        leagueCountry TEXT,
-        homeTeamId INTEGER,
-        homeTeamName TEXT,
-        homeTeamLogo TEXT,
-        awayTeamId INTEGER,
-        awayTeamName TEXT,
-        awayTeamLogo TEXT,
-        homeScore INTEGER,
-        awayScore INTEGER,
-        status TEXT,
-        minute TEXT,
-        date TEXT,
-        time TEXT,
-        stadium TEXT,
-        channel TEXT,
-        commentator TEXT,
-        savedAt INTEGER
+    CREATE TABLE IF NOT EXISTS `matches` (
+        `id` INTEGER NOT NULL,
+        `leagueId` INTEGER NOT NULL,
+        `leagueName` TEXT NOT NULL,
+        `leagueCountry` TEXT NOT NULL,
+        `homeTeamId` INTEGER NOT NULL,
+        `homeTeamName` TEXT NOT NULL,
+        `homeTeamLogo` TEXT NOT NULL,
+        `awayTeamId` INTEGER NOT NULL,
+        `awayTeamName` TEXT NOT NULL,
+        `awayTeamLogo` TEXT NOT NULL,
+        `homeScore` INTEGER,
+        `awayScore` INTEGER,
+        `status` TEXT NOT NULL,
+        `minute` TEXT,
+        `date` TEXT NOT NULL,
+        `time` TEXT NOT NULL,
+        `stadium` TEXT NOT NULL,
+        `channel` TEXT NOT NULL,
+        `commentator` TEXT NOT NULL,
+        `savedAt` INTEGER NOT NULL,
+        PRIMARY KEY(`id`)
     )
 ''')
 conn.commit()
 
 cursor.execute('''
-    CREATE TABLE IF NOT EXISTS standings (
-        leagueId INTEGER,
-        rank INTEGER,
-        teamName TEXT,
-        played INTEGER,
-        win INTEGER,
-        draw INTEGER,
-        loss INTEGER,
-        goalsFor INTEGER,
-        goalsAgainst INTEGER,
-        goalDifference INTEGER,
-        points INTEGER
+    CREATE TABLE IF NOT EXISTS `standings` (
+        `leagueId` INTEGER NOT NULL,
+        `rank` INTEGER NOT NULL,
+        `teamName` TEXT NOT NULL,
+        `played` INTEGER NOT NULL,
+        `win` INTEGER NOT NULL,
+        `draw` INTEGER NOT NULL,
+        `loss` INTEGER NOT NULL,
+        `goalsFor` INTEGER NOT NULL,
+        `goalsAgainst` INTEGER NOT NULL,
+        `goalDifference` INTEGER NOT NULL,
+        `points` INTEGER NOT NULL,
+        PRIMARY KEY(`leagueId`, `rank`)
     )
 ''')
 conn.commit()
@@ -151,13 +166,13 @@ def fetch_morph_tv():
                 if match.get('status') in ['live', 'inprogress']: status = 'LIVE'
 
                 save_match({
-                    'id': hash(match.get('id', '')),
+                    'id': stable_id(match.get('id', '')),
                     'leagueId': league_id,
                     'leagueName': ALLOWED_LEAGUES[league_id]['name'],
-                    'homeTeamId': hash(match.get('home', {}).get('id', '')),
+                    'homeTeamId': stable_id(match.get('home', {}).get('id', '')),
                     'homeTeamName': match.get('home', {}).get('name', ''),
                     'homeTeamLogo': match.get('home', {}).get('badge', ''),
-                    'awayTeamId': hash(match.get('away', {}).get('id', '')),
+                    'awayTeamId': stable_id(match.get('away', {}).get('id', '')),
                     'awayTeamName': match.get('away', {}).get('name', ''),
                     'awayTeamLogo': match.get('away', {}).get('badge', ''),
                     'homeScore': match.get('score', {}).get('home'),

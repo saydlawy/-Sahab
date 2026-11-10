@@ -16,11 +16,10 @@ class SportsSyncManager(
         .build()
 ) {
     private val TAG = "SportsSync"
-    private val apiFootball = SportsApi(client)
-    private val openFoot = OpenFootApi(client) // Assuming we'll create this
-    private val worldCup26 = WorldCup26Api(client) // Assuming we'll create this
+    private val openFoot = OpenFootApi(client)
+    private val worldCup26 = WorldCup26Api(client)
+    private val highlightly = HighlightlyApi(client)
     private val tsdb = TheSportsDbApi(client)
-    private val morphTv = MorphTvApi(client)
 
     // دوال مساعدة للتواريخ
     private fun getDate(daysFromNow: Int): String {
@@ -100,7 +99,7 @@ class SportsSyncManager(
 
         // الطبقة 3: Highlightly (للدوري المصري فقط كخط أخير)
         if (fetchedMatches.isEmpty() && leagueId == 233 && highlightlyKey.isNotBlank()) {
-            val res = HighlightlyApi(client).getMatches(highlightlyKey, "EG", from, to)
+            val res = highlightly.getMatches(highlightlyKey, "EG", from, to)
             if (res is ApiResult.Success && res.data.isNotEmpty()) {
                 fetchedMatches = res.data
                 Log.d(TAG, "[$leagueName] تم الجلب من Highlightly (${fetchedMatches.size})")
@@ -117,8 +116,6 @@ class SportsSyncManager(
     }
 
     private suspend fun syncStandings() {
-        // فحص تاريخ آخر تحديث للترتيب (يمكن تنفيذه عبر SharedPreferences في التطبيق)
-        // هنا سنقوم بتحديث الترتيب للدوريات الرئيسية مباشرة
         val leaguesToUpdate = mapOf(
             "4829" to 233, // مصري
             "4668" to 307, // سعودي
@@ -126,10 +123,13 @@ class SportsSyncManager(
             "4335" to 140  // إسباني
         )
         for ((tsdbId, appId) in leaguesToUpdate) {
-            val res = tsdb.getStandings(tsdbId, "2026-2027")
-            if (res is ApiResult.Success) {
-                // حفظ في قاعدة البيانات... (يحتاج لتعديل Dao)
-                Log.d(TAG, "تم تحديث ترتيب البطولة $appId")
+            val localStandings = dao.getStandingsByLeague(appId)
+            if (localStandings.isNotEmpty()) continue
+            val res = tsdb.getStandings(tsdbId)
+            if (res is ApiResult.Success && res.data.isNotEmpty()) {
+                dao.deleteStandingsByLeague(appId)
+                dao.insertStandings(res.data.map { it.toEntity(appId) })
+                Log.d(TAG, "تم تحديث وحفظ ترتيب البطولة $appId")
             }
         }
     }

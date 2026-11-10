@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -35,11 +48,11 @@ def parse_standard(m, lid, lname):
 
     date_str = m.get('date') or m.get('startTime') or m.get('start_time') or m.get('utcDate') or ''
     return {
-        'id': hash(str(m.get('id') or m.get('idEvent') or m.get('match_id') or '')),
+        'id': stable_id(str(m.get('id') or m.get('idEvent') or m.get('match_id') or '')),
         'leagueId': lid, 'leagueName': lname or league.get('name', 'بطولة'),
-        'homeTeamId': hash(str(home.get('id', ''))), 'homeTeamName': home.get('name') or home.get('shortName', ''),
+        'homeTeamId': stable_id(str(home.get('id', ''))), 'homeTeamName': home.get('name') or home.get('shortName', ''),
         'homeTeamLogo': home.get('logo') or home.get('crest') or home.get('badge', ''),
-        'awayTeamId': hash(str(away.get('id', ''))), 'awayTeamName': away.get('name') or away.get('shortName', ''),
+        'awayTeamId': stable_id(str(away.get('id', ''))), 'awayTeamName': away.get('name') or away.get('shortName', ''),
         'awayTeamLogo': away.get('logo') or away.get('crest') or away.get('badge', ''),
         'homeScore': m.get('homeScore') or m.get('home_score'), 'awayScore': m.get('awayScore') or m.get('away_score'),
         'status': 'UPCOMING',

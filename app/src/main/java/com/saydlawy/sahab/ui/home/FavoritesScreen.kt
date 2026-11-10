@@ -32,7 +32,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
+import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.Chip
@@ -58,6 +60,9 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
     }
     val gridState = rememberLazyGridState()
 
+    val displayMode = LocalDisplayMode.current
+    val hPad = if (displayMode == DisplayMode.TABLET_OR_TV) 24.dp else 14.dp
+
     Column(Modifier.fillMaxSize()) {
         SahabTopBar(current = Routes.FAVORITES, onBack = onBack)
 
@@ -67,11 +72,14 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 6.dp),
+                    .padding(horizontal = hPad, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     item {
                         Chip("${Ar.all} (${favorites.size})", filterKind == null, { filterKind = null })
                     }
@@ -85,7 +93,9 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                         Chip(Ar.series, filterKind == Kind.SERIES, { filterKind = Kind.SERIES })
                     }
                 }
-                Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
+                if (isTv) {
+                    Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
+                }
             }
 
             Spacer(Modifier.height(4.dp))
@@ -94,10 +104,10 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                 MessageBox(Ar.noFavorites)
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(if (isTv) 164.dp else 128.dp),
+                    columns = GridCells.Adaptive(if (isTv) 164.dp else 132.dp),
                     state = gridState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                    contentPadding = PaddingValues(horizontal = hPad, vertical = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {

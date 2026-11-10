@@ -77,14 +77,14 @@ fun MorphMatch.toAppMatch(): Match? {
     }
 
     // محاولة مطابقة اسم البطولة بمعرف API-Football (للفلترة)
-    val leagueId = mapCompetitionToLeagueId(competition)
+    val leagueId = AllowedLeaguesConfig.resolveLeagueIdByName(competition) ?: mapCompetitionToLeagueId(competition)
     if (leagueId == null) return null // تجاهل البطولات غير المعتمدة
 
     return Match(
-        id = id.hashCode(),
+        id = id.ifBlank { "${leagueId}_${home.name}_${away.name}_$kickoff" }.stableId(),
         league = League(leagueId, AllowedLeaguesConfig.translateLeagueName(leagueId), "", ""),
-        homeTeam = Team(home.id.hashCode(), home.name, home.badge ?: ""),
-        awayTeam = Team(away.id.hashCode(), away.name, away.badge ?: ""),
+        homeTeam = Team(home.id.ifBlank { home.name }.stableId(), home.name, home.badge ?: ""),
+        awayTeam = Team(away.id.ifBlank { away.name }.stableId(), away.name, away.badge ?: ""),
         homeScore = score.home,
         awayScore = score.away,
         status = statusEnum,

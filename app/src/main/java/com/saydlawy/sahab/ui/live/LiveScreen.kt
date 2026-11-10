@@ -112,6 +112,7 @@ import com.saydlawy.sahab.ui.player.SahabPlayer
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatClock
+import com.saydlawy.sahab.util.formatNowMillis
 import com.saydlawy.sahab.util.normalizeForSearch
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
@@ -123,7 +124,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private const val STADIUM_MATCH_PREVIEW_URL =
@@ -1053,7 +1053,7 @@ private fun PreviewPanel(
             try { repo.shortEpg(channel.id, 6) } catch (_: Exception) { emptyList() }
         } else emptyList()
     }
-    val today = rememberNow().format(DateTimeFormatter.ofPattern("EEEE، d MMMM", Locale.forLanguageTag("ar")))
+    val today = formatNowMillis(rememberNow(), "EEEE، d MMMM", Locale.forLanguageTag("ar"))
 
     Column(
         modifier = modifier,

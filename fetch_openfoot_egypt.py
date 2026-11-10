@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -126,12 +139,12 @@ def main():
         time_part = kickoff[11:16] if kickoff else ''
         
         match_data = {
-            'id': hash(m.get('id', '')),
+            'id': stable_id(m.get('id', '')),
             'leagueId': 233,  # معرف الدوري المصري في نظامنا
             'leagueName': 'الدوري المصري الممتاز',
-            'homeTeamId': hash(home.get('id', '')),
+            'homeTeamId': stable_id(home.get('id', '')),
             'homeTeamName': home.get('name', ''),
-            'awayTeamId': hash(away.get('id', '')),
+            'awayTeamId': stable_id(away.get('id', '')),
             'awayTeamName': away.get('name', ''),
             'status': 'UPCOMING',
             'date': date_part,

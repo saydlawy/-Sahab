@@ -33,6 +33,21 @@ data class MatchEntity(
     val savedAt: Long
 )
 
+@Entity(tableName = "standings", primaryKeys = ["leagueId", "rank"])
+data class StandingEntity(
+    val leagueId: Int,
+    val rank: Int,
+    val teamName: String,
+    val played: Int,
+    val win: Int,
+    val draw: Int,
+    val loss: Int,
+    val goalsFor: Int,
+    val goalsAgainst: Int,
+    val goalDifference: Int,
+    val points: Int
+)
+
 @Dao
 interface MatchDao {
     @Query("SELECT * FROM matches ORDER BY date ASC, time ASC")
@@ -46,12 +61,21 @@ interface MatchDao {
 
     @Query("DELETE FROM matches WHERE savedAt < :timestamp")
     suspend fun deleteOldMatches(timestamp: Long)
-    
+
     @Query("DELETE FROM matches")
     suspend fun clearAll()
+
+    @Query("SELECT * FROM standings WHERE leagueId = :leagueId ORDER BY rank ASC")
+    suspend fun getStandingsByLeague(leagueId: Int): List<StandingEntity>
+
+    @Query("DELETE FROM standings WHERE leagueId = :leagueId")
+    suspend fun deleteStandingsByLeague(leagueId: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStandings(standings: List<StandingEntity>)
 }
 
-@Database(entities = [MatchEntity::class], version = 1, exportSchema = false)
+@Database(entities = [MatchEntity::class, StandingEntity::class], version = 1, exportSchema = false)
 abstract class SportsDatabase : RoomDatabase() {
     abstract fun matchDao(): MatchDao
 }
@@ -85,12 +109,12 @@ fun Match.toEntity(): MatchEntity {
 fun MatchEntity.toMatch(): Match {
     return Match(
         id = id,
-        league = League(leagueId, leagueName, leagueCountry),
+        league = League(leagueId, AllowedLeaguesConfig.translateLeagueName(leagueId, leagueName), leagueCountry),
         homeTeam = Team(homeTeamId, homeTeamName, homeTeamLogo),
         awayTeam = Team(awayTeamId, awayTeamName, awayTeamLogo),
         homeScore = homeScore,
         awayScore = awayScore,
-        status = try { MatchStatus.valueOf(status) } catch(e: Exception) { MatchStatus.UPCOMING },
+        status = try { MatchStatus.valueOf(status) } catch (e: Exception) { MatchStatus.UPCOMING },
         minute = minute,
         date = date,
         time = time,
@@ -99,3 +123,35 @@ fun MatchEntity.toMatch(): Match {
         commentator = commentator
     )
 }
+
+fun Standing.toEntity(leagueId: Int): StandingEntity {
+    return StandingEntity(
+        leagueId = leagueId,
+        rank = rank,
+        teamName = teamName,
+        played = played,
+        win = win,
+        draw = draw,
+        loss = loss,
+        goalsFor = goalsFor,
+        goalsAgainst = goalsAgainst,
+        goalDifference = goalDifference,
+        points = points
+    )
+}
+
+fun StandingEntity.toStanding(): Standing {
+    return Standing(
+        rank = rank,
+        teamName = teamName,
+        played = played,
+        win = win,
+        draw = draw,
+        loss = loss,
+        goalsFor = goalsFor,
+        goalsAgainst = goalsAgainst,
+        goalDifference = goalDifference,
+        points = points
+    )
+}
+

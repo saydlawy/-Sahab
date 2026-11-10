@@ -51,6 +51,9 @@ fun formatClock(epochSeconds: Long): String =
 fun formatDate(epochSeconds: Long): String =
     java.text.SimpleDateFormat("yyyy/MM/dd", Locale.US).format(Date(epochSeconds * 1000))
 
+fun formatNowMillis(epochMillis: Long, pattern: String = "HH:mm", locale: Locale = Locale.US): String =
+    java.text.SimpleDateFormat(pattern, locale).format(Date(epochMillis))
+
 fun formatDuration(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)
     val h = total / 3600

@@ -11,6 +11,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -76,8 +77,13 @@ object SahabPlayer {
         val dataSourceFactory: DataSource.Factory = if (!isLive) {
             val cache = getMediaCache(context)
             if (cache != null) {
+                val sanitizedKeyFactory = CacheKeyFactory { dataSpec ->
+                    val rawKey = dataSpec.key ?: dataSpec.uri.toString()
+                    rawKey.replace(Regex("/(live|movie|series)/[^/]+/[^/]+/"), "/$1/cached/")
+                }
                 CacheDataSource.Factory()
                     .setCache(cache)
+                    .setCacheKeyFactory(sanitizedKeyFactory)
                     .setUpstreamDataSourceFactory(httpFactory)
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
             } else {

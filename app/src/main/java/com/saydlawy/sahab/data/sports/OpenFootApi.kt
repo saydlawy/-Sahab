@@ -90,6 +90,8 @@ fun OpenFootMatch.toAppMatch(competitionId: String): Match? {
         "comp_saudi_pro_league_sau" -> 307
         "comp_uefa_champions_league" -> 2
         "comp_uefa_europa_league" -> 3
+        "comp_uefa_conference_league" -> 848
+        "comp_fifa_world_cup" -> 1
         "comp_premier_league_eng" -> 39
         "comp_laliga_es" -> 140
         "comp_serie_a_it" -> 135
@@ -102,10 +104,10 @@ fun OpenFootMatch.toAppMatch(competitionId: String): Match? {
     val timePart = if (kickoffAt.length >= 16) kickoffAt.substring(11, 16) else ""
 
     return Match(
-        id = id.hashCode(),
+        id = id.ifBlank { "${leagueId}_${homeTeam.name}_${awayTeam.name}_$datePart" }.stableId(),
         league = League(leagueId, AllowedLeaguesConfig.translateLeagueName(leagueId), "", ""),
-        homeTeam = Team(homeTeam.id.hashCode(), homeTeam.name, homeTeam.logo ?: ""),
-        awayTeam = Team(awayTeam.id.hashCode(), awayTeam.name, awayTeam.logo ?: ""),
+        homeTeam = Team(homeTeam.id.ifBlank { homeTeam.name }.stableId(), homeTeam.name, homeTeam.logo ?: ""),
+        awayTeam = Team(awayTeam.id.ifBlank { awayTeam.name }.stableId(), awayTeam.name, awayTeam.logo ?: ""),
         homeScore = null,
         awayScore = null,
         status = MatchStatus.UPCOMING,

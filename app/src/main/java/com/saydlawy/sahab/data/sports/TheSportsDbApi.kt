@@ -62,8 +62,24 @@ class TheSportsDbApi(private val client: OkHttpClient) {
         }
     }
 
-    // جلب جدول الترتيب لدوري معين
-    suspend fun getStandings(leagueId: String, season: String): ApiResult<List<Standing>> {
+    // جلب جدول الترتيب لدوري معين (مع تجربة المواسم المتاحة تلقائياً)
+    suspend fun getStandings(leagueId: String, season: String = "2024-2025"): ApiResult<List<Standing>> {
+        val seasonsToTry = listOf(season, "2025-2026", "2024-2025", "2025", "2024").distinct()
+        var lastError: String? = null
+        for (s in seasonsToTry) {
+            when (val res = fetchStandingsForSeason(leagueId, s)) {
+                is ApiResult.Success -> {
+                    if (res.data.isNotEmpty()) return res
+                }
+                is ApiResult.Error -> {
+                    lastError = res.message
+                }
+            }
+        }
+        return if (lastError != null) ApiResult.Error(lastError) else ApiResult.Success(emptyList())
+    }
+
+    private suspend fun fetchStandingsForSeason(leagueId: String, season: String): ApiResult<List<Standing>> {
         val url = "$baseUrl/lookuptable.php?l=$leagueId&s=$season"
         return suspendCancellableCoroutine { cont ->
             val request = Request.Builder().url(url).build()
@@ -173,12 +189,12 @@ data class StandingDto(
 fun EventDto.toAppMatch(): Match? {
     val home = strHomeTeam ?: return null
     val away = strAwayTeam ?: return null
-    val leagueId = 233 // Default, should be mapped based on strLeague if needed
+    val leagueId = AllowedLeaguesConfig.resolveLeagueIdByName(strLeague) ?: 233
     return Match(
-        id = idEvent.hashCode(),
-        league = League(leagueId, strLeague ?: "Unknown", "", ""),
-        homeTeam = Team(idHomeTeam?.hashCode() ?: 0, home, ""),
-        awayTeam = Team(idAwayTeam?.hashCode() ?: 0, away, ""),
+        id = idEvent.ifBlank { "${leagueId}_${home}_${away}_${dateEvent}" }.stableId(),
+        league = League(leagueId, AllowedLeaguesConfig.translateLeagueName(leagueId, strLeague ?: "بطولة"), "", ""),
+        homeTeam = Team((idHomeTeam ?: home).stableId(), home, ""),
+        awayTeam = Team((idAwayTeam ?: away).stableId(), away, ""),
         homeScore = intHomeScore?.toIntOrNull(),
         awayScore = intAwayScore?.toIntOrNull(),
         status = if (intHomeScore != null) MatchStatus.FINISHED else MatchStatus.UPCOMING,
@@ -193,7 +209,7 @@ fun EventDto.toAppMatch(): Match? {
 }
 
 fun TeamDto.toAppTeam(): Team {
-    return Team(idTeam.hashCode(), strTeam ?: "Unknown", strTeamBadge ?: "")
+    return Team(idTeam.ifBlank { strTeam ?: "team" }.stableId(), strTeam ?: "Unknown", strTeamBadge ?: "")
 }
 
 data class Standing(

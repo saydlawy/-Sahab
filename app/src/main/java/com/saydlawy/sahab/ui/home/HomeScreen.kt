@@ -81,9 +81,8 @@ import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.delay
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private const val BG_URL = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1920&auto=format&fit=crop"
@@ -574,16 +573,16 @@ private fun SportsQuickCard(modifier: Modifier, s: Float, onClick: () -> Unit) {
 
 @Composable
 private fun ClockWeatherCard(s: Float) {
-    var now by remember { mutableStateOf(LocalDateTime.now()) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
-            now = LocalDateTime.now()
+            now = System.currentTimeMillis()
         }
     }
     val ar = Locale.forLanguageTag("ar")
-    val time = now.format(DateTimeFormatter.ofPattern("hh:mm", ar))
-    val date = now.format(DateTimeFormatter.ofPattern("EEEE، d MMMM", ar))
+    val time = formatNowMillis(now, "hh:mm", ar)
+    val date = formatNowMillis(now, "EEEE، d MMMM", ar)
 
     Column(
         Modifier

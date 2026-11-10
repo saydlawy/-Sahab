@@ -110,7 +110,7 @@ fun FixtureResponse.toAppMatch(): Match {
     }
     return Match(
         id = fixture.id,
-        league = League(fixture.id, AllowedLeaguesConfig.translateLeagueName(league.id, league.name), league.country ?: "", league.logo ?: ""),
+        league = League(league.id, AllowedLeaguesConfig.translateLeagueName(league.id, league.name), league.country ?: "", league.logo ?: ""),
         homeTeam = Team(teams.home.id, teams.home.name, teams.home.logo ?: ""),
         awayTeam = Team(teams.away.id, teams.away.name, teams.away.logo ?: ""),
         homeScore = goals.home, awayScore = goals.away, status = statusEnum,

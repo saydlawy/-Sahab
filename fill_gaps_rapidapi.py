@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -57,13 +70,13 @@ def fetch_free_live_football(api_key):
                 league = m.get('league', {}) or m.get('competition', {})
                 
                 if save_match_if_new(cursor, {
-                    'id': hash(str(m.get('id', ''))),
+                    'id': stable_id(str(m.get('id', ''))),
                     'leagueId': league.get('id', 0),
                     'leagueName': league.get('name', 'بطولة'),
-                    'homeTeamId': hash(str(home.get('id', ''))),
+                    'homeTeamId': stable_id(str(home.get('id', ''))),
                     'homeTeamName': home.get('name', ''),
                     'homeTeamLogo': home.get('logo', ''),
-                    'awayTeamId': hash(str(away.get('id', ''))),
+                    'awayTeamId': stable_id(str(away.get('id', ''))),
                     'awayTeamName': away.get('name', ''),
                     'awayTeamLogo': away.get('logo', ''),
                     'homeScore': m.get('homeScore') or m.get('score', {}).get('home'),
@@ -113,13 +126,13 @@ def fetch_bigballs(api_key):
                 league = m.get('league', {})
                 
                 if save_match_if_new(cursor, {
-                    'id': hash(str(m.get('id', ''))),
+                    'id': stable_id(str(m.get('id', ''))),
                     'leagueId': league.get('id', 0),
                     'leagueName': league.get('name', 'بطولة'),
-                    'homeTeamId': hash(str(home.get('id', ''))),
+                    'homeTeamId': stable_id(str(home.get('id', ''))),
                     'homeTeamName': home.get('name', ''),
                     'homeTeamLogo': home.get('logo', ''),
-                    'awayTeamId': hash(str(away.get('id', ''))),
+                    'awayTeamId': stable_id(str(away.get('id', ''))),
                     'awayTeamName': away.get('name', ''),
                     'awayTeamLogo': away.get('logo', ''),
                     'homeScore': m.get('score', {}).get('home'),

@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -61,13 +74,13 @@ def fetch_league_fixtures(slug, lid, lname, from_date, to_date):
                 time_part = date_str[11:16] if date_str else ''
                 
                 if save_match_if_new(cursor, {
-                    'id': hash(e.get('id', '')),
+                    'id': stable_id(e.get('id', '')),
                     'leagueId': lid,
                     'leagueName': lname,
-                    'homeTeamId': hash(home.get('team', {}).get('id', '')),
+                    'homeTeamId': stable_id(home.get('team', {}).get('id', '')),
                     'homeTeamName': home.get('team', {}).get('displayName', ''),
                     'homeTeamLogo': home.get('team', {}).get('logo', ''),
-                    'awayTeamId': hash(away.get('team', {}).get('id', '')),
+                    'awayTeamId': stable_id(away.get('team', {}).get('id', '')),
                     'awayTeamName': away.get('team', {}).get('displayName', ''),
                     'awayTeamLogo': away.get('team', {}).get('logo', ''),
                     'homeScore': home.get('score'),

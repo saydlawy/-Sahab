@@ -1,323 +1,518 @@
 package com.saydlawy.sahab.ui.sports
 
 import android.app.Application
-import com.saydlawy.sahab.BuildConfig
+import android.database.sqlite.SQLiteDatabase
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
-import com.saydlawy.sahab.data.sports.*
+import com.saydlawy.sahab.BuildConfig
+import com.saydlawy.sahab.data.sports.AllowedLeaguesConfig
+import com.saydlawy.sahab.data.sports.ApiResult
+import com.saydlawy.sahab.data.sports.League
+import com.saydlawy.sahab.data.sports.Match
+import com.saydlawy.sahab.data.sports.MatchStatus
+import com.saydlawy.sahab.data.sports.MorphTvApi
+import com.saydlawy.sahab.data.sports.SportsApi
+import com.saydlawy.sahab.data.sports.SportsDatabase
+import com.saydlawy.sahab.data.sports.SportsSyncManager
+import com.saydlawy.sahab.data.sports.Standing
+import com.saydlawy.sahab.data.sports.TheSportsDbApi
+import com.saydlawy.sahab.data.sports.toEntity
+import com.saydlawy.sahab.data.sports.toMatch
+import com.saydlawy.sahab.data.sports.toStanding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
-enum class MainCategory(val label: String) {
+enum class MainCategory(val title: String) {
     EGYPTIAN("الدوري المصري"),
-    AFRICAN_CLUBS("البطولات الأفريقية للأندية"),
-    AFRICAN_NATIONS("البطولات الأفريقية الدولية"),
-    OTHER("بطولات أخرى")
+    SAUDI("دوري روشن"),
+    CLUBS_INTL("الدولية للأندية"),
+    NATIONAL_TEAMS("الدولية للمنتخبات"),
+    EUROPEAN("الأوروبية الكبرى")
 }
 
-enum class TimeFilter(val label: String) {
-    LIVE("مباشر الآن"),
-    TODAY("مباريات اليوم"),
-    TOMORROW("مباريات الغد"),
-    END_OF_MONTH("لنهاية الشهر")
+enum class DateFilter(val title: String, val offsetDays: Int) {
+    YESTERDAY("الأمس", -1),
+    TODAY("اليوم", 0),
+    TOMORROW("غداً", 1)
 }
 
 sealed class SportsUiState {
     object Loading : SportsUiState()
-    data class Success(val matches: List<Match>) : SportsUiState()
-    data class Empty(val reason: String) : SportsUiState()
-    data class Error(val errorMessage: String) : SportsUiState()
+    data class Success(val groupedMatches: Map<League, List<Match>>) : SportsUiState()
+    data class Error(val message: String) : SportsUiState()
 }
 
-class SportsViewModel(app: Application) : AndroidViewModel(app) {
+class SportsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db by lazy {
-        try {
-            val dbFile = app.getDatabasePath("sports_db")
-            if (!dbFile.exists()) {
+        val app = getApplication<Application>()
+        val dbFile = app.getDatabasePath("sports_db")
+
+        if (!dbFile.exists() || !isDatabaseSchemaCompatible(dbFile)) {
+            try {
                 dbFile.parentFile?.mkdirs()
+                File(dbFile.path + "-wal").delete()
+                File(dbFile.path + "-shm").delete()
                 app.assets.open("databases/sports_db").use { input ->
-                    java.io.FileOutputStream(dbFile).use { output ->
+                    FileOutputStream(dbFile).use { output ->
                         input.copyTo(output)
+                        output.flush()
                     }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("SportsDB", "Failed to copy pre-packaged sports_db from assets", e)
             }
-            Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
-                .fallbackToDestructiveMigration()
-                .build()
+        }
+
+        Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
+            .fallbackToDestructiveMigration()
+            .build()
+    }
+
+    private fun isDatabaseSchemaCompatible(dbFile: File): Boolean {
+        if (!dbFile.exists()) return false
+        return try {
+            SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqLite ->
+                var leagueIdNotNull = false
+                sqLite.rawQuery("PRAGMA table_info(matches)", null).use { cursor ->
+                    val nameIdx = cursor.getColumnIndex("name")
+                    val notNullIdx = cursor.getColumnIndex("notnull")
+                    while (cursor.moveToNext()) {
+                        if (nameIdx >= 0 && notNullIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
+                            leagueIdNotNull = cursor.getInt(notNullIdx) == 1
+                        }
+                    }
+                }
+                var standingsPkValid = false
+                sqLite.rawQuery("PRAGMA table_info(standings)", null).use { cursor ->
+                    val nameIdx = cursor.getColumnIndex("name")
+                    val pkIdx = cursor.getColumnIndex("pk")
+                    while (cursor.moveToNext()) {
+                        if (nameIdx >= 0 && pkIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
+                            standingsPkValid = cursor.getInt(pkIdx) > 0
+                        }
+                    }
+                }
+                leagueIdNotNull && standingsPkValid
+            }
         } catch (e: Exception) {
-            android.util.Log.e("SportsVM", "Fatal DB Init Error", e)
-            throw e // سيتم التقاطه في init
+            false
         }
     }
+
     private val dao by lazy { db.matchDao() }
 
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
-
-    private val morphTvApi = MorphTvApi(okHttpClient)
-    private val theSportsDbApi = TheSportsDbApi(okHttpClient)
-    private val apiFootball = SportsApi(okHttpClient)
+    private val okHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
     private val syncManager by lazy { SportsSyncManager(dao, okHttpClient) }
-
-    private var allFetchedMatches: List<Match> = emptyList()
-
-    private val _uiState = MutableStateFlow<SportsUiState>(SportsUiState.Loading)
-    val uiState: StateFlow<SportsUiState> = _uiState.asStateFlow()
-
-    private val _matches = MutableStateFlow<List<Match>>(emptyList())
-    val matches: StateFlow<List<Match>> = _matches.asStateFlow()
-
-    private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    private val sportsApi by lazy { SportsApi(okHttpClient) }
+    private val morphTvApi by lazy { MorphTvApi(okHttpClient) }
+    private val theSportsDbApi by lazy { TheSportsDbApi(okHttpClient) }
 
     private val _selectedCategory = MutableStateFlow(MainCategory.EGYPTIAN)
     val selectedCategory: StateFlow<MainCategory> = _selectedCategory.asStateFlow()
 
-    private val _selectedLeagueId = MutableStateFlow(233)
-    val selectedLeagueId: StateFlow<Int> = _selectedLeagueId.asStateFlow()
+    private val _subLeagues = MutableStateFlow<List<Pair<Int?, String>>>(emptyList())
+    val subLeagues: StateFlow<List<Pair<Int?, String>>> = _subLeagues.asStateFlow()
 
-    private val _availableLeaguesInCategory = MutableStateFlow<List<Pair<Int, String>>>(emptyList())
-    val availableLeaguesInCategory: StateFlow<List<Pair<Int, String>>> = _availableLeaguesInCategory.asStateFlow()
+    private val _selectedSubLeague = MutableStateFlow<Int?>(233)
+    val selectedSubLeague: StateFlow<Int?> = _selectedSubLeague.asStateFlow()
 
-    private val _selectedTimeFilter = MutableStateFlow(TimeFilter.TODAY)
-    val selectedTimeFilter: StateFlow<TimeFilter> = _selectedTimeFilter.asStateFlow()
+    private val _selectedDate = MutableStateFlow(DateFilter.TODAY)
+    val selectedDate: StateFlow<DateFilter> = _selectedDate.asStateFlow()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _selectedMatch = MutableStateFlow<Match?>(null)
+    val selectedMatch: StateFlow<Match?> = _selectedMatch.asStateFlow()
 
     private val _standings = MutableStateFlow<List<Standing>>(emptyList())
     val standings: StateFlow<List<Standing>> = _standings.asStateFlow()
 
-    private val _showStandings = MutableStateFlow(false)
-    val showStandings: StateFlow<Boolean> = _showStandings.asStateFlow()
+    private val _standingsLoading = MutableStateFlow(false)
+    val standingsLoading: StateFlow<Boolean> = _standingsLoading.asStateFlow()
 
-    private val _isStandingsLoading = MutableStateFlow(false)
-    val isStandingsLoading: StateFlow<Boolean> = _isStandingsLoading.asStateFlow()
-    val selectedMatch: StateFlow<Match?> = _selectedMatch.asStateFlow()
+    private val _standingsError = MutableStateFlow<String?>(null)
+    val standingsError: StateFlow<String?> = _standingsError.asStateFlow()
 
-    private val _totalMatches = MutableStateFlow(0)
-    val totalMatches: StateFlow<Int> = _totalMatches.asStateFlow()
+    private val _standingsLeagueName = MutableStateFlow("")
+    val standingsLeagueName: StateFlow<String> = _standingsLeagueName.asStateFlow()
 
-        init {
-        updateCategory(MainCategory.EGYPTIAN)
-        
+    private val _totalDbCount = MutableStateFlow(0)
+    val totalDbCount: StateFlow<Int> = _totalDbCount.asStateFlow()
+
+    private val _uiState = MutableStateFlow<SportsUiState>(SportsUiState.Loading)
+    val uiState: StateFlow<SportsUiState> = _uiState.asStateFlow()
+
+    @Volatile
+    private var allMatches: List<Match> = emptyList()
+    private var pollingJob: Job? = null
+
+    init {
+        configureSubLeaguesFor(MainCategory.EGYPTIAN)
+
         viewModelScope.launch {
             try {
-                // 1. تحميل البيانات المحلية فوراً
-                val cached = dao.getAllMatches().map { it.toMatch() }
+                val cached = withContext(Dispatchers.IO) {
+                    dao.getAllMatches().map { it.toMatch() }
+                }
+                _totalDbCount.value = cached.size
                 if (cached.isNotEmpty()) {
-                    allFetchedMatches = cached
-                    applyLocalFilters()
+                    allMatches = cached
+                    applyFilters(allMatches)
                 }
             } catch (e: Exception) {
-                android.util.Log.e("SportsViewModel", "DB Read failed", e)
-                _uiState.value = SportsUiState.Error("خطأ في قاعدة البيانات: ${e.message}")
+                android.util.Log.e("SportsDB", "Error reading initial DB", e)
+            }
+
+            // جلب التحديثات الحية والمزامنة الذكية في الخلفية
+            fetchMatchesFromApi(silent = allMatches.isNotEmpty())
+
+            withContext(Dispatchers.IO) {
+                try {
+                    val openFootKey = try { BuildConfig.OPENFOOT_API_KEY } catch (e: Exception) { "" }
+                    val highlightlyKey = try { BuildConfig.HIGHLIGHTLY_API_KEY } catch (e: Exception) { "" }
+                    syncManager.runMonthlySync(openFootKey, highlightlyKey)
+
+                    val updated = dao.getAllMatches().map { it.toMatch() }
+                    _totalDbCount.value = updated.size
+                    if (updated.isNotEmpty()) {
+                        allMatches = updated
+                        withContext(Dispatchers.Main) {
+                            applyFilters(allMatches)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("SportsSync", "Error in monthly sync", e)
+                }
+            }
+        }
+        startSmartPolling()
+    }
+
+    fun fetchMatchesFromApi(silent: Boolean = false) {
+        viewModelScope.launch {
+            if (!silent && allMatches.isEmpty()) {
+                _uiState.value = SportsUiState.Loading
+            }
+
+            val merged = withContext(Dispatchers.IO) {
+                val targetDate = getFormattedDate(_selectedDate.value.offsetDays)
+                val apiFootballDeferred = async {
+                    if (_selectedDate.value == DateFilter.TODAY) sportsApi.getLiveMatches()
+                    else sportsApi.getFixturesByDate(targetDate)
+                }
+                val morphTvDeferred = async { morphTvApi.getMatches() }
+
+                val apiResult = apiFootballDeferred.await()
+                val morphResult = morphTvDeferred.await()
+
+                val combinedMatches = mutableListOf<Match>()
+                if (apiResult is ApiResult.Success) {
+                    combinedMatches.addAll(apiResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES })
+                }
+                if (morphResult is ApiResult.Success) {
+                    combinedMatches.addAll(morphResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES })
+                }
+
+                if (combinedMatches.isNotEmpty()) {
+                    val distinctNew = combinedMatches.distinctBy { "${it.league.id}_${it.homeTeam.name}_${it.awayTeam.name}_${it.date}" }
+                    runCatching { dao.insertMatches(distinctNew.map { it.toEntity() }) }
+                }
+
+                runCatching { dao.getAllMatches().map { it.toMatch() } }.getOrDefault(allMatches)
+            }
+
+            _totalDbCount.value = merged.size
+            if (merged.isNotEmpty()) {
+                allMatches = merged
+                applyFilters(allMatches)
+            } else if (allMatches.isEmpty()) {
+                _uiState.value = SportsUiState.Success(emptyMap())
+            }
+        }
+    }
+
+    fun fetchStandings() {
+        val leagueId = _selectedSubLeague.value
+            ?: _selectedMatch.value?.league?.id
+            ?: defaultLeagueForCategory(_selectedCategory.value)
+
+        _standingsLeagueName.value = AllowedLeaguesConfig.translateLeagueName(leagueId)
+        _standingsError.value = null
+        _standingsLoading.value = true
+
+        viewModelScope.launch {
+            // 1. قراءة فورية من قاعدة البيانات المحلية إن وجدت
+            val localRows = withContext(Dispatchers.IO) {
+                runCatching { dao.getStandingsByLeague(leagueId).map { it.toStanding() } }.getOrDefault(emptyList())
+            }
+            if (localRows.isNotEmpty()) {
+                _standings.value = localRows
+                _standingsLoading.value = false
+            }
+
+            // 2. تحديث من TheSportsDB في الخلفية
+            val tsdbId = AllowedLeaguesConfig.THESPORTSDB_LEAGUE_ID[leagueId]
+            if (tsdbId == null) {
+                _standingsLoading.value = false
+                if (localRows.isEmpty()) {
+                    _standings.value = emptyList()
+                    _standingsError.value = "جدول الترتيب غير متاح لهذه البطولة حالياً"
+                }
                 return@launch
             }
 
-            // 2. تشغيل المزامنة بعد التأكد من سلامة قاعدة البيانات
-            try {
-                val syncManager = SportsSyncManager(dao, okHttpClient)
-                syncManager.runMonthlySync(
-                    openFootKey = BuildConfig.OPENFOOT_API_KEY,
-                    highlightlyKey = BuildConfig.HIGHLIGHTLY_API_KEY
+            val result = withContext(Dispatchers.IO) {
+                theSportsDbApi.getStandings(tsdbId)
+            }
+            _standingsLoading.value = false
+            when (result) {
+                is ApiResult.Success -> {
+                    if (result.data.isNotEmpty()) {
+                        _standings.value = result.data
+                        _standingsError.value = null
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                dao.deleteStandingsByLeague(leagueId)
+                                dao.insertStandings(result.data.map { it.toEntity(leagueId) })
+                            }
+                        }
+                    } else if (localRows.isEmpty()) {
+                        _standings.value = emptyList()
+                        _standingsError.value = "لا تتوفر بيانات ترتيب لهذه البطولة حالياً"
+                    }
+                }
+                is ApiResult.Error -> {
+                    if (localRows.isEmpty()) {
+                        _standings.value = emptyList()
+                        _standingsError.value = "تعذر تحديث جدول الترتيب: ${result.message}"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun defaultLeagueForCategory(category: MainCategory): Int {
+        return when (category) {
+            MainCategory.EGYPTIAN -> 233
+            MainCategory.SAUDI -> 307
+            MainCategory.CLUBS_INTL -> 2
+            MainCategory.NATIONAL_TEAMS -> 1
+            MainCategory.EUROPEAN -> 39
+        }
+    }
+
+    private fun startSmartPolling() {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            while (isActive) {
+                delay(60_000)
+                val hasLiveMatches = allMatches.any { it.status == MatchStatus.LIVE }
+                if (hasLiveMatches && _selectedDate.value == DateFilter.TODAY) {
+                    fetchMatchesFromApi(silent = true)
+                }
+            }
+        }
+    }
+
+    private fun configureSubLeaguesFor(category: MainCategory) {
+        _selectedCategory.value = category
+        when (category) {
+            MainCategory.EGYPTIAN -> {
+                _subLeagues.value = emptyList()
+                _selectedSubLeague.value = 233
+            }
+            MainCategory.SAUDI -> {
+                _subLeagues.value = emptyList()
+                _selectedSubLeague.value = 307
+            }
+            MainCategory.CLUBS_INTL -> {
+                _subLeagues.value = listOf(
+                    null to "الكل",
+                    12 to "أبطال أفريقيا",
+                    20 to "الكونفدرالية",
+                    2 to "أبطال أوروبا",
+                    3 to "الدوري الأوروبي",
+                    848 to "المؤتمر الأوروبي",
+                    17 to "أبطال آسيا"
                 )
-                val updatedCache = dao.getAllMatches().map { it.toMatch() }
-                allFetchedMatches = updatedCache
-                applyLocalFilters()
-            } catch (e: Exception) {
-                android.util.Log.e("SportsViewModel", "Sync failed", e)
+                _selectedSubLeague.value = null
+            }
+            MainCategory.NATIONAL_TEAMS -> {
+                _subLeagues.value = listOf(
+                    null to "الكل",
+                    6 to "أمم أفريقيا",
+                    403 to "أمم أوروبا",
+                    8 to "كأس آسيا",
+                    1 to "كأس العالم",
+                    452 to "كأس العرب"
+                )
+                _selectedSubLeague.value = null
+            }
+            MainCategory.EUROPEAN -> {
+                _subLeagues.value = listOf(
+                    null to "الكل",
+                    39 to "الإنجليزي",
+                    140 to "الإسباني",
+                    135 to "الإيطالي",
+                    78 to "الألماني",
+                    61 to "الفرنسي",
+                    203 to "التركي"
+                )
+                _selectedSubLeague.value = null
             }
         }
     }
 
     fun updateCategory(category: MainCategory) {
-        _selectedCategory.value = category
-        val leagues = when (category) {
-            MainCategory.EGYPTIAN -> listOf(233 to "الدوري المصري الممتاز")
-            MainCategory.AFRICAN_CLUBS -> listOf(12 to "دوري أبطال أفريقيا", 20 to "كأس الكونفدرالية")
-            MainCategory.AFRICAN_NATIONS -> listOf(6 to "كأس الأمم الأفريقية")
-            MainCategory.OTHER -> listOf(
-                2 to "دوري أبطال أوروبا", 3 to "الدوري الأوروبي", 39 to "الدوري الإنجليزي",
-                140 to "الدوري الإسباني", 135 to "الدوري الإيطالي", 78 to "الدوري الألماني",
-                61 to "الدوري الفرنسي", 203 to "الدوري التركي", 1 to "كأس العالم", 452 to "كأس العرب"
-            )
-        }
-        _availableLeaguesInCategory.value = leagues
-        _selectedLeagueId.value = leagues.first().first
-        fetchMatchesFromApi()
+        configureSubLeaguesFor(category)
+        applyFilters(allMatches)
+        fetchMatchesFromApi(silent = true)
     }
 
-    fun updateLeague(leagueId: Int) {
-        _selectedLeagueId.value = leagueId
-        fetchMatchesFromApi()
+    fun updateSubLeague(leagueId: Int?) {
+        _selectedSubLeague.value = leagueId
+        applyFilters(allMatches)
     }
 
-    fun updateTimeFilter(filter: TimeFilter) {
-        _selectedTimeFilter.value = filter
-        fetchMatchesFromApi()
+    fun updateDate(date: DateFilter) {
+        _selectedDate.value = date
+        applyFilters(allMatches)
+        fetchMatchesFromApi(silent = true)
     }
 
-    fun selectMatch(match: Match) {
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
+        applyFilters(allMatches)
+    }
+
+    fun selectMatch(match: Match?) {
         _selectedMatch.value = match
     }
 
-    fun fetchMatches() {
-        fetchMatchesFromApi()
-    }
-
-
-    fun fetchStandings() {
-        viewModelScope.launch {
-            val tsdbId = AllowedLeaguesConfig.THESPORTSDB_LEAGUE_ID[_selectedLeagueId.value]
-            if (tsdbId == null) {
-                _uiState.value = SportsUiState.Error("جدول الترتيب غير متاح لهذه البطولة حالياً")
-                return@launch
-            }
-            _isStandingsLoading.value = true
-            _showStandings.value = true
-            val result = theSportsDbApi.getStandings(tsdbId, "2024-2025")
-            when (result) {
-                is ApiResult.Success -> _standings.value = result.data
-                is ApiResult.Error -> {
-                    _standings.value = emptyList()
-                    _uiState.value = SportsUiState.Error(result.message)
-                }
-            }
-            _isStandingsLoading.value = false
+    private fun applyFilters(matchesToFilter: List<Match>) {
+        if (matchesToFilter.isEmpty()) {
+            _uiState.value = SportsUiState.Success(emptyMap())
+            return
         }
-    }
 
-    fun hideStandings() {
-        _showStandings.value = false
-    }
+        val category = _selectedCategory.value
+        val subLeague = _selectedSubLeague.value
+        val query = _searchQuery.value.trim()
+        val targetDate = getFormattedDate(_selectedDate.value.offsetDays)
 
-    private fun loadFromDatabaseThenFetch() {
-        viewModelScope.launch {
-            val cached = dao.getAllMatches().map { it.toMatch() }
-            if (cached.isNotEmpty()) {
-                allFetchedMatches = cached
-                applyLocalFilters()
-            }
-            fetchMatchesFromApi()
+        val categoryLeagueIds = when (category) {
+            MainCategory.EGYPTIAN -> setOf(233)
+            MainCategory.SAUDI -> setOf(307)
+            MainCategory.CLUBS_INTL -> setOf(12, 17, 20, 2, 3, 848)
+            MainCategory.NATIONAL_TEAMS -> setOf(6, 403, 8, 1, 452)
+            MainCategory.EUROPEAN -> setOf(39, 140, 135, 78, 61, 203)
         }
-    }
 
-    private fun fetchMatchesFromApi() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _isLoading.value = true
-                if (allFetchedMatches.isEmpty()) _uiState.value = SportsUiState.Loading
-
-                val leagueId = _selectedLeagueId.value
-                val currentFilter = _selectedTimeFilter.value
-                var resultMatches: List<Match> = emptyList()
-
-                // 1. Morph TV
-                val morphResult = morphTvApi.getMatches()
-                if (morphResult is ApiResult.Success) {
-                    resultMatches = morphResult.data.filter { it.league.id == leagueId }
-                }
-
-                // 2. API-Football (احتياطي)
-                if (resultMatches.isEmpty()) {
-                    val apiResult = when (currentFilter) {
-                        TimeFilter.LIVE -> apiFootball.getLiveMatches()
-                        TimeFilter.TODAY -> apiFootball.getFixturesByDate(getFormattedDate(Calendar.getInstance()))
-                        TimeFilter.TOMORROW -> {
-                            val cal = Calendar.getInstance(); cal.add(Calendar.DAY_OF_YEAR, 1)
-                            apiFootball.getFixturesByDate(getFormattedDate(cal))
-                        }
-                        TimeFilter.END_OF_MONTH -> {
-                            val from = getFormattedDate(Calendar.getInstance())
-                            val calEnd = Calendar.getInstance()
-                            calEnd.set(Calendar.DAY_OF_MONTH, calEnd.getActualMaximum(Calendar.DAY_OF_MONTH))
-                            apiFootball.getFixturesByDateRange(from, getFormattedDate(calEnd), leagueId)
-                        }
-                    }
-                    if (apiResult is ApiResult.Success) {
-                        resultMatches = apiResult.data.filter { it.league.id == leagueId }
-                    }
-                }
-
-                // 3. الحفظ في قاعدة البيانات (محمي)
-                try {
-                    dao.insertMatches(resultMatches.map { it.toEntity() })
-                    dao.deleteOldMatches(System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000))
-                } catch (e: Exception) {
-                    android.util.Log.e("SportsVM", "DB Insert failed: ${e.message}", e)
-                }
-
-                // 4. إعادة القراءة من الكاش (محمي)
-                try {
-                    allFetchedMatches = dao.getAllMatches().map { it.toMatch() }
-                } catch (e: Exception) {
-                    android.util.Log.e("SportsVM", "DB Read failed: ${e.message}", e)
-                }
-
-                applyLocalFilters()
-                _isLoading.value = false
-            } catch (e: Exception) {
-                android.util.Log.e("SportsVM", "Fetch failed: ${e.message}", e)
-                _isLoading.value = false
-                _uiState.value = SportsUiState.Error("حدث خطأ أثناء جلب البيانات: ${e.message}")
-            }
-        }
-    }
-
-    private fun applyLocalFilters() {
-        _totalMatches.value = allFetchedMatches.size
-        val currentLeagueId = _selectedLeagueId.value
-        val currentFilter = _selectedTimeFilter.value
-        
-        var filtered = allFetchedMatches.filter { it.league.id == currentLeagueId }
-
-        // فلترة حسب التاريخ للطبقة القادمة من Morph TV
-        if (currentFilter != TimeFilter.LIVE && currentFilter != TimeFilter.END_OF_MONTH) {
-            val targetDate = if (currentFilter == TimeFilter.TODAY) {
-                getFormattedDate(Calendar.getInstance())
+        val byCategoryAndQuery = matchesToFilter.filter { match ->
+            val inCategory = if (subLeague != null) {
+                match.league.id == subLeague
             } else {
-                val cal = Calendar.getInstance()
-                cal.add(Calendar.DAY_OF_YEAR, 1)
-                getFormattedDate(cal)
+                match.league.id in categoryLeagueIds
             }
-            filtered = filtered.filter { it.date == targetDate }
-        } else if (currentFilter == TimeFilter.LIVE) {
-            filtered = filtered.filter { it.status == MatchStatus.LIVE }
+            val matchesSearch = if (query.isEmpty()) {
+                true
+            } else {
+                match.homeTeam.name.contains(query, ignoreCase = true) ||
+                    match.awayTeam.name.contains(query, ignoreCase = true) ||
+                    match.league.name.contains(query, ignoreCase = true)
+            }
+            inCategory && matchesSearch
         }
 
-        _matches.value = filtered
+        // 1. المطابقة الدقيقة مع التاريخ المختار (اليوم / الأمس / غداً)
+        val exactDateMatches = byCategoryAndQuery.filter { match ->
+            match.date.isBlank() || match.date == targetDate
+        }
 
-        if (filtered.isEmpty()) {
-            val emptyMsg = when (currentFilter) {
-                TimeFilter.LIVE -> "لا توجد مباريات جارية"
-                TimeFilter.TODAY -> "لا توجد مباريات اليوم"
-                TimeFilter.TOMORROW -> "لا توجد مباريات غداً"
-                TimeFilter.END_OF_MONTH -> "لا توجد مباريات مسجلة لهذه الفترة"
-            }
-            _uiState.value = SportsUiState.Empty(emptyMsg)
-            _selectedMatch.value = null
+        // 2. إذا لم توجد مباريات في هذا اليوم المحدد بالضبط، نعرض أقرب المباريات القادمة أو الحديثة لهذه البطولة
+        val effectiveMatches = if (exactDateMatches.isNotEmpty() || query.isNotEmpty()) {
+            exactDateMatches
         } else {
-            _uiState.value = SportsUiState.Success(filtered)
-            if (_selectedMatch.value == null || !filtered.any { it.id == _selectedMatch.value?.id }) {
-                _selectedMatch.value = filtered.first()
+            val targetEpoch = parseDateEpochDays(targetDate)
+            val upcoming = byCategoryAndQuery
+                .filter { it.date >= targetDate }
+                .sortedWith(compareBy<Match> { it.date }.thenBy { it.time })
+                .take(40)
+            if (upcoming.isNotEmpty()) {
+                upcoming
+            } else {
+                byCategoryAndQuery
+                    .sortedWith(
+                        compareBy<Match> { abs(parseDateEpochDays(it.date) - targetEpoch) }
+                            .thenByDescending { it.date }
+                            .thenBy { it.time }
+                    )
+                    .take(40)
             }
         }
+
+        val sortedMatches = effectiveMatches.sortedWith(
+            compareBy<Match> { AllowedLeaguesConfig.getLeagueSortPriority(it.league.id) }
+                .thenBy {
+                    when (it.status) {
+                        MatchStatus.LIVE -> 0
+                        MatchStatus.UPCOMING -> 1
+                        MatchStatus.FINISHED -> 2
+                        MatchStatus.POSTPONED -> 3
+                        MatchStatus.CANCELLED -> 4
+                    }
+                }
+                .thenBy { it.date }
+                .thenBy { it.time }
+        )
+
+        if (_selectedMatch.value == null || !sortedMatches.contains(_selectedMatch.value)) {
+            _selectedMatch.value = sortedMatches.firstOrNull()
+        }
+
+        val grouped = sortedMatches.groupBy { it.league }
+        _uiState.value = SportsUiState.Success(grouped)
     }
 
-    private fun getFormattedDate(calendar: Calendar): String {
-        val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        return formatter.format(calendar.time)
+    private fun getFormattedDate(offsetDays: Int): String {
+        val calendar = Calendar.getInstance()
+        calendar.add(Calendar.DAY_OF_YEAR, offsetDays)
+        val format = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return format.format(calendar.time)
+    }
+
+    private fun parseDateEpochDays(dateStr: String): Long {
+        if (dateStr.length < 10) return Long.MAX_VALUE / 2
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val timeMs = sdf.parse(dateStr.take(10))?.time ?: return Long.MAX_VALUE / 2
+            timeMs / 86_400_000L
+        } catch (e: Exception) {
+            Long.MAX_VALUE / 2
+        }
     }
 }

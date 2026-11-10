@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -11,7 +24,7 @@ COMPETITIONS = [
     {"id": "comp_saudi_pro_league_sau", "leagueId": 307, "name": "دوري روشن السعودي"},
     {"id": "comp_uefa_champions_league", "leagueId": 2, "name": "دوري أبطال أوروبا"},
     {"id": "comp_uefa_europa_league", "leagueId": 3, "name": "الدوري الأوروبي"},
-    {"id": "comp_uefa_conference_league", "leagueId": 0, "name": "دوري المؤتمر الأوروبي"},
+    {"id": "comp_uefa_conference_league", "leagueId": 848, "name": "دوري المؤتمر الأوروبي"},
     {"id": "comp_fifa_world_cup", "leagueId": 1, "name": "كأس العالم"},
     {"id": "comp_premier_league_eng", "leagueId": 39, "name": "الدوري الإنجليزي الممتاز"},
     {"id": "comp_laliga_es", "leagueId": 140, "name": "الدوري الإسباني"},
@@ -76,9 +89,9 @@ def fetch_future_matches(api_key):
                 away = m.get('awayTeam', {})
                 kickoff = m.get('kickoffAt', '')
                 if save_match_if_new(cursor, {
-                    'id': hash(m.get('id', '')), 'leagueId': comp['leagueId'], 'leagueName': comp['name'],
-                    'homeTeamId': hash(home.get('id', '')), 'homeTeamName': home.get('name', ''),
-                    'homeTeamLogo': home.get('logo', ''), 'awayTeamId': hash(away.get('id', '')),
+                    'id': stable_id(m.get('id', '')), 'leagueId': comp['leagueId'], 'leagueName': comp['name'],
+                    'homeTeamId': stable_id(home.get('id', '')), 'homeTeamName': home.get('name', ''),
+                    'homeTeamLogo': home.get('logo', ''), 'awayTeamId': stable_id(away.get('id', '')),
                     'awayTeamName': away.get('name', ''), 'awayTeamLogo': away.get('logo', ''),
                     'homeScore': None, 'awayScore': None, 'status': 'UPCOMING',
                     'date': kickoff[:10] if kickoff else '', 'time': kickoff[11:16] if kickoff else ''
@@ -95,9 +108,9 @@ def fetch_future_matches(api_key):
                     away = m.get('awayTeam', {})
                     kickoff = m.get('kickoffAt', '')
                     if save_match_if_new(cursor, {
-                        'id': hash(m.get('id', '')), 'leagueId': comp['leagueId'], 'leagueName': comp['name'],
-                        'homeTeamId': hash(home.get('id', '')), 'homeTeamName': home.get('name', ''),
-                        'homeTeamLogo': home.get('logo', ''), 'awayTeamId': hash(away.get('id', '')),
+                        'id': stable_id(m.get('id', '')), 'leagueId': comp['leagueId'], 'leagueName': comp['name'],
+                        'homeTeamId': stable_id(home.get('id', '')), 'homeTeamName': home.get('name', ''),
+                        'homeTeamLogo': home.get('logo', ''), 'awayTeamId': stable_id(away.get('id', '')),
                         'awayTeamName': away.get('name', ''), 'awayTeamLogo': away.get('logo', ''),
                         'homeScore': None, 'awayScore': None, 'status': 'UPCOMING',
                         'date': kickoff[:10] if kickoff else '', 'time': kickoff[11:16] if kickoff else ''
@@ -114,9 +127,9 @@ def fetch_future_matches(api_key):
                         away = m.get('awayTeam', {})
                         kickoff = m.get('kickoffAt', '')
                         if save_match_if_new(cursor, {
-                            'id': hash(m.get('id', '')), 'leagueId': comp['leagueId'], 'leagueName': comp['name'],
-                            'homeTeamId': hash(home.get('id', '')), 'homeTeamName': home.get('name', ''),
-                            'homeTeamLogo': home.get('logo', ''), 'awayTeamId': hash(away.get('id', '')),
+                            'id': stable_id(m.get('id', '')), 'leagueId': comp['leagueId'], 'leagueName': comp['name'],
+                            'homeTeamId': stable_id(home.get('id', '')), 'homeTeamName': home.get('name', ''),
+                            'homeTeamLogo': home.get('logo', ''), 'awayTeamId': stable_id(away.get('id', '')),
                             'awayTeamName': away.get('name', ''), 'awayTeamLogo': away.get('logo', ''),
                             'homeScore': None, 'awayScore': None, 'status': 'UPCOMING',
                             'date': kickoff[:10] if kickoff else '', 'time': kickoff[11:16] if kickoff else ''

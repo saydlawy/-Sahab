@@ -1,3 +1,16 @@
+import zlib
+
+def stable_id(val):
+    if val is None:
+        return 0
+    try:
+        iv = int(val)
+        if 1 <= iv <= 2147483647:
+            return iv
+    except Exception:
+        pass
+    return zlib.crc32(str(val).encode('utf-8')) & 0x7FFFFFFF
+
 import sqlite3
 import requests
 import time
@@ -93,9 +106,9 @@ def fetch_morph_tv():
                 if match.get('status') in ['live', 'inprogress']: status = 'LIVE'
                 
                 save_match({
-                    'id': hash(match.get('id', '')), 'leagueId': lid, 'leagueName': ALLOWED_LEAGUES[lid],
-                    'homeTeamId': hash(match.get('home', {}).get('id', '')), 'homeTeamName': match.get('home', {}).get('name', ''),
-                    'homeTeamLogo': match.get('home', {}).get('badge', ''), 'awayTeamId': hash(match.get('away', {}).get('id', '')),
+                    'id': stable_id(match.get('id', '')), 'leagueId': lid, 'leagueName': ALLOWED_LEAGUES[lid],
+                    'homeTeamId': stable_id(match.get('home', {}).get('id', '')), 'homeTeamName': match.get('home', {}).get('name', ''),
+                    'homeTeamLogo': match.get('home', {}).get('badge', ''), 'awayTeamId': stable_id(match.get('away', {}).get('id', '')),
                     'awayTeamName': match.get('away', {}).get('name', ''), 'awayTeamLogo': match.get('away', {}).get('badge', ''),
                     'homeScore': match.get('score', {}).get('home'), 'awayScore': match.get('score', {}).get('away'),
                     'status': status, 'date': date_part, 'time': time_part
@@ -144,9 +157,9 @@ def fetch_tsdb_teams():
                     count = 0
                     for e in events:
                         save_match({
-                            'id': hash(e.get('idEvent')), 'leagueId': 39, 'leagueName': e.get('strLeague', 'بطولة'),
-                            'homeTeamId': hash(e.get('idHomeTeam')), 'homeTeamName': e.get('strHomeTeam', ''),
-                            'awayTeamId': hash(e.get('idAwayTeam')), 'awayTeamName': e.get('strAwayTeam', ''),
+                            'id': stable_id(e.get('idEvent')), 'leagueId': 39, 'leagueName': e.get('strLeague', 'بطولة'),
+                            'homeTeamId': stable_id(e.get('idHomeTeam')), 'homeTeamName': e.get('strHomeTeam', ''),
+                            'awayTeamId': stable_id(e.get('idAwayTeam')), 'awayTeamName': e.get('strAwayTeam', ''),
                             'homeScore': None, 'awayScore': None, 'status': 'UPCOMING',
                             'date': e.get('dateEvent', ''), 'time': e.get('strTime', '')[:5] if e.get('strTime') else ''
                         })
