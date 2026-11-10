@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.ui.sports
 
 import android.app.Application
+import com.saydlawy.sahab.BuildConfig
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
@@ -39,8 +40,20 @@ sealed class SportsUiState {
 class SportsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val db by lazy {
+        val dbFile = app.getDatabasePath("sports_db")
+        if (!dbFile.exists()) {
+            dbFile.parentFile?.mkdirs()
+            try {
+                app.assets.open("databases/sports_db").use { input ->
+                    java.io.FileOutputStream(dbFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } catch (e: Exception) {
+                // إذا فشل النسخ، سننشئ قاعدة بيانات فارغة
+            }
+        }
         Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
-            .createFromAsset("databases/sports_db")
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -54,6 +67,7 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
     private val morphTvApi = MorphTvApi(okHttpClient)
     private val theSportsDbApi = TheSportsDbApi(okHttpClient)
     private val apiFootball = SportsApi(okHttpClient)
+    private val syncManager = SportsSyncManager(dao, okHttpClient)
 
     private var allFetchedMatches: List<Match> = emptyList()
 
@@ -92,7 +106,36 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         updateCategory(MainCategory.EGYPTIAN)
-        loadFromDatabaseThenFetch()
+        
+        // 1. تحميل البيانات المحلية فوراً (Offline-First)
+        viewModelScope.launch {
+            try {
+                val cached = dao.getAllMatches().map { it.toMatch() }
+                if (cached.isNotEmpty()) {
+                    allFetchedMatches = cached
+                    applyLocalFilters()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("SportsViewModel", "DB Read failed: ${e.message}")
+            }
+        }
+        
+        // 2. تشغيل المزامنة الذكية في الخلفية (مع حماية من الانهيار)
+        viewModelScope.launch {
+            try {
+                syncManager.runMonthlySync(
+                    openFootKey = BuildConfig.OPENFOOT_API_KEY,
+                    highlightlyKey = BuildConfig.HIGHLIGHTLY_API_KEY
+                )
+                // بعد انتهاء المزامنة، نحدّث الواجهة بالبيانات الجديدة من قاعدة البيانات
+                val updatedCache = dao.getAllMatches().map { it.toMatch() }
+                allFetchedMatches = updatedCache
+                applyLocalFilters()
+            } catch (e: Exception) {
+                // تسجيل الخطأ في السجل فقط دون إغلاق التطبيق
+                android.util.Log.e("SportsViewModel", "Sync failed: ${e.message}")
+            }
+        }
     }
 
     fun updateCategory(category: MainCategory) {
