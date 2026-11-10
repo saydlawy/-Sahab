@@ -7,19 +7,7 @@ object AllowedLeaguesConfig {
         6, 403, 8, 1, 452, // الدولية للمنتخبات
         39, 140, 135, 78, 61, 203 // الأوروبية الكبرى
     )
-
-
-    val ESPN_SLUG_TO_ID: Map<String, Int> = mapOf(
-        "egy.1" to 233, "ksa.1" to 307,
-        "caf.champions" to 12, "afc.champions" to 17, "caf.confed" to 20,
-        "uefa.champions" to 2, "uefa.europa" to 3,
-        "caf.nations" to 6, "uefa.euro" to 403, "afc.cup" to 8,
-        "fifa.world" to 1, "fifa.arab.cup" to 452,
-        "eng.1" to 39, "esp.1" to 140, "ita.1" to 135,
-        "ger.1" to 78, "fra.1" to 61, "tur.1" to 203
-    )
-
-    val FOOTBALL_DATA_ORG_TO_ID: Map<String, Int> = mapOf(
+val FOOTBALL_DATA_ORG_TO_ID: Map<String, Int> = mapOf(
         "WC" to 1, "CL" to 2, "EC" to 403, "PL" to 39,
         "PD" to 140, "SA" to 135, "BL1" to 78, "FL1" to 61
     )

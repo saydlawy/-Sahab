@@ -50,7 +50,7 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val espnApi = EspnApi(okHttpClient)
+    private val morphTvApi = MorphTvApi(okHttpClient)
     private val apiFootball = SportsApi(okHttpClient)
 
     private var allFetchedMatches: List<Match> = emptyList()
@@ -139,22 +139,13 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
             val currentFilter = _selectedTimeFilter.value
             var resultMatches: List<Match> = emptyList()
 
-            // 1. ESPN API (يدعم يوم واحد فقط)
-            if (currentFilter == TimeFilter.TODAY || currentFilter == TimeFilter.TOMORROW) {
-                val targetDate = if (currentFilter == TimeFilter.TODAY) {
-                    getFormattedDate(Calendar.getInstance())
-                } else {
-                    val cal = Calendar.getInstance()
-                    cal.add(Calendar.DAY_OF_YEAR, 1)
-                    getFormattedDate(cal)
-                }
-                val espnResult = espnApi.getFixturesByDate(targetDate, leagueId)
-                if (espnResult is ApiResult.Success) {
-                    resultMatches = espnResult.data
-                }
+            // 1. الطبقة الأولى: Morph TV (بدون مفتاح - سريع وموثوق)
+            val morphResult = morphTvApi.getMatches()
+            if (morphResult is ApiResult.Success) {
+                resultMatches = morphResult.data.filter { it.league.id == leagueId }
             }
 
-            // 2. API-Football (للمباشر أو النطاق الزمني)
+            // 2. الطبقة الأخيرة: API-Football (فقط إذا فشل Morph TV أو لم يجد مباريات)
             if (resultMatches.isEmpty()) {
                 val apiResult = when (currentFilter) {
                     TimeFilter.LIVE -> apiFootball.getLiveMatches()
@@ -169,12 +160,12 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
                         val calEnd = Calendar.getInstance()
                         calEnd.set(Calendar.DAY_OF_MONTH, calEnd.getActualMaximum(Calendar.DAY_OF_MONTH))
                         val to = getFormattedDate(calEnd)
-                        apiFootball.getFixturesByDateRange(from, to)
+                        apiFootball.getFixturesByDateRange(from, to, leagueId)
                     }
                 }
 
                 when (apiResult) {
-                    is ApiResult.Success -> resultMatches = apiResult.data
+                    is ApiResult.Success -> resultMatches = apiResult.data.filter { it.league.id == leagueId }
                     is ApiResult.Error -> {
                         if (allFetchedMatches.isEmpty()) _uiState.value = SportsUiState.Error(apiResult.message)
                         _isLoading.value = false
@@ -184,9 +175,7 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             // 3. حفظ في الكاش
-            val filteredByLeague = resultMatches.filter { AllowedLeaguesConfig.ALLOWED_LEAGUES.contains(it.league.id) }
-            dao.insertMatches(filteredByLeague.map { it.toEntity() })
-            
+            dao.insertMatches(resultMatches.map { it.toEntity() })
             val threeMonthsAgo = System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000)
             dao.deleteOldMatches(threeMonthsAgo)
 
@@ -202,7 +191,17 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
         
         var filtered = allFetchedMatches.filter { it.league.id == currentLeagueId }
 
-        if (currentFilter == TimeFilter.LIVE) {
+        // فلترة حسب التاريخ للطبقة القادمة من Morph TV
+        if (currentFilter != TimeFilter.LIVE && currentFilter != TimeFilter.END_OF_MONTH) {
+            val targetDate = if (currentFilter == TimeFilter.TODAY) {
+                getFormattedDate(Calendar.getInstance())
+            } else {
+                val cal = Calendar.getInstance()
+                cal.add(Calendar.DAY_OF_YEAR, 1)
+                getFormattedDate(cal)
+            }
+            filtered = filtered.filter { it.date == targetDate }
+        } else if (currentFilter == TimeFilter.LIVE) {
             filtered = filtered.filter { it.status == MatchStatus.LIVE }
         }
 

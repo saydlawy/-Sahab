@@ -34,8 +34,8 @@ class SportsApi(private val client: OkHttpClient) {
     }
 
 
-    suspend fun getFixturesByDateRange(from: String, to: String): ApiResult<List<Match>> {
-        return fetchFixtures("https://v3.football.api-sports.io/fixtures?from=$from&to=$to")
+    suspend fun getFixturesByDateRange(from: String, to: String, leagueId: Int, season: Int = 2024): ApiResult<List<Match>> {
+        return fetchFixtures("https://v3.football.api-sports.io/fixtures?league=$leagueId&season=$season&from=$from&to=$to")
     }
     private suspend fun fetchFixtures(url: String): ApiResult<List<Match>> {
         if (apiFootballKey.isBlank() || apiFootballKey == "null") {
