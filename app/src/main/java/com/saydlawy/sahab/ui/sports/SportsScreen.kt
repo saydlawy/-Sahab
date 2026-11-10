@@ -51,9 +51,10 @@ fun SportsScreen(
     onClose: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val selectedDateFilter by viewModel.selectedDateFilter.collectAsState()
-    val availableLeagues by viewModel.availableLeagues.collectAsState()
-    val selectedLeague by viewModel.selectedLeague.collectAsState()
+    val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val availableLeaguesInCategory by viewModel.availableLeaguesInCategory.collectAsState()
+    val selectedLeagueId by viewModel.selectedLeagueId.collectAsState()
+    val selectedTimeFilter by viewModel.selectedTimeFilter.collectAsState()
     val selectedMatch by viewModel.selectedMatch.collectAsState()
 
     var showMobileMatchDetails by remember { mutableStateOf(false) }
@@ -68,87 +69,85 @@ fun SportsScreen(
             val isTvOrWideScreen = maxWidth >= 720.dp
 
             Column(modifier = Modifier.fillMaxSize()) {
-                SportsTopBar(
-                    onRefresh = { viewModel.fetchMatches() },
-                    onClose = onClose
-                )
+                SportsTopBar(onRefresh = { viewModel.fetchMatches() }, onClose = onClose)
 
-                FiltersSection(
-                    selectedDateFilter = selectedDateFilter,
-                    onDateFilterSelected = { viewModel.selectDateFilter(it) },
-                    availableLeagues = availableLeagues,
-                    selectedLeague = selectedLeague,
-                    onLeagueSelected = { viewModel.selectLeagueFilter(it) }
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                // الشريط الأول: التصنيفات الرئيسية
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    items(MainCategory.values()) { cat ->
+                        FilterChipButton(
+                            text = cat.label,
+                            isSelected = cat == selectedCategory,
+                            activeColor = PrimaryPurple,
+                            showDot = cat == selectedCategory,
+                            onClick = { viewModel.updateCategory(cat) }
+                        )
+                    }
+                }
+
+                // الشريط الثاني: البطولات داخل التصنيف (يظهر فقط إذا كان هناك أكثر من بطولة)
+                if (availableLeaguesInCategory.size > 1) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(availableLeaguesInCategory) { (id, name) ->
+                            FilterChipButton(
+                                text = name,
+                                isSelected = id == selectedLeagueId,
+                                activeColor = AccentCyan,
+                                showDot = id == selectedLeagueId,
+                                onClick = { viewModel.updateLeague(id) }
+                            )
+                        }
+                    }
+                }
+
+                // الشريط الثالث: الفترات الزمنية
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(TimeFilter.values()) { filter ->
+                        FilterChipButton(
+                            text = filter.label,
+                            isSelected = filter == selectedTimeFilter,
+                            activeColor = if (filter == TimeFilter.LIVE) LiveRed else PrimaryPurple,
+                            showDot = filter == selectedTimeFilter,
+                            onClick = { viewModel.updateTimeFilter(filter) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // محتوى الشاشة
+                Box(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                     when (val state = uiState) {
-                        is SportsUiState.Loading -> {
-                            LoadingStateView()
-                        }
-                        is SportsUiState.Error -> {
-                            ErrorStateView(
-                                errorMessage = state.errorMessage,
-                                onRetry = { viewModel.fetchMatches() }
-                            )
-                        }
-                        is SportsUiState.Empty -> {
-                            EmptyStateView(
-                                message = state.reason,
-                                onRetry = { viewModel.fetchMatches() }
-                            )
-                        }
+                        is SportsUiState.Loading -> LoadingStateView()
+                        is SportsUiState.Error -> ErrorStateView(errorMessage = state.errorMessage, onRetry = { viewModel.fetchMatches() })
+                        is SportsUiState.Empty -> EmptyStateView(message = state.reason, onRetry = { viewModel.fetchMatches() })
                         is SportsUiState.Success -> {
                             if (isTvOrWideScreen) {
-                                Row(
-                                    modifier = Modifier.fillMaxSize(),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    LazyColumn(
-                                        modifier = Modifier
-                                            .weight(0.55f)
-                                            .fillMaxHeight(),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                                        contentPadding = PaddingValues(bottom = 24.dp)
-                                    ) {
+                                Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    LazyColumn(modifier = Modifier.weight(0.55f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                                         items(state.matches, key = { it.id }) { match ->
-                                            MatchCard(
-                                                match = match,
-                                                isSelected = selectedMatch?.id == match.id,
-                                                onClick = { viewModel.selectMatch(match) }
-                                            )
+                                            MatchCard(match = match, isSelected = selectedMatch?.id == match.id, onClick = { viewModel.selectMatch(match) })
                                         }
                                     }
-
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(0.45f)
-                                            .fillMaxHeight()
-                                    ) {
-                                        selectedMatch?.let { match ->
-                                            MatchDetailsPanel(match = match)
-                                        }
+                                    Box(modifier = Modifier.weight(0.45f).fillMaxHeight()) {
+                                        selectedMatch?.let { match -> MatchDetailsPanel(match = match) }
                                     }
                                 }
                             } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    contentPadding = PaddingValues(bottom = 24.dp)
-                                ) {
+                                LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                                     items(state.matches, key = { it.id }) { match ->
-                                        MatchCard(
-                                            match = match,
-                                            isSelected = false,
-                                            onClick = {
-                                                viewModel.selectMatch(match)
-                                                showMobileMatchDetails = true
-                                            }
-                                        )
+                                        MatchCard(match = match, isSelected = false, onClick = { viewModel.selectMatch(match); showMobileMatchDetails = true })
                                     }
                                 }
                             }
@@ -159,10 +158,7 @@ fun SportsScreen(
 
             if (!isTvOrWideScreen && showMobileMatchDetails && selectedMatch != null) {
                 Dialog(onDismissRequest = { showMobileMatchDetails = false }) {
-                    MatchDetailsPanel(
-                        match = selectedMatch!!,
-                        onCloseDialog = { showMobileMatchDetails = false }
-                    )
+                    MatchDetailsPanel(match = selectedMatch!!, onCloseDialog = { showMobileMatchDetails = false })
                 }
             }
         }
@@ -171,75 +167,17 @@ fun SportsScreen(
 
 @Composable
 private fun SportsTopBar(onRefresh: () -> Unit, onClose: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FocusableIconButton(onClick = onClose) {
-                Icon(imageVector = Icons.Default.Close, contentDescription = "إغلاق", tint = TextWhite)
-            }
+            FocusableIconButton(onClick = onClose) { Icon(imageVector = Icons.Default.Close, contentDescription = "إغلاق", tint = TextWhite) }
             Text(text = "سحاب IPTV", color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
         }
-
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(CardColor).padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.clip(RoundedCornerShape(50)).background(CardColor).padding(horizontal = 10.dp, vertical = 4.dp)) {
                 Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(LiveGreen))
                 Text(text = "محدث تلقائياً", color = LiveGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
-            FocusableIconButton(onClick = onRefresh) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = "تحديث البيانات", tint = AccentCyan)
-            }
-        }
-    }
-}
-
-@Composable
-private fun FiltersSection(
-    selectedDateFilter: DateFilter,
-    onDateFilterSelected: (DateFilter) -> Unit,
-    availableLeagues: List<String>,
-    selectedLeague: String,
-    onLeagueSelected: (String) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(DateFilter.values()) { filter ->
-                val isSelected = filter == selectedDateFilter
-                val activeColor = if (filter == DateFilter.LIVE) LiveRed else PrimaryPurple
-                FilterChipButton(
-                    text = filter.label,
-                    isSelected = isSelected,
-                    activeColor = activeColor,
-                    showDot = filter == DateFilter.LIVE,
-                    onClick = { onDateFilterSelected(filter) }
-                )
-            }
-        }
-
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(availableLeagues) { league ->
-                FilterChipButton(
-                    text = league,
-                    isSelected = league == selectedLeague,
-                    activeColor = PrimaryPurple,
-                    showDot = league == selectedLeague,
-                    onClick = { onLeagueSelected(league) }
-                )
-            }
+            FocusableIconButton(onClick = onRefresh) { Icon(imageVector = Icons.Default.Refresh, contentDescription = "تحديث", tint = AccentCyan) }
         }
     }
 }
@@ -247,26 +185,10 @@ private fun FiltersSection(
 @Composable
 private fun FilterChipButton(text: String, isSelected: Boolean, activeColor: Color, showDot: Boolean = false, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
-    val bgColor by animateColorAsState(
-        targetValue = when {
-            isSelected -> activeColor
-            isFocused -> CardColor.copy(alpha = 0.9f)
-            else -> CardColor
-        }, label = "chipBg"
-    )
-    val borderColor = when {
-        isFocused -> AccentCyan
-        isSelected -> activeColor
-        else -> Color.Transparent
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.clip(RoundedCornerShape(50)).background(bgColor).border(BorderStroke(2.dp, borderColor), RoundedCornerShape(50)).onFocusChanged { isFocused = it.isFocused }.focusable().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        if (showDot) {
-            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(TextWhite))
-        }
+    val bgColor by animateColorAsState(targetValue = when { isSelected -> activeColor; isFocused -> CardColor.copy(alpha = 0.9f); else -> CardColor }, label = "chipBg")
+    val borderColor = when { isFocused -> AccentCyan; isSelected -> activeColor; else -> Color.Transparent }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.clip(RoundedCornerShape(50)).background(bgColor).border(BorderStroke(2.dp, borderColor), RoundedCornerShape(50)).onFocusChanged { isFocused = it.isFocused }.focusable().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        if (showDot) Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(TextWhite))
         Text(text = text, color = if (isSelected || isFocused) TextWhite else TextSecondary, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
     }
 }
@@ -274,25 +196,14 @@ private fun FilterChipButton(text: String, isSelected: Boolean, activeColor: Col
 @Composable
 private fun MatchCard(match: Match, isSelected: Boolean, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
-    val borderColor = when {
-        isFocused -> AccentCyan
-        isSelected -> PrimaryPurple
-        else -> Color.White.copy(alpha = 0.06f)
-    }
+    val borderColor = when { isFocused -> AccentCyan; isSelected -> PrimaryPurple; else -> Color.White.copy(alpha = 0.06f) }
     val borderWidth = if (isFocused || isSelected) 2.dp else 1.dp
-
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardColor),
-        border = BorderStroke(borderWidth, borderColor),
-        modifier = Modifier.fillMaxWidth().onFocusChanged { isFocused = it.isFocused }.focusable().clickable { onClick() }
-    ) {
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = CardColor), border = BorderStroke(borderWidth, borderColor), modifier = Modifier.fillMaxWidth().onFocusChanged { isFocused = it.isFocused }.focusable().clickable { onClick() }) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(text = match.league.name, color = AccentCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 MatchStatusBadge(match = match)
             }
-
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 TeamDisplay(team = match.homeTeam, alignment = Alignment.Start, modifier = Modifier.weight(1f))
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(10.dp)).background(BgColor).padding(horizontal = 14.dp, vertical = 8.dp)) {
@@ -308,7 +219,6 @@ private fun MatchCard(match: Match, isSelected: Boolean, onClick: () -> Unit) {
                 }
                 TeamDisplay(team = match.awayTeam, alignment = Alignment.End, modifier = Modifier.weight(1f))
             }
-
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(text = "🏟️ ${match.stadium}", color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(text = "📺 ${match.channel}", color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -343,10 +253,7 @@ private fun TeamAvatar(teamName: String) {
 @Composable
 private fun MatchStatusBadge(match: Match) {
     val (text, badgeColor) = when (match.status) {
-        MatchStatus.LIVE -> {
-            val min = if (!match.minute.isNullOrBlank()) " ${match.minute}'" else ""
-            "مباشر$min" to LiveRed
-        }
+        MatchStatus.LIVE -> { val min = if (!match.minute.isNullOrBlank()) " ${match.minute}'" else ""; "مباشر$min" to LiveRed }
         MatchStatus.FINISHED -> "انتهت" to TextSecondary
         MatchStatus.POSTPONED -> "مؤجلة" to Color(0xFFF39C12)
         MatchStatus.CANCELLED -> "ملغاة" to LiveRed
@@ -359,24 +266,14 @@ private fun MatchStatusBadge(match: Match) {
 
 @Composable
 private fun MatchDetailsPanel(match: Match, onCloseDialog: (() -> Unit)? = null) {
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = CardColor),
-        border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.4f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = CardColor), border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.4f)), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(text = "بطاقة المباراة", color = AccentCyan, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-                if (onCloseDialog != null) {
-                    FocusableIconButton(onClick = onCloseDialog) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "إغلاق", tint = TextWhite)
-                    }
-                }
+                if (onCloseDialog != null) FocusableIconButton(onClick = onCloseDialog) { Icon(imageVector = Icons.Default.Close, contentDescription = "إغلاق", tint = TextWhite) }
             }
             Divider(color = Color.White.copy(alpha = 0.08f))
             Text(text = "${match.league.name} (${match.league.country})", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                     TeamAvatar(teamName = match.homeTeam.name)
@@ -437,12 +334,7 @@ private fun EmptyStateView(message: String, onRetry: () -> Unit) {
 @Composable
 private fun ErrorStateView(errorMessage: String, onRetry: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = CardColor),
-            border = BorderStroke(1.dp, LiveRed.copy(alpha = 0.6f)),
-            modifier = Modifier.fillMaxWidth(0.9f).padding(16.dp)
-        ) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = CardColor), border = BorderStroke(1.dp, LiveRed.copy(alpha = 0.6f)), modifier = Modifier.fillMaxWidth(0.9f).padding(16.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(20.dp)) {
                 Icon(imageVector = Icons.Default.Warning, contentDescription = "خطأ", tint = LiveRed, modifier = Modifier.size(40.dp))
                 Text(text = "تعذر تحميل المباريات", color = LiveRed, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
@@ -457,12 +349,7 @@ private fun ErrorStateView(errorMessage: String, onRetry: () -> Unit) {
 @Composable
 private fun FocusableActionButton(text: String, onClick: () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = if (isFocused) AccentCyan else PrimaryPurple),
-        shape = RoundedCornerShape(50),
-        modifier = Modifier.onFocusChanged { isFocused = it.isFocused }.focusable()
-    ) {
+    Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = if (isFocused) AccentCyan else PrimaryPurple), shape = RoundedCornerShape(50), modifier = Modifier.onFocusChanged { isFocused = it.isFocused }.focusable()) {
         Text(text = text, color = if (isFocused) BgColor else TextWhite, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
     }
 }
@@ -470,12 +357,7 @@ private fun FocusableActionButton(text: String, onClick: () -> Unit) {
 @Composable
 private fun FocusableIconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(38.dp).clip(CircleShape).background(if (isFocused) PrimaryPurple else CardColor).border(width = if (isFocused) 2.dp else 0.dp, color = if (isFocused) AccentCyan else Color.Transparent, shape = CircleShape).onFocusChanged { isFocused = it.isFocused }.focusable().clickable { onClick() }
-    ) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(38.dp).clip(CircleShape).background(if (isFocused) PrimaryPurple else CardColor).border(width = if (isFocused) 2.dp else 0.dp, color = if (isFocused) AccentCyan else Color.Transparent, shape = CircleShape).onFocusChanged { isFocused = it.isFocused }.focusable().clickable { onClick() }) {
         content()
     }
 }
-
-
