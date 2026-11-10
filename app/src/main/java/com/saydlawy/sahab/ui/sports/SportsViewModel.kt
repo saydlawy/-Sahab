@@ -106,6 +106,9 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
     val isStandingsLoading: StateFlow<Boolean> = _isStandingsLoading.asStateFlow()
     val selectedMatch: StateFlow<Match?> = _selectedMatch.asStateFlow()
 
+    private val _totalMatches = MutableStateFlow(0)
+    val totalMatches: StateFlow<Int> = _totalMatches.asStateFlow()
+
         init {
         updateCategory(MainCategory.EGYPTIAN)
         
@@ -274,6 +277,7 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun applyLocalFilters() {
+        _totalMatches.value = allFetchedMatches.size
         val currentLeagueId = _selectedLeagueId.value
         val currentFilter = _selectedTimeFilter.value
         

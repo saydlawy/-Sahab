@@ -56,6 +56,7 @@ fun SportsScreen(
     val selectedLeagueId by viewModel.selectedLeagueId.collectAsState()
     val selectedTimeFilter by viewModel.selectedTimeFilter.collectAsState()
     val selectedMatch by viewModel.selectedMatch.collectAsState()
+    val totalMatches by viewModel.totalMatches.collectAsState()
     val showStandings by viewModel.showStandings.collectAsState()
     val standings by viewModel.standings.collectAsState()
     val isStandingsLoading by viewModel.isStandingsLoading.collectAsState()
@@ -73,10 +74,11 @@ fun SportsScreen(
 
             Column(modifier = Modifier.fillMaxSize()) {
                 SportsTopBar(onRefresh = { viewModel.fetchMatches() }, onClose = onClose, onShowStandings = { viewModel.fetchStandings() })
+                Text("إجمالي المباريات في الذاكرة: $totalMatches", color = Color.Red, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
                 // الشريط الأول: التصنيفات الرئيسية
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().height(40.dp).padding(vertical = 4.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -94,7 +96,7 @@ fun SportsScreen(
                 // الشريط الثاني: البطولات داخل التصنيف (يظهر فقط إذا كان هناك أكثر من بطولة)
                 if (availableLeaguesInCategory.size > 1) {
                     LazyRow(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().height(40.dp).padding(vertical = 4.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -112,7 +114,7 @@ fun SportsScreen(
 
                 // الشريط الثالث: الفترات الزمنية
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().height(40.dp).padding(vertical = 4.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
