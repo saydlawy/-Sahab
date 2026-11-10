@@ -12,7 +12,7 @@ fun String.stableId(): Int {
 object AllowedLeaguesConfig {
     val ALLOWED_LEAGUES: Set<Int> = linkedSetOf(
         233, 307, // الدوريات المحلية
-        12, 17, 20, 2, 3, 848, // الدولية للأندية
+        12, 17, 20, 2, 3, // الدولية للأندية
         6, 403, 8, 1, 452, // الدولية للمنتخبات
         39, 140, 135, 78, 61, 203 // الأوروبية الكبرى
     )
@@ -30,7 +30,6 @@ object AllowedLeaguesConfig {
         20 to "4817",  // CAF Confederation Cup
         2 to "4480",   // UEFA Champions League
         3 to "4481",   // UEFA Europa League
-        848 to "5071", // UEFA Conference League
         6 to "4497",   // AFCON
         403 to "4502", // Euro
         8 to "4509",   // Asian Cup
@@ -53,7 +52,6 @@ object AllowedLeaguesConfig {
             20 -> "كأس الكونفدرالية الأفريقية"
             2 -> "دوري أبطال أوروبا"
             3 -> "الدوري الأوروبي"
-            848 -> "دوري المؤتمر الأوروبي"
             6 -> "كأس الأمم الأفريقية"
             403 -> "كأس الأمم الأوروبية"
             8 -> "كأس آسيا"
@@ -77,7 +75,6 @@ object AllowedLeaguesConfig {
             name.contains("أبطال أفريقيا") || name.contains("CAF Champions", ignoreCase = true) || name.contains("African Champions", ignoreCase = true) -> 12
             name.contains("أبطال آسيا") || name.contains("AFC Champions", ignoreCase = true) || name.contains("Asian Champions", ignoreCase = true) -> 17
             name.contains("الكونفدرالية") || name.contains("Confederation", ignoreCase = true) -> 20
-            name.contains("المؤتمر") || name.contains("Conference League", ignoreCase = true) -> 848
             name.contains("أبطال أوروبا") || name.contains("UEFA Champions", ignoreCase = true) || (name.contains("Champions League", ignoreCase = true) && !name.contains("CAF", ignoreCase = true) && !name.contains("AFC", ignoreCase = true) && !name.contains("Asia", ignoreCase = true)) -> 2
             name.contains("الدوري الأوروبي") || name.contains("Europa League", ignoreCase = true) -> 3
             name.contains("أمم أفريقيا") || name.contains("الأمم الأفريقية") || name.contains("AFCON", ignoreCase = true) || name.contains("African Nations", ignoreCase = true) -> 6

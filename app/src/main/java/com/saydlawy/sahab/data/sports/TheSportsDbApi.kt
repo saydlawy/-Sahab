@@ -14,7 +14,7 @@ import kotlin.coroutines.resume
 
 class TheSportsDbApi(private val client: OkHttpClient) {
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
-    private val baseUrl = "https://www.thesportsdb.com/api/v1/json/123"
+    private val baseUrl = "https://www.thesportsdb.com/api/v1/json/3"
 
     // جلب المباريات القادمة لفريق معين
     suspend fun getNextTeamEvents(teamId: String): ApiResult<List<Match>> {
@@ -62,9 +62,9 @@ class TheSportsDbApi(private val client: OkHttpClient) {
         }
     }
 
-    // جلب جدول الترتيب لدوري معين (مع تجربة المواسم المتاحة تلقائياً)
-    suspend fun getStandings(leagueId: String, season: String = "2024-2025"): ApiResult<List<Standing>> {
-        val seasonsToTry = listOf(season, "2025-2026", "2024-2025", "2025", "2024").distinct()
+    // جلب جدول الترتيب لدوري معين (مع تجربة المواسم المتاحة تلقائياً بدءاً من الموسم الحالي 2026-2027)
+    suspend fun getStandings(leagueId: String, season: String = "2026-2027"): ApiResult<List<Standing>> {
+        val seasonsToTry = listOf(season, "2026-2027", "2026", "2025-2026", "2025").distinct()
         var lastError: String? = null
         for (s in seasonsToTry) {
             when (val res = fetchStandingsForSeason(leagueId, s)) {

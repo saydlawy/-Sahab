@@ -107,7 +107,10 @@ import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.SahabTopBar
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 // Palette derived from sport/DESIGN.md and sport/code.html
 private val SportSurface = Color(0xFF0C0919)
@@ -154,15 +157,11 @@ fun SportsScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     var showStandingsDialog by remember { mutableStateOf(false) }
+    var showPhoneStandingsTab by remember { mutableStateOf(false) }
     var showPhoneDetailsDialog by remember { mutableStateOf(false) }
     var showSearchField by remember { mutableStateOf(false) }
 
-    val availableDateFilters = remember(dateFilterCounts, selectedDate) {
-        val core = setOf(DateFilter.YESTERDAY, DateFilter.TODAY, DateFilter.TOMORROW)
-        DateFilter.values().filter { df ->
-            df in core || df == selectedDate || (dateFilterCounts[df] ?: 0) > 0
-        }
-    }
+    val availableDateFilters = remember { DateFilter.values().toList() }
 
     val portraitListState = rememberLazyListState()
     val landscapeGridState = rememberLazyGridState()
@@ -222,10 +221,16 @@ fun SportsScreen(
                             onSearchChange = viewModel::updateSearchQuery,
                             isRefreshing = isRefreshing,
                             onRefresh = viewModel::refreshActiveFilter,
-                            onShowStandings = {
+                            showStandingsTab = showPhoneStandingsTab,
+                            onToggleStandingsTab = {
                                 viewModel.fetchStandings()
-                                showStandingsDialog = true
+                                showPhoneStandingsTab = !showPhoneStandingsTab
                             },
+                            standings = standings,
+                            standingsLoading = standingsLoading,
+                            standingsError = standingsError,
+                            standingsLeagueName = standingsLeagueName,
+                            onWatchLive = onOpenLive,
                             onSelectCategory = viewModel::updateCategory,
                             onSelectSubLeague = viewModel::updateSubLeague,
                             onSelectDate = viewModel::updateDate,
@@ -253,10 +258,16 @@ fun SportsScreen(
                             onSearchChange = viewModel::updateSearchQuery,
                             isRefreshing = isRefreshing,
                             onRefresh = viewModel::refreshActiveFilter,
-                            onShowStandings = {
+                            showStandingsTab = showPhoneStandingsTab,
+                            onToggleStandingsTab = {
                                 viewModel.fetchStandings()
-                                showStandingsDialog = true
+                                showPhoneStandingsTab = !showPhoneStandingsTab
                             },
+                            standings = standings,
+                            standingsLoading = standingsLoading,
+                            standingsError = standingsError,
+                            standingsLeagueName = standingsLeagueName,
+                            onWatchLive = onOpenLive,
                             onSelectCategory = viewModel::updateCategory,
                             onSelectSubLeague = viewModel::updateSubLeague,
                             onSelectDate = viewModel::updateDate,
@@ -290,7 +301,10 @@ fun SportsScreen(
                             standingsLoading = standingsLoading,
                             standingsError = standingsError,
                             standingsLeagueName = standingsLeagueName,
-                            onMatchClick = viewModel::selectMatch,
+                            onMatchClick = { match ->
+                                viewModel.selectMatch(match)
+                                showPhoneDetailsDialog = true
+                            },
                             onWatchLive = onOpenLive,
                         )
                     }
@@ -360,7 +374,7 @@ fun SportsScreen(
 }
 
 /**
- * Mode A: Mobile Portrait — single column, DatePickerPill, clear touch targets.
+ * Mode A: Mobile Portrait — single column, DateFilterBar, inline Standings toggle, clear touch targets.
  */
 @Composable
 private fun PhonePortraitSportsLayout(
@@ -377,7 +391,13 @@ private fun PhonePortraitSportsLayout(
     onSearchChange: (String) -> Unit,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onShowStandings: () -> Unit,
+    showStandingsTab: Boolean,
+    onToggleStandingsTab: () -> Unit,
+    standings: List<Standing>,
+    standingsLoading: Boolean,
+    standingsError: String?,
+    standingsLeagueName: String,
+    onWatchLive: () -> Unit,
     onSelectCategory: (MainCategory) -> Unit,
     onSelectSubLeague: (Int?) -> Unit,
     onSelectDate: (DateFilter) -> Unit,
@@ -399,34 +419,54 @@ private fun PhonePortraitSportsLayout(
             showSearchField = showSearchField,
             searchQuery = searchQuery,
             isRefreshing = isRefreshing,
+            showStandingsTab = showStandingsTab,
             onToggleSearch = onToggleSearch,
             onSearchChange = onSearchChange,
             onRefresh = onRefresh,
-            onShowStandings = onShowStandings,
+            onShowStandings = onToggleStandingsTab,
         )
         MainCategoryBar(selectedCategory, onSelectCategory, scale = 1f, isTv = false)
+        DateFilterBar(
+            filters = availableDateFilters,
+            selected = selectedDate,
+            counts = dateFilterCounts,
+            onSelect = onSelectDate,
+            scale = 0.96f,
+            isTv = false,
+        )
         if (subLeagues.isNotEmpty()) {
             SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = 1f, isTv = false)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            SportsStateBody(
-                uiState = uiState,
-                selectedMatch = selectedMatch,
-                scale = 1f,
-                compactCard = true,
-                highlightSelection = false,
-                useTwoColumnGrid = false,
-                listState = listState,
-                onMatchClick = onMatchClick,
-                onRetry = onRefresh,
-            )
+            if (showStandingsTab) {
+                StandingsPane(
+                    leagueName = standingsLeagueName,
+                    standings = standings,
+                    isLoading = standingsLoading,
+                    errorMessage = standingsError,
+                    scale = 1f,
+                    onWatchLive = onWatchLive,
+                )
+            } else {
+                SportsStateBody(
+                    uiState = uiState,
+                    selectedMatch = selectedMatch,
+                    scale = 1f,
+                    compactCard = true,
+                    highlightSelection = false,
+                    useTwoColumnGrid = false,
+                    listState = listState,
+                    onMatchClick = onMatchClick,
+                    onRetry = onRefresh,
+                )
+            }
         }
     }
 }
 
 /**
  * Mode B: Mobile Landscape — zero left Detail Pane duplication!
- * Collapsed single control bar (Categories + DatePickerPill + Actions) -> Full-width 2-column match grid.
+ * Collapsed single control bar (Categories + DatePickerPill + Standings toggle + Actions) -> Full-width 2-column match grid or inline StandingsPane.
  */
 @Composable
 private fun PhoneLandscapeSportsLayout(
@@ -443,7 +483,13 @@ private fun PhoneLandscapeSportsLayout(
     onSearchChange: (String) -> Unit,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onShowStandings: () -> Unit,
+    showStandingsTab: Boolean,
+    onToggleStandingsTab: () -> Unit,
+    standings: List<Standing>,
+    standingsLoading: Boolean,
+    standingsError: String?,
+    standingsLeagueName: String,
+    onWatchLive: () -> Unit,
     onSelectCategory: (MainCategory) -> Unit,
     onSelectSubLeague: (Int?) -> Unit,
     onSelectDate: (DateFilter) -> Unit,
@@ -474,11 +520,12 @@ private fun PhoneLandscapeSportsLayout(
             )
             ActionPillButton(
                 icon = Icons.Default.List,
-                label = "الترتيب",
-                highlighted = false,
+                label = if (showStandingsTab) "المباريات" else "جدول الترتيب",
+                highlighted = showStandingsTab,
+                accentCyan = showStandingsTab,
                 scale = 0.94f,
                 isTv = false,
-                onClick = onShowStandings,
+                onClick = onToggleStandingsTab,
             )
             ActionPillButton(
                 icon = Icons.Default.Refresh,
@@ -508,19 +555,29 @@ private fun PhoneLandscapeSportsLayout(
             SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = 0.94f, isTv = false)
         }
 
-        // Full-width 2-column grid of Match Cards — tapping any match opens modal details/standings
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            SportsStateBody(
-                uiState = uiState,
-                selectedMatch = selectedMatch,
-                scale = 0.96f,
-                compactCard = true,
-                highlightSelection = false,
-                useTwoColumnGrid = true,
-                gridState = gridState,
-                onMatchClick = onMatchClick,
-                onRetry = onRefresh,
-            )
+            if (showStandingsTab) {
+                StandingsPane(
+                    leagueName = standingsLeagueName,
+                    standings = standings,
+                    isLoading = standingsLoading,
+                    errorMessage = standingsError,
+                    scale = 0.96f,
+                    onWatchLive = onWatchLive,
+                )
+            } else {
+                SportsStateBody(
+                    uiState = uiState,
+                    selectedMatch = selectedMatch,
+                    scale = 0.96f,
+                    compactCard = true,
+                    highlightSelection = false,
+                    useTwoColumnGrid = true,
+                    gridState = gridState,
+                    onMatchClick = onMatchClick,
+                    onRetry = onRefresh,
+                )
+            }
         }
     }
 }
@@ -644,6 +701,7 @@ private fun StandingsPane(
     scale: Float,
     onWatchLive: () -> Unit,
 ) {
+    val isTv = LocalIsTv.current
     val shape = RoundedCornerShape((20 * scale).dp)
     Column(
         modifier = Modifier
@@ -706,17 +764,22 @@ private fun StandingsPane(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("#", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(26.dp))
+                    Text("#", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(24.dp))
                     Text("الفريق", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.weight(1f))
-                    Text("لعب", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(32.dp), textAlign = TextAlign.Center)
-                    Text("فاز", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(30.dp), textAlign = TextAlign.Center)
-                    Text("نقاط", color = SportCyan, fontSize = (11 * scale).sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
+                    Text("لعب", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)
+                    Text("فاز", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(26.dp), textAlign = TextAlign.Center)
+                    Text("ت", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(24.dp), textAlign = TextAlign.Center)
+                    Text("خ", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(24.dp), textAlign = TextAlign.Center)
+                    Text("نقاط", color = SportCyan, fontSize = (11 * scale).sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(34.dp), textAlign = TextAlign.Center)
                 }
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy((5 * scale).dp),
+                    contentPadding = PaddingValues(bottom = 12.dp),
                 ) {
                     items(standings, key = { "${it.rank}_${it.teamName}" }) { row ->
+                        var rowFocusedRaw by remember { mutableStateOf(false) }
+                        val rowFocused = rowFocusedRaw && isTv
                         val rankColor = when (row.rank) {
                             1 -> SportGold
                             2, 3 -> SportCyan
@@ -726,8 +789,17 @@ private fun StandingsPane(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(SportContainerHigh.copy(alpha = 0.65f))
-                                .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                .background(
+                                    if (rowFocused) SportViolet.copy(alpha = 0.35f)
+                                    else SportContainerHigh.copy(alpha = 0.65f),
+                                )
+                                .border(
+                                    width = if (rowFocused) 2.dp else 1.dp,
+                                    color = if (rowFocused) SportCyan else Color.White.copy(alpha = 0.05f),
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .onFocusChanged { rowFocusedRaw = it.isFocused }
+                                .clickable { }
                                 .padding(vertical = (7 * scale).dp, horizontal = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -736,13 +808,13 @@ private fun StandingsPane(
                                 color = rankColor,
                                 fontSize = (12 * scale).sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.width(26.dp),
+                                modifier = Modifier.width(24.dp),
                             )
                             Text(
                                 row.teamName,
                                 color = Color.White,
                                 fontSize = (12.5f * scale).sp,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = if (rowFocused) FontWeight.ExtraBold else FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
@@ -751,14 +823,28 @@ private fun StandingsPane(
                                 "${row.played}",
                                 color = SportTextMuted,
                                 fontSize = (11.5f * scale).sp,
-                                modifier = Modifier.width(32.dp),
+                                modifier = Modifier.width(28.dp),
                                 textAlign = TextAlign.Center,
                             )
                             Text(
                                 "${row.win}",
                                 color = SportTextMuted,
                                 fontSize = (11.5f * scale).sp,
-                                modifier = Modifier.width(30.dp),
+                                modifier = Modifier.width(26.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                "${row.draw}",
+                                color = SportTextMuted,
+                                fontSize = (11.5f * scale).sp,
+                                modifier = Modifier.width(24.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                "${row.lose}",
+                                color = SportTextMuted,
+                                fontSize = (11.5f * scale).sp,
+                                modifier = Modifier.width(24.dp),
                                 textAlign = TextAlign.Center,
                             )
                             Text(
@@ -766,7 +852,7 @@ private fun StandingsPane(
                                 color = SportCyan,
                                 fontSize = (12.5f * scale).sp,
                                 fontWeight = FontWeight.Black,
-                                modifier = Modifier.width(36.dp),
+                                modifier = Modifier.width(34.dp),
                                 textAlign = TextAlign.Center,
                             )
                         }
@@ -786,6 +872,7 @@ private fun SportsCompactPhoneToolbar(
     showSearchField: Boolean,
     searchQuery: String,
     isRefreshing: Boolean,
+    showStandingsTab: Boolean = false,
     onToggleSearch: () -> Unit,
     onSearchChange: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -809,8 +896,9 @@ private fun SportsCompactPhoneToolbar(
             ) {
                 ActionPillButton(
                     icon = Icons.Default.List,
-                    label = "الترتيب",
-                    highlighted = false,
+                    label = if (showStandingsTab) "المباريات" else "جدول الترتيب",
+                    highlighted = showStandingsTab,
+                    accentCyan = showStandingsTab,
                     scale = 1f,
                     isTv = false,
                     onClick = onShowStandings,
@@ -1521,7 +1609,7 @@ private fun SportMatchCard(
                         maxLines = 1,
                     )
                 }
-                if (match.stadium.isNotBlank() && !compact) {
+                if (match.stadium.isNotBlank() && match.stadium != "غير محدد" && !compact) {
                     Text(
                         "• ${match.stadium}",
                         color = SportTextMuted,
@@ -1537,7 +1625,7 @@ private fun SportMatchCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 MatchStatusChip(match = match, scale = scale)
-                if (match.channel.isNotBlank()) {
+                if (match.channel.isNotBlank() && match.channel != "غير محدد") {
                     Text(
                         match.channel,
                         color = Color.White,
@@ -1658,7 +1746,7 @@ private fun CenterScoreOrTime(match: Match, scale: Float, compact: Boolean) {
                 }
             }
             else -> {
-                val clock = formatMatchClock(match.time)
+                val clock = formatMatchClock(match.time, match.date)
                 if (clock.isNotBlank()) {
                     Text(
                         clock,
@@ -1909,11 +1997,13 @@ private fun LiveMatchHubContent(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            InfoRow("التاريخ", match.date.ifBlank { "لم يُحدد" }, scale)
-            InfoRow("توقيت المباراة", formatMatchClock(match.time), scale, valueColor = SportCyan)
-            if (match.stadium.isNotBlank()) InfoRow("الملعب", match.stadium, scale)
-            if (match.channel.isNotBlank()) InfoRow("القناة الناقلة", match.channel, scale)
-            if (match.commentator.isNotBlank()) InfoRow("المعلق", match.commentator, scale)
+            InfoRow("التاريخ", match.date.ifBlank { "—" }, scale)
+            val localClock = formatMatchClock(match.time, match.date)
+            if (localClock.isNotBlank()) {
+                InfoRow("توقيت المباراة", localClock, scale, valueColor = SportCyan)
+            }
+            if (match.stadium.isNotBlank() && match.stadium != "غير محدد") InfoRow("الملعب", match.stadium, scale)
+            if (match.channel.isNotBlank() && match.channel != "غير محدد") InfoRow("القناة الناقلة", match.channel, scale)
         }
 
         Row(
@@ -2037,6 +2127,7 @@ private fun StandingsDialog(
     errorMessage: String?,
     onDismiss: () -> Unit,
 ) {
+    val isTv = LocalIsTv.current
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(22.dp),
@@ -2093,11 +2184,23 @@ private fun StandingsDialog(
                         }
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             items(standings, key = { "${it.rank}_${it.teamName}" }) { row ->
+                                var focusedRaw by remember { mutableStateOf(false) }
+                                val focused = focusedRaw && isTv
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(SportContainerHigh.copy(alpha = 0.6f))
+                                        .background(
+                                            if (focused) SportViolet.copy(alpha = 0.35f)
+                                            else SportContainerHigh.copy(alpha = 0.6f),
+                                        )
+                                        .border(
+                                            width = if (focused) 2.dp else 0.dp,
+                                            color = if (focused) SportCyan else Color.Transparent,
+                                            shape = RoundedCornerShape(8.dp),
+                                        )
+                                        .onFocusChanged { focusedRaw = it.isFocused }
+                                        .clickable { }
                                         .padding(vertical = 8.dp, horizontal = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -2116,10 +2219,30 @@ private fun StandingsDialog(
     }
 }
 
-private fun formatMatchClock(rawTime: String): String {
+private fun formatMatchClock(rawTime: String, dateStr: String = ""): String {
     val clean = rawTime.trim()
     if (clean.isBlank() || clean == "null" || clean == "00:00" || clean.startsWith("00:00:")) {
         return ""
     }
-    return clean.take(5).lowercase(Locale.US)
+    val hm = clean.take(5)
+    return try {
+        val utcParser = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val effectiveDate = dateStr.trim().take(10).ifBlank {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.format(Date())
+        }
+        val parsed = utcParser.parse("$effectiveDate $hm")
+        if (parsed != null) {
+            SimpleDateFormat("HH:mm", Locale.US).apply {
+                timeZone = TimeZone.getDefault()
+            }.format(parsed)
+        } else {
+            hm.lowercase(Locale.US)
+        }
+    } catch (_: Exception) {
+        hm.lowercase(Locale.US)
+    }
 }

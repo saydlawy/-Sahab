@@ -123,12 +123,26 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 var hasPre2026OrYouth = false
                 sqLite.rawQuery(
-                    "SELECT count(*) FROM matches WHERE date < '2026-01-01' OR time = '00:00' OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
+                    "SELECT count(*) FROM matches WHERE date < '2026-01-01' OR time = '00:00' OR trim(time) = '' OR leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
                     null,
                 ).use { c ->
                     if (c.moveToNext()) hasPre2026OrYouth = c.getInt(0) > 0
                 }
-                leagueIdNotNull && standingsPkValid && !hasPre2026OrYouth
+                var has2026Standings = false
+                sqLite.rawQuery(
+                    "SELECT count(*) FROM standings WHERE leagueId = 307 AND played < 34",
+                    null,
+                ).use { c ->
+                    if (c.moveToNext()) has2026Standings = c.getInt(0) >= 18
+                }
+                var hasIntlStandings = false
+                sqLite.rawQuery(
+                    "SELECT count(DISTINCT leagueId) FROM standings WHERE leagueId IN (1, 6, 8, 403, 452)",
+                    null,
+                ).use { c ->
+                    if (c.moveToNext()) hasIntlStandings = c.getInt(0) >= 5
+                }
+                leagueIdNotNull && standingsPkValid && !hasPre2026OrYouth && has2026Standings && hasIntlStandings
             }
         } catch (e: Exception) {
             false
@@ -291,33 +305,33 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun fetchStandings() {
-        val leagueId = _selectedSubLeague.value
-            ?: _selectedMatch.value?.league?.id
+    fun fetchStandings(explicitLeagueId: Int? = null) {
+        val leagueId = explicitLeagueId
+            ?: _selectedSubLeague.value
             ?: defaultLeagueForCategory(_selectedCategory.value)
 
         _standingsLeagueName.value = AllowedLeaguesConfig.translateLeagueName(leagueId)
         _standingsError.value = null
+        _standings.value = emptyList()
         _standingsLoading.value = true
 
         viewModelScope.launch {
-            // 1. قراءة فورية من قاعدة البيانات المحلية إن وجدت
+            // 1. قراءة فورية من قاعدة البيانات المحلية لموسم 2026-2027
             val localRows = withContext(Dispatchers.IO) {
                 runCatching { dao.getStandingsByLeague(leagueId).map { it.toStanding() } }.getOrDefault(emptyList())
             }
             if (localRows.isNotEmpty()) {
                 _standings.value = localRows
                 _standingsLoading.value = false
+                return@launch
             }
 
-            // 2. تحديث من TheSportsDB في الخلفية
+            // 2. تحديث من TheSportsDB في الخلفية فقط إذا لم تتوفر بيانات محلية
             val tsdbId = AllowedLeaguesConfig.THESPORTSDB_LEAGUE_ID[leagueId]
             if (tsdbId == null) {
                 _standingsLoading.value = false
-                if (localRows.isEmpty()) {
-                    _standings.value = emptyList()
-                    _standingsError.value = "جدول الترتيب غير متاح لهذه البطولة حالياً"
-                }
+                _standings.value = emptyList()
+                _standingsError.value = "جدول الترتيب غير متاح لهذه البطولة حالياً"
                 return@launch
             }
 
@@ -336,16 +350,14 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                                 dao.insertStandings(result.data.map { it.toEntity(leagueId) })
                             }
                         }
-                    } else if (localRows.isEmpty()) {
+                    } else {
                         _standings.value = emptyList()
                         _standingsError.value = "لا تتوفر بيانات ترتيب لهذه البطولة حالياً"
                     }
                 }
                 is ApiResult.Error -> {
-                    if (localRows.isEmpty()) {
-                        _standings.value = emptyList()
-                        _standingsError.value = "تعذر تحديث جدول الترتيب: ${result.message}"
-                    }
+                    _standings.value = emptyList()
+                    _standingsError.value = "تعذر تحديث جدول الترتيب: ${result.message}"
                 }
             }
         }
@@ -392,7 +404,6 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                     20 to "الكونفدرالية",
                     2 to "أبطال أوروبا",
                     3 to "الدوري الأوروبي",
-                    848 to "المؤتمر الأوروبي",
                     17 to "أبطال آسيا"
                 )
                 _selectedSubLeague.value = null
@@ -472,7 +483,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         val categoryLeagueIds = when (category) {
             MainCategory.EGYPTIAN -> setOf(233)
             MainCategory.SAUDI -> setOf(307)
-            MainCategory.CLUBS_INTL -> setOf(12, 17, 20, 2, 3, 848)
+            MainCategory.CLUBS_INTL -> setOf(12, 17, 20, 2, 3)
             MainCategory.NATIONAL_TEAMS -> setOf(6, 403, 8, 1, 452)
             MainCategory.EUROPEAN -> setOf(39, 140, 135, 78, 61, 203)
         }
@@ -522,8 +533,8 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-        // Fallback to nearest upcoming matches if no fixtures exist for that exact single day
-        val effectiveMatches = if (exactMatches.isNotEmpty() || query.isNotEmpty() || filter.isRange) {
+        // Fallback to nearest upcoming matches if no fixtures exist for that exact date/range
+        val effectiveMatches = if (exactMatches.isNotEmpty() || query.isNotEmpty()) {
             exactMatches
         } else {
             val targetEpoch = parseDateEpochDays(targetDate)

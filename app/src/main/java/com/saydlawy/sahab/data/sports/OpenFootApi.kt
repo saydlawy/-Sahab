@@ -90,7 +90,6 @@ fun OpenFootMatch.toAppMatch(competitionId: String): Match? {
         "comp_saudi_pro_league_sau" -> 307
         "comp_uefa_champions_league" -> 2
         "comp_uefa_europa_league" -> 3
-        "comp_uefa_conference_league" -> 848
         "comp_fifa_world_cup" -> 1
         "comp_premier_league_eng" -> 39
         "comp_laliga_es" -> 140

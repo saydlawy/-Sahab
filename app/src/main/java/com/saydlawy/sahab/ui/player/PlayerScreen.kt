@@ -207,10 +207,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var showTracks by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
-    // Only auto-open the floating quick channels drawer on large Tablet/TV screens — never cover the video on phones!
-    var showQuickChannelsDrawer by remember {
-        mutableStateOf(isLive && playlist.size > 1 && displayMode == DisplayMode.TABLET_OR_TV)
-    }
+    var showQuickChannelsDrawer by remember { mutableStateOf(false) }
     var showEpisodesDrawer by remember { mutableStateOf(false) }
     var retryKey by remember { mutableIntStateOf(0) }
     var formatAttempt by remember { mutableIntStateOf(0) }
@@ -527,8 +524,16 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    LaunchedEffect(controlsVisible, interactions, isPlaying, showTracks, showGuide, showEpisodesDrawer) {
-        if (controlsVisible && isPlaying && !showTracks && !showGuide && !showEpisodesDrawer) {
+    LaunchedEffect(
+        controlsVisible,
+        interactions,
+        isPlaying,
+        showTracks,
+        showGuide,
+        showEpisodesDrawer,
+        showQuickChannelsDrawer,
+    ) {
+        if (controlsVisible && isPlaying && !showTracks && !showGuide && !showEpisodesDrawer && !showQuickChannelsDrawer) {
             delay(CONTROLS_HIDE_MS)
             controlsVisible = false
         }
@@ -538,7 +543,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         if (controlsVisible && (requestPlayFocusTick > 0 || !isPlaying) && displayMode != DisplayMode.PHONE_PORTRAIT) {
             delay(50)
             runCatching { playFocus.requestFocus() }
-        } else if (!controlsVisible && !showEpisodesDrawer) {
+        } else if (!controlsVisible && !showEpisodesDrawer && !showQuickChannelsDrawer) {
             delay(60)
             runCatching { rootFocus.requestFocus() }
         }
@@ -607,7 +612,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                 if (showEpisodesDrawer) {
                     showEpisodesDrawer = false
                     true
-                } else if (showQuickChannelsDrawer && isLive && controlsVisible) {
+                } else if (showQuickChannelsDrawer && isLive) {
                     showQuickChannelsDrawer = false
                     true
                 } else if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) {
@@ -618,7 +623,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                 }
             }
             else -> {
-                if (controlsVisible || showEpisodesDrawer) {
+                if (controlsVisible || showEpisodesDrawer || (showQuickChannelsDrawer && isLive)) {
                     false
                 } else {
                     when (event.key) {
@@ -771,7 +776,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                 detectTapGestures(onTap = {
                                     if (showEpisodesDrawer) {
                                         showEpisodesDrawer = false
-                                    } else if (showQuickChannelsDrawer && displayMode == DisplayMode.PHONE_LANDSCAPE) {
+                                    } else if (showQuickChannelsDrawer) {
                                         showQuickChannelsDrawer = false
                                     } else {
                                         controlsVisible = !controlsVisible
@@ -805,147 +810,58 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                         exit = fadeOut(tween(180)),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        if (displayMode == DisplayMode.PHONE_LANDSCAPE) {
-                            // Clean, uncluttered Phone Landscape OSD (Video-first, organized bottom layer)
-                            PhoneLandscapePlayerOsd(
-                                item = item,
-                                isLive = isLive,
-                                playlistCount = seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size,
-                                currentProgram = currentProgram,
-                                isPlaying = isPlaying,
-                                position = position,
-                                bufferedPosition = bufferedPosition,
-                                duration = duration,
-                                playbackSpeed = playbackSpeed,
-                                tracks = tracks,
-                                textOff = textOff,
-                                hasVideoOverride = hasVideoOverride,
-                                playFocus = playFocus,
-                                onBack = onBack,
-                                onTogglePlay = togglePlay,
-                                onSeekBy = seekBy,
-                                onSeekTo = { target ->
-                                    exo.seekTo(target.coerceAtLeast(0L))
-                                    position = target
-                                    interactions++
-                                },
-                                onPrev = zapPrevious,
-                                onNext = zapNext,
-                                onCycleSpeed = cycleSpeed,
-                                onCycleResize = {
-                                    resizeIndex = (resizeIndex + 1) % ResizeModes.size
-                                    interactions++
-                                },
-                                onOpenTracks = {
-                                    showTracks = true
-                                    interactions++
-                                },
-                                onOpenGuide = {
-                                    showGuide = true
-                                    interactions++
-                                },
-                                onToggleDrawer = {
-                                    if (isLive) showQuickChannelsDrawer = !showQuickChannelsDrawer
-                                    else showEpisodesDrawer = !showEpisodesDrawer
-                                    interactions++
-                                },
-                                onRotateToPortrait = toggleOrientation,
-                            )
-                        } else if (isLive) {
-                            // Tablet & TV Rich Live OSD
-                            LiveExoPlayerOsd(
-                                item = item,
-                                playlist = playlist,
-                                currentIndex = index,
-                                currentProgram = currentProgram,
-                                nextProgram = nextProgram,
-                                isPlaying = isPlaying,
-                                position = position,
-                                duration = duration,
-                                bufferedPosition = bufferedPosition,
-                                tracks = tracks,
-                                textOff = textOff,
-                                hasVideoOverride = hasVideoOverride,
-                                formatExt = repo.liveExtensions().getOrElse(formatAttempt) { "m3u8" }.uppercase(Locale.US),
-                                showQuickDrawer = showQuickChannelsDrawer,
-                                onToggleQuickDrawer = {
-                                    showQuickChannelsDrawer = !showQuickChannelsDrawer
-                                    interactions++
-                                },
-                                playFocus = playFocus,
-                                onSelectChannel = goTo,
-                                onBack = onBack,
-                                onTogglePlay = togglePlay,
-                                onSeekBy = seekBy,
-                                onPrevChannel = zapPrevious,
-                                onNextChannel = zapNext,
-                                onOpenTracks = {
-                                    showTracks = true
-                                    interactions++
-                                },
-                                onOpenGuide = {
-                                    showGuide = true
-                                    interactions++
-                                },
-                                onCycleResize = {
-                                    resizeIndex = (resizeIndex + 1) % ResizeModes.size
-                                    interactions++
-                                },
-                            )
-                        } else {
-                            // Tablet & TV Rich VOD OSD
-                            VodMediaPlayerOsd(
-                                item = item,
-                                playlistCount = seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size,
-                                isPlaying = isPlaying,
-                                position = position,
-                                bufferedPosition = bufferedPosition,
-                                duration = duration,
-                                playbackSpeed = playbackSpeed,
-                                tracks = tracks,
-                                textOff = textOff,
-                                hasVideoOverride = hasVideoOverride,
-                                playFocus = playFocus,
-                                onBack = onBack,
-                                onTogglePlay = togglePlay,
-                                onSeekBy = seekBy,
-                                onSeekTo = { target ->
-                                    exo.seekTo(target.coerceAtLeast(0L))
-                                    position = target
-                                    interactions++
-                                },
-                                onPrev = zapPrevious,
-                                onNext = zapNext,
-                                onCycleSpeed = cycleSpeed,
-                                onCycleResize = {
-                                    resizeIndex = (resizeIndex + 1) % ResizeModes.size
-                                    interactions++
-                                },
-                                onOpenTracks = {
-                                    showTracks = true
-                                    interactions++
-                                },
-                                onToggleEpisodesDrawer = {
-                                    showEpisodesDrawer = !showEpisodesDrawer
-                                    interactions++
-                                },
-                                onInteract = { interactions++ },
-                            )
-                        }
+                        UnifiedFullscreenPlayerOsd(
+                            item = item,
+                            isLive = isLive,
+                            playlistCount = if (isLive) playlist.size else (seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size),
+                            currentProgram = currentProgram,
+                            isPlaying = isPlaying,
+                            position = position,
+                            bufferedPosition = bufferedPosition,
+                            duration = duration,
+                            playbackSpeed = playbackSpeed,
+                            showDrawer = if (isLive) showQuickChannelsDrawer else showEpisodesDrawer,
+                            playFocus = playFocus,
+                            onBack = onBack,
+                            onTogglePlay = togglePlay,
+                            onSeekBy = seekBy,
+                            onSeekTo = { target ->
+                                exo.seekTo(target.coerceAtLeast(0L))
+                                position = target
+                                interactions++
+                            },
+                            onPrev = zapPrevious,
+                            onNext = zapNext,
+                            onCycleSpeed = cycleSpeed,
+                            onCycleResize = {
+                                resizeIndex = (resizeIndex + 1) % ResizeModes.size
+                                interactions++
+                            },
+                            onOpenTracks = {
+                                showTracks = true
+                                interactions++
+                            },
+                            onToggleDrawer = {
+                                if (isLive) showQuickChannelsDrawer = !showQuickChannelsDrawer
+                                else showEpisodesDrawer = !showEpisodesDrawer
+                                interactions++
+                            },
+                        )
                     }
 
-                    // Slide-Over Quick Channels Drawer for Phone Landscape when requested
-                    if (isLive && displayMode == DisplayMode.PHONE_LANDSCAPE) {
+                    // Side Channels Drawer for Live TV (Phone Landscape & TV, aligned to right side in RTL)
+                    if (isLive) {
                         AnimatedVisibility(
                             visible = showQuickChannelsDrawer && error == null,
-                            enter = slideInHorizontally(tween(280)) { -it } + fadeIn(tween(200)),
-                            exit = slideOutHorizontally(tween(240)) { -it } + fadeOut(tween(160)),
-                            modifier = Modifier.align(Alignment.CenterEnd),
+                            enter = slideInHorizontally(tween(260)) { it } + fadeIn(tween(200)),
+                            exit = slideOutHorizontally(tween(220)) { it } + fadeOut(tween(160)),
+                            modifier = Modifier.align(Alignment.CenterStart),
                         ) {
-                            PhoneLandscapeChannelsDrawer(
+                            LiveChannelsDrawer(
                                 playlist = playlist,
                                 currentIndex = index,
                                 currentProgram = currentProgram,
+                                compact = displayMode == DisplayMode.PHONE_LANDSCAPE,
                                 onSelectChannel = { idx ->
                                     goTo(idx)
                                     showQuickChannelsDrawer = false
@@ -955,13 +871,13 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                         }
                     }
 
-                    // Side Episodes Drawer for VOD
+                    // Side Episodes Drawer for VOD (aligned to right side in RTL)
                     if (!isLive) {
                         AnimatedVisibility(
                             visible = showEpisodesDrawer && error == null,
-                            enter = slideInHorizontally(tween(320)) { -it } + fadeIn(tween(220)),
-                            exit = slideOutHorizontally(tween(260)) { -it } + fadeOut(tween(180)),
-                            modifier = Modifier.align(Alignment.CenterEnd),
+                            enter = slideInHorizontally(tween(260)) { it } + fadeIn(tween(200)),
+                            exit = slideOutHorizontally(tween(220)) { it } + fadeOut(tween(160)),
+                            modifier = Modifier.align(Alignment.CenterStart),
                         ) {
                             VodEpisodesDrawer(
                                 currentItem = item,
@@ -973,11 +889,11 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                 compact = displayMode == DisplayMode.PHONE_LANDSCAPE,
                                 onSelectPlaylistIndex = { idx ->
                                     goTo(idx)
-                                    if (displayMode == DisplayMode.PHONE_LANDSCAPE) showEpisodesDrawer = false
+                                    showEpisodesDrawer = false
                                 },
                                 onSelectEpisode = { ep ->
                                     playEpisodeFromDrawer(ep)
-                                    if (displayMode == DisplayMode.PHONE_LANDSCAPE) showEpisodesDrawer = false
+                                    showEpisodesDrawer = false
                                 },
                                 onClose = { showEpisodesDrawer = false },
                             )
@@ -1537,11 +1453,11 @@ private fun PhonePortraitPlayerScreen(
 }
 
 // ============================================================================
-// MODE B: PHONE LANDSCAPE OSD (Video-first, clean top/bottom bars, no clutter)
+// MODE B & C: UNIFIED FULLSCREEN OSD (Live TV, Movies, Series — Phone & TV)
 // ============================================================================
 
 @Composable
-private fun PhoneLandscapePlayerOsd(
+private fun UnifiedFullscreenPlayerOsd(
     item: PlayItem,
     isLive: Boolean,
     playlistCount: Int,
@@ -1551,9 +1467,7 @@ private fun PhoneLandscapePlayerOsd(
     bufferedPosition: Long,
     duration: Long,
     playbackSpeed: Float,
-    tracks: Tracks,
-    textOff: Boolean,
-    hasVideoOverride: Boolean,
+    showDrawer: Boolean,
     playFocus: FocusRequester,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -1564,17 +1478,16 @@ private fun PhoneLandscapePlayerOsd(
     onCycleSpeed: () -> Unit,
     onCycleResize: () -> Unit,
     onOpenTracks: () -> Unit,
-    onOpenGuide: () -> Unit,
     onToggleDrawer: () -> Unit,
-    onRotateToPortrait: () -> Unit,
 ) {
-    val videoBadge = remember(tracks, item.title) {
-        SahabPlayer.videoBadge(tracks, qualityOf(item.title) ?: "FHD")
+    val nowTime = formatNowMillis(rememberNow(), "hh:mm a", Locale.US)
+    val subtitleText = if (isLive) {
+        currentProgram?.title?.takeIf { it.isNotBlank() } ?: item.subtitle
+    } else {
+        item.subtitle
     }
-    val audioLabel = remember(tracks) { SahabPlayer.activeAudioLabel(tracks) }
-    val qualityLabel = remember(tracks, hasVideoOverride) {
-        SahabPlayer.activeQualityButtonLabel(tracks, hasVideoOverride, isLive)
-    }
+    val hasDrawer = if (isLive) playlistCount > 1 else (item.kind == Kind.EPISODE || playlistCount > 1)
+    val speedDesc = String.format(Locale.US, "%.2fx", playbackSpeed).replace(".00x", "x").replace("50x", "5x")
 
     Box(
         modifier = Modifier
@@ -1582,23 +1495,23 @@ private fun PhoneLandscapePlayerOsd(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        OsdSurfaceLowest.copy(alpha = 0.78f),
+                        OsdSurfaceLowest.copy(alpha = 0.65f),
                         Color.Transparent,
-                        OsdSurfaceLowest.copy(alpha = 0.85f),
+                        OsdSurfaceLowest.copy(alpha = 0.78f),
                     ),
                 ),
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        // 1. Compact Top Bar: Back + Title + Subtitle + Quick Action Buttons
+        // 1. Unified Compact Top Bar: Back -> Title & Subtitle -> Clock
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
-                .background(OsdSurfaceLow.copy(alpha = 0.82f))
-                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .background(OsdSurfaceLow.copy(alpha = 0.78f))
+                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.30f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -1607,37 +1520,26 @@ private fun PhoneLandscapePlayerOsd(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                OsdIconSquareButton(Ic.Back, Ar.back, onBack, size = 38.dp, circle = true)
+                OsdIconSquareButton(
+                    icon = Ic.Back,
+                    description = Ar.back,
+                    onClick = onBack,
+                    size = 36.dp,
+                    circle = true,
+                )
                 Column(Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+                    Text(
+                        item.title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (subtitleText.isNotBlank()) {
                         Text(
-                            item.title,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (isLive) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Palette.Live.copy(alpha = 0.25f))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                            ) {
-                                Text(Ar.liveBadge, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = OsdError)
-                            }
-                        }
-                        FormatChip(videoBadge, OsdPrimary)
-                    }
-                    val sub = if (isLive) currentProgram?.title.orEmpty() else item.subtitle
-                    if (sub.isNotBlank()) {
-                        Text(
-                            sub,
-                            fontSize = 12.sp,
+                            subtitleText,
+                            fontSize = 11.5.sp,
                             color = OsdOnSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1646,79 +1548,45 @@ private fun PhoneLandscapePlayerOsd(
                 }
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (playlistCount > 1 || item.kind == Kind.EPISODE) {
-                    OsdPillButton(
-                        label = if (isLive) "القنوات ($playlistCount)" else "الحلقات ($playlistCount)",
-                        leadingIcon = Ic.List,
-                        iconTint = OsdPrimary,
-                        onClick = onToggleDrawer,
-                    )
-                }
-                if (isLive) {
-                    OsdIconSquareButton(Ic.Clock, Ar.guide, onOpenGuide, size = 38.dp)
-                }
-                OsdIconSquareButton(Ic.Aspect, "أبعاد العرض", onCycleResize, size = 38.dp)
-                OsdIconSquareButton(Ic.Refresh, "الوضع الرأسي", onRotateToPortrait, size = 38.dp)
-            }
+            Spacer(Modifier.width(12.dp))
+
+            Text(
+                nowTime,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OsdOnSurface,
+                maxLines = 1,
+            )
         }
 
-        // 2. Center Transport Controls (Large, touch-friendly, uncluttered)
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Row(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(22.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (playlistCount > 1) {
-                    OsdIconSquareButton(Ic.Previous, Ar.previous, onPrev, size = 44.dp, circle = true)
-                }
-                OsdIconSquareButton(
-                    icon = Ic.Previous,
-                    description = "-10",
-                    label = "-10",
-                    onClick = { onSeekBy(-SEEK_STEP_MS) },
-                    size = 46.dp,
-                    circle = true,
-                )
-                OsdPrimaryPlayButton(
-                    isPlaying = isPlaying,
-                    onClick = onTogglePlay,
-                    size = 60.dp,
-                    cornerRadius = 30.dp,
-                    showOuterRing = true,
-                    focusRequester = playFocus,
-                )
-                OsdIconSquareButton(
-                    icon = Ic.Next,
-                    description = "+10",
-                    label = "+10",
-                    onClick = { onSeekBy(SEEK_STEP_MS) },
-                    size = 46.dp,
-                    circle = true,
-                )
-                if (playlistCount > 1) {
-                    OsdIconSquareButton(Ic.Next, Ar.next, onNext, size = 44.dp, circle = true)
-                }
-            }
-        }
-
-        // 3. Organized Bottom Layer: Timeline + Track Pills
+        // 2. Unified Compact Bottom Bar: Timeline + 1 Row of Controls
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(OsdSurfaceLow.copy(alpha = 0.88f))
-                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .background(OsdSurfaceLow.copy(alpha = 0.85f))
+                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.32f), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0.85f
-            val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0.95f
+            val progressFraction = if (isLive) {
+                if (currentProgram != null && currentProgram.end > currentProgram.start) {
+                    val now = System.currentTimeMillis() / 1000
+                    ((now - currentProgram.start).toFloat() / (currentProgram.end - currentProgram.start)).coerceIn(0.08f, 0.96f)
+                } else {
+                    0.85f
+                }
+            } else if (duration > 0L) {
+                (position.toFloat() / duration).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            val bufferedFraction = if (duration > 0L) {
+                (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f)
+            } else {
+                (progressFraction + 0.08f).coerceAtMost(1f)
+            }
 
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 GradientTimelineBar(
@@ -1736,63 +1604,150 @@ private fun PhoneLandscapePlayerOsd(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Text(
+                            formatDuration(position.coerceAtLeast(0L)),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                        if (!isLive && duration > 0L) {
+                            Text("/", fontSize = 11.5.sp, color = OsdOutline)
+                            Text(
+                                formatDuration(duration),
+                                fontSize = 11.5.sp,
+                                color = OsdOnSurfaceVariant,
+                            )
+                        }
+                    }
+
                     if (isLive) {
-                        Text(formatDuration(position), fontSize = 12.sp, color = OsdOnSurface)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            Box(Modifier.size(7.dp).clip(CircleShape).background(OsdCyan))
-                            Text("طرف البث الحي (Live Edge)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
+                            Box(Modifier.size(6.dp).clip(CircleShape).background(OsdCyan))
+                            Text(
+                                "مباشر",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OsdCyan,
+                            )
                         }
                     } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(formatDuration(position), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("/", fontSize = 12.sp, color = OsdOutline)
-                            Text(formatDuration(duration), fontSize = 12.sp, color = OsdOnSurfaceVariant)
-                        }
                         val rem = (duration - position).coerceAtLeast(0L)
-                        Text("المتبقي: -${formatDuration(rem)}", fontSize = 11.sp, color = OsdTertiary)
+                        Text(
+                            "-${formatDuration(rem)}",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = OsdTertiary,
+                        )
                     }
                 }
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                // Start (Physical Right in RTL): Channels / Episodes Drawer Button
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
-                    OsdPillButton(
-                        label = audioLabel,
-                        leadingIcon = Ic.Equalizer,
-                        iconTint = OsdCyan,
-                        onClick = onOpenTracks,
-                    )
-                    OsdPillButton(
-                        label = if (textOff) "الترجمة" else "الترجمة: مفعلة",
-                        leadingIcon = Ic.Subtitles,
-                        iconTint = OsdTertiary,
-                        onClick = onOpenTracks,
-                    )
-                    OsdPillButton(
-                        label = qualityLabel,
-                        leadingIcon = Ic.Quality,
-                        iconTint = OsdPrimary,
-                        onClick = onOpenTracks,
-                    )
-                    if (!isLive) {
+                    if (hasDrawer) {
                         OsdPillButton(
-                            label = String.format(Locale.US, "%.2fx", playbackSpeed).replace(".00x", ".0x"),
-                            leadingIcon = Ic.Speed,
-                            iconTint = OsdCyan,
+                            label = if (isLive) "قائمة القنوات" else if (item.kind == Kind.EPISODE) "قائمة الحلقات" else "قائمة التشغيل",
+                            leadingIcon = Ic.List,
+                            iconTint = if (showDrawer) OsdOnPrimary else OsdPrimary,
+                            highlighted = showDrawer,
+                            onClick = onToggleDrawer,
+                        )
+                    }
+                }
+
+                // Center: Previous -> -10 -> Play/Pause -> +10 -> Next (LTR transport order)
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OsdIconSquareButton(
+                            icon = Ic.Previous,
+                            description = Ar.previous,
+                            onClick = onPrev,
+                            size = 38.dp,
+                            circle = true,
+                        )
+                        OsdIconSquareButton(
+                            icon = Ic.Previous,
+                            description = "-10",
+                            label = "-10",
+                            onClick = { onSeekBy(-SEEK_STEP_MS) },
+                            size = 38.dp,
+                            circle = true,
+                        )
+                        OsdPrimaryPlayButton(
+                            isPlaying = isPlaying,
+                            onClick = onTogglePlay,
+                            size = 48.dp,
+                            cornerRadius = 24.dp,
+                            showOuterRing = true,
+                            focusRequester = playFocus,
+                        )
+                        OsdIconSquareButton(
+                            icon = Ic.Next,
+                            description = "+10",
+                            label = "+10",
+                            onClick = { onSeekBy(SEEK_STEP_MS) },
+                            size = 38.dp,
+                            circle = true,
+                        )
+                        OsdIconSquareButton(
+                            icon = Ic.Next,
+                            description = Ar.next,
+                            onClick = onNext,
+                            size = 38.dp,
+                            circle = true,
+                        )
+                    }
+                }
+
+                // End (Physical Left in RTL): Pure icon-only Audio, Subtitles, Speed, Aspect Ratio
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OsdIconSquareButton(
+                            icon = Ic.Equalizer,
+                            description = Ar.audio,
+                            onClick = onOpenTracks,
+                            size = 38.dp,
+                        )
+                        OsdIconSquareButton(
+                            icon = Ic.Subtitles,
+                            description = Ar.subtitles,
+                            onClick = onOpenTracks,
+                            size = 38.dp,
+                        )
+                        OsdIconSquareButton(
+                            icon = Ic.Speed,
+                            description = "${Ar.speed} ($speedDesc)",
                             onClick = onCycleSpeed,
+                            size = 38.dp,
+                        )
+                        OsdIconSquareButton(
+                            icon = Ic.Aspect,
+                            description = "أبعاد العرض",
+                            onClick = onCycleResize,
+                            size = 38.dp,
                         )
                     }
                 }
@@ -1802,19 +1757,20 @@ private fun PhoneLandscapePlayerOsd(
 }
 
 @Composable
-private fun PhoneLandscapeChannelsDrawer(
+private fun LiveChannelsDrawer(
     playlist: List<PlayItem>,
     currentIndex: Int,
     currentProgram: Program?,
+    compact: Boolean = false,
     onSelectChannel: (Int) -> Unit,
     onClose: () -> Unit,
 ) {
     Column(
         modifier = Modifier
-            .width(320.dp)
+            .width(if (compact) 320.dp else 360.dp)
             .fillMaxHeight()
-            .background(OsdSurfaceLowest.copy(alpha = 0.96f))
-            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.45f), RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp))
+            .background(OsdSurfaceLowest.copy(alpha = 0.90f))
+            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1829,7 +1785,7 @@ private fun PhoneLandscapeChannelsDrawer(
             ) {
                 Icon(Ic.List, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(20.dp))
                 Text(
-                    "دليل القنوات (${currentIndex + 1}/${playlist.size})",
+                    "قائمة القنوات (${currentIndex + 1}/${playlist.size})",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -1854,12 +1810,24 @@ private fun PhoneLandscapeChannelsDrawer(
         ) {
             itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
                 val active = idx == currentIndex
+                var focused by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (active) OsdPrimaryContainer.copy(alpha = 0.42f) else OsdSurfaceHigh.copy(alpha = 0.70f))
-                        .border(1.dp, if (active) OsdPrimary else Color.Transparent, RoundedCornerShape(12.dp))
+                        .background(
+                            when {
+                                active -> OsdPrimaryContainer.copy(alpha = 0.42f)
+                                focused -> OsdSurfaceHighest.copy(alpha = 0.92f)
+                                else -> OsdSurfaceHigh.copy(alpha = 0.70f)
+                            },
+                        )
+                        .border(
+                            width = if (active || focused) 1.5.dp else 1.dp,
+                            color = if (active || focused) OsdCyan else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .onFocusChanged { focused = it.isFocused }
                         .clickable { onSelectChannel(idx) }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1892,986 +1860,6 @@ private fun PhoneLandscapeChannelsDrawer(
                     }
                     if (active) {
                         Icon(Ic.Equalizer, contentDescription = null, tint = OsdCyan, modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ============================================================================
-// MODE C1: TABLET & TV LIVE EXOPLAYER OSD (Matches ExoPlayer/screen.png)
-// ============================================================================
-
-@Composable
-private fun LiveExoPlayerOsd(
-    item: PlayItem,
-    playlist: List<PlayItem>,
-    currentIndex: Int,
-    currentProgram: Program?,
-    nextProgram: Program?,
-    isPlaying: Boolean,
-    position: Long,
-    duration: Long,
-    bufferedPosition: Long,
-    tracks: Tracks,
-    textOff: Boolean,
-    hasVideoOverride: Boolean,
-    formatExt: String,
-    showQuickDrawer: Boolean,
-    onToggleQuickDrawer: () -> Unit,
-    playFocus: FocusRequester,
-    onSelectChannel: (Int) -> Unit,
-    onBack: () -> Unit,
-    onTogglePlay: () -> Unit,
-    onSeekBy: (Long) -> Unit,
-    onPrevChannel: () -> Unit,
-    onNextChannel: () -> Unit,
-    onOpenTracks: () -> Unit,
-    onOpenGuide: () -> Unit,
-    onCycleResize: () -> Unit,
-) {
-    val nowTime = formatNowMillis(rememberNow(), "hh:mm a", Locale.US)
-    val bitrateText = remember(tracks) { SahabPlayer.activeBitrateText(tracks, isLive = true) }
-    val videoBadge = remember(tracks, item.title) {
-        val q = qualityOf(item.title) ?: "4K HDR"
-        val b = SahabPlayer.videoBadge(tracks, q)
-        if (b.contains("4K") && !b.contains("HDR")) b.replace("4K", "4K HDR") else b
-    }
-    val audioLabel = remember(tracks) { SahabPlayer.activeAudioLabel(tracks) }
-    val subtitleLabel = remember(tracks, textOff) { SahabPlayer.activeSubtitleLabel(tracks, textOff) }
-    val qualityBtnLabel = remember(tracks, hasVideoOverride) {
-        SahabPlayer.activeQualityButtonLabel(tracks, hasVideoOverride, isLive = true)
-    }
-
-    val pulse = rememberInfiniteTransition(label = "liveOsdPulse")
-    val dotAlpha by pulse.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(850, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "dotAlpha",
-    )
-
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            OsdSurfaceLowest.copy(alpha = 0.80f),
-                            OsdSurfaceLowest.copy(alpha = 0.25f),
-                            OsdSurfaceLowest.copy(alpha = 0.90f),
-                        ),
-                    ),
-                ),
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            // TOP OVERLAY HEADER
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(OsdSurfaceLow.copy(alpha = 0.82f))
-                    .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    OsdIconSquareButton(
-                        icon = Ic.Back,
-                        description = Ar.back,
-                        onClick = onBack,
-                        size = 46.dp,
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .width(56.dp)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(OsdSurfaceHighest.copy(alpha = 0.92f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (item.icon.isNotBlank()) {
-                            RemoteImage(
-                                url = item.icon,
-                                fallbackText = item.title,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(4.dp),
-                                contentScale = ContentScale.Fit,
-                            )
-                        } else {
-                            Text(
-                                item.title.take(4).uppercase(Locale.US),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OsdPrimary,
-                            )
-                        }
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height(3.dp)
-                                .background(
-                                    Brush.horizontalGradient(listOf(OsdPrimary, OsdCyan, OsdPrimary)),
-                                ),
-                        )
-                    }
-
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                item.title,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OsdOnSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(Palette.Live.copy(alpha = 0.22f))
-                                    .border(1.dp, OsdError.copy(alpha = 0.45f), RoundedCornerShape(50))
-                                    .padding(horizontal = 9.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            ) {
-                                Box(
-                                    Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(OsdError.copy(alpha = dotAlpha)),
-                                )
-                                Text(
-                                    "مباشر • REC",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OsdError,
-                                )
-                            }
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                Ar.brand,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OsdPrimary,
-                            )
-                            Text("•", fontSize = 12.sp, color = OsdOnSurfaceVariant)
-                            val epgLine = currentProgram?.title?.takeIf { it.isNotBlank() }
-                                ?: nextProgram?.let { "${Ar.nextShowing}: ${it.title}" }
-                                ?: "البث المباشر الفائق الوضوح"
-                            Text(
-                                epgLine,
-                                fontSize = 12.sp,
-                                color = OsdOnSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.width(12.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    if (videoBadge.isNotBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(OsdSurfaceHighest.copy(alpha = 0.70f))
-                                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                        ) {
-                            Text(
-                                videoBadge,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OsdCyan,
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(OsdSurfaceContainer.copy(alpha = 0.85f))
-                            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(nowTime, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = OsdOnSurface)
-                            Text("سحاب • بث حي", fontSize = 10.sp, color = OsdOnSurfaceVariant)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(OsdSurfaceHighest),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Ic.Cloud, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-            }
-
-            // CENTER STAGE: Adaptive Quick Channels Drawer
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(vertical = 10.dp),
-            ) {
-                if (showQuickDrawer && playlist.isNotEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .width(320.dp)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(OsdSurfaceLow.copy(alpha = 0.94f))
-                            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(20.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Icon(Ic.List, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(18.dp))
-                                Text(
-                                    "دليل القنوات السريع",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OsdPrimary,
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(OsdSurfaceHighest)
-                                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                            ) {
-                                Text(
-                                    "القنوات (${currentIndex + 1}/${playlist.size})",
-                                    fontSize = 10.sp,
-                                    color = OsdOnSurfaceVariant,
-                                )
-                            }
-                        }
-
-                        val liveChannelListState = rememberLazyListState()
-                        LaunchedEffect(currentIndex) {
-                            if (currentIndex > 0) {
-                                liveChannelListState.scrollToItem(currentIndex)
-                            }
-                        }
-
-                        LazyColumn(
-                            state = liveChannelListState,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                        ) {
-                            itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
-                                val active = idx == currentIndex
-                                var focused by remember { mutableStateOf(false) }
-                                val bg = when {
-                                    active -> OsdPrimaryContainer.copy(alpha = 0.42f)
-                                    focused -> OsdSurfaceHighest.copy(alpha = 0.90f)
-                                    else -> OsdSurfaceHigh.copy(alpha = 0.65f)
-                                }
-                                val borderCol = when {
-                                    active || focused -> OsdPrimary
-                                    else -> Color.Transparent
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(bg)
-                                        .border(1.dp, borderCol, RoundedCornerShape(12.dp))
-                                        .onFocusChanged { focused = it.isFocused }
-                                        .clickable { onSelectChannel(idx) }
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                ch.title,
-                                                fontSize = 13.sp,
-                                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                                color = OsdOnSurface,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            val sub = if (active && currentProgram != null) {
-                                                currentProgram.title
-                                            } else {
-                                                ch.subtitle.ifBlank { "بث مباشر" }
-                                            }
-                                            Text(
-                                                sub,
-                                                fontSize = 11.sp,
-                                                color = if (active) OsdTertiary else OsdOnSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                    }
-                                    Spacer(Modifier.width(6.dp))
-                                    if (active) {
-                                        Icon(
-                                            Ic.Equalizer,
-                                            contentDescription = null,
-                                            tint = OsdCyan,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    } else {
-                                        val q = qualityOf(ch.title) ?: "FHD"
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(
-                                                    if (q == "4K") OsdPrimary.copy(alpha = 0.22f)
-                                                    else OsdSurfaceHighest,
-                                                )
-                                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                                        ) {
-                                            Text(
-                                                q,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (q == "4K") OsdPrimary else OsdOnSurfaceVariant,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // BOTTOM EXOPLAYER (MEDIA3) CONTROL SUITE & OSD
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(OsdSurfaceLow.copy(alpha = 0.90f))
-                    .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        val liveProgress = remember(currentProgram, position, duration) {
-                            if (currentProgram != null && currentProgram.end > currentProgram.start) {
-                                val now = System.currentTimeMillis() / 1000
-                                ((now - currentProgram.start).toFloat() / (currentProgram.end - currentProgram.start)).coerceIn(0.08f, 0.96f)
-                            } else if (duration > 0L) {
-                                (position.toFloat() / duration).coerceIn(0.05f, 0.95f)
-                            } else {
-                                0.82f
-                            }
-                        }
-                        GradientTimelineBar(
-                            progress = liveProgress,
-                            buffered = (liveProgress + 0.10f).coerceAtMost(1f),
-                            showChapters = false,
-                            onSeekToFraction = null,
-                            onSeekBy = onSeekBy,
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                formatDuration(position.coerceAtLeast(0L)),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = OsdOnSurface,
-                            )
-
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(OsdCyan.copy(alpha = 0.18f))
-                                    .padding(horizontal = 9.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            ) {
-                                Box(
-                                    Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(OsdCyan.copy(alpha = dotAlpha)),
-                                )
-                                Text(
-                                    "طرف البث الحي (Live Edge)",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OsdCyan,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OsdPillButton(
-                            label = "القناة السابقة",
-                            leadingIcon = Ic.Next,
-                            onClick = onPrevChannel,
-                        )
-                        OsdIconSquareButton(
-                            icon = Ic.Previous,
-                            description = "ترجيع 10 ثوانٍ",
-                            label = "-10",
-                            onClick = { onSeekBy(-SEEK_STEP_MS) },
-                        )
-                        OsdPrimaryPlayButton(
-                            isPlaying = isPlaying,
-                            onClick = onTogglePlay,
-                            size = 48.dp,
-                            cornerRadius = 16.dp,
-                            focusRequester = playFocus,
-                        )
-                        OsdIconSquareButton(
-                            icon = Ic.Next,
-                            description = "تقديم 10 ثوانٍ",
-                            label = "+10",
-                            onClick = { onSeekBy(SEEK_STEP_MS) },
-                        )
-                        OsdPillButton(
-                            label = "القناة التالية",
-                            trailingIcon = Ic.Previous,
-                            onClick = onNextChannel,
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OsdTwoLineTrackButton(
-                            topLabel = "الصوت / المعلق",
-                            bottomLabel = audioLabel,
-                            icon = Ic.Equalizer,
-                            iconTint = OsdCyan,
-                            onClick = onOpenTracks,
-                        )
-                        OsdPillButton(
-                            label = subtitleLabel,
-                            leadingIcon = Ic.Subtitles,
-                            iconTint = OsdTertiary,
-                            onClick = onOpenTracks,
-                        )
-                        OsdPillButton(
-                            label = qualityBtnLabel,
-                            leadingIcon = Ic.Quality,
-                            iconTint = OsdPrimary,
-                            onClick = onOpenTracks,
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OsdIconSquareButton(
-                            icon = Ic.Aspect,
-                            description = "أبعاد العرض",
-                            onClick = onCycleResize,
-                        )
-                        OsdIconSquareButton(
-                            icon = Ic.Clock,
-                            description = Ar.guide,
-                            onClick = onOpenGuide,
-                        )
-                        OsdPillButton(
-                            label = "قائمة القنوات",
-                            leadingIcon = Ic.List,
-                            iconTint = if (showQuickDrawer) OsdOnPrimary else OsdPrimary,
-                            highlighted = showQuickDrawer,
-                            onClick = onToggleQuickDrawer,
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        DpadHintItem("OK", "إظهار / إخفاء التحكم")
-                        DpadHintItem("▲ / ▼", "تبديل القنوات")
-                        DpadHintItem("◄ / ►", "التقديم والترجيع")
-                        DpadHintItem("Back", "الرجوع للقائمة الرئيسية")
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(OsdCyan))
-                        Text(
-                            "سحاب • مشغل ExoPlayer Media3",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = OsdCyan,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ============================================================================
-// MODE C2: TABLET & TV VOD MEDIA PLAYER OSD (Matches media-player/screen.png)
-// ============================================================================
-
-@Composable
-private fun VodMediaPlayerOsd(
-    item: PlayItem,
-    playlistCount: Int,
-    isPlaying: Boolean,
-    position: Long,
-    bufferedPosition: Long,
-    duration: Long,
-    playbackSpeed: Float,
-    tracks: Tracks,
-    textOff: Boolean,
-    hasVideoOverride: Boolean,
-    playFocus: FocusRequester,
-    onBack: () -> Unit,
-    onTogglePlay: () -> Unit,
-    onSeekBy: (Long) -> Unit,
-    onSeekTo: (Long) -> Unit,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onCycleSpeed: () -> Unit,
-    onCycleResize: () -> Unit,
-    onOpenTracks: () -> Unit,
-    onToggleEpisodesDrawer: () -> Unit,
-    onInteract: () -> Unit,
-) {
-    val nowTime = formatNowMillis(rememberNow(), "hh:mm a", Locale.US)
-    val bitrateText = remember(tracks) { SahabPlayer.activeBitrateText(tracks, isLive = false) }
-    val audioLabel = remember(tracks) { SahabPlayer.activeAudioLabel(tracks) }
-    val subtitleLabel = remember(tracks, textOff) { SahabPlayer.activeSubtitleLabel(tracks, textOff) }
-    val qualityBtnLabel = remember(tracks, hasVideoOverride) {
-        SahabPlayer.activeQualityButtonLabel(tracks, hasVideoOverride, isLive = false)
-    }
-    val isEpisode = item.kind == Kind.EPISODE
-
-    val pulse = rememberInfiniteTransition(label = "vodPulse")
-    val dotAlpha by pulse.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "vodDotAlpha",
-    )
-
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            OsdSurfaceLowest.copy(alpha = 0.78f),
-                            OsdSurfaceLowest.copy(alpha = 0.22f),
-                            OsdSurfaceLowest.copy(alpha = 0.88f),
-                        ),
-                    ),
-                ),
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            // 1. TOP HUD BAR
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(OsdSurfaceLow.copy(alpha = 0.72f))
-                    .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    OsdIconSquareButton(
-                        icon = Ic.Back,
-                        description = Ar.back,
-                        onClick = onBack,
-                        size = 46.dp,
-                        circle = true,
-                    )
-
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Text(
-                                item.title,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(OsdPrimary.copy(alpha = 0.20f))
-                                    .padding(horizontal = 10.dp, vertical = 3.dp),
-                            ) {
-                                Text(
-                                    if (isEpisode) "VOD مسلسلات" else "VOD أفلام",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OsdPrimary,
-                                )
-                            }
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            val subText = item.subtitle.ifBlank {
-                                if (isEpisode) "حلقة كاملة" else "نسخة أصلية"
-                            }
-                            Text(
-                                subText,
-                                fontSize = 13.sp,
-                                color = OsdOnSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.width(12.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(OsdSurfaceHigh.copy(alpha = 0.70f))
-                            .clickable(onClick = onCycleSpeed)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Icon(Ic.Speed, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(15.dp))
-                        Text(
-                            String.format(Locale.US, "%.2fx", playbackSpeed).replace(".00x", ".0x").replace("50x", "5x"),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OsdOnSurface,
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(Ic.Clock, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(18.dp))
-                        Text(nowTime, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = OsdOnSurface)
-                    }
-                }
-            }
-
-            // 2. EXOPLAYER VOD CONTROLLER (BOTTOM PANEL)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(OsdSurfaceLowest.copy(alpha = 0.88f))
-                    .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                        val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0f
-
-                        GradientTimelineBar(
-                            progress = progressFraction,
-                            buffered = bufferedFraction,
-                            showChapters = true,
-                            onSeekToFraction = { frac ->
-                                if (duration > 0L) onSeekTo((duration * frac).toLong())
-                                onInteract()
-                            },
-                            onSeekBy = onSeekBy,
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    formatDuration(position),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                )
-                                Text("/", fontSize = 13.sp, color = OsdOutline)
-                                Text(
-                                    formatDuration(duration),
-                                    fontSize = 13.sp,
-                                    color = OsdOutline,
-                                )
-                            }
-
-                            val remaining = (duration - position).coerceAtLeast(0L)
-                            Text(
-                                "المتبقي: -${formatDuration(remaining)}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = OsdTertiary,
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        if (isEpisode || playlistCount > 1) {
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(OsdPrimaryContainer.copy(alpha = 0.42f))
-                                    .border(1.dp, OsdPrimary.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-                                    .clickable(onClick = onToggleEpisodesDrawer)
-                                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Icon(Ic.List, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(18.dp))
-                                Text(
-                                    if (isEpisode) "قائمة الحلقات" else "قائمة التشغيل",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OsdOnSurface,
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(OsdPrimary.copy(alpha = 0.22f))
-                                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                                ) {
-                                    Text(
-                                        playlistCount.toString(),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = OsdPrimary,
-                                    )
-                                }
-                            }
-                        }
-
-                        OsdPillButton(
-                            label = audioLabel,
-                            leadingIcon = Ic.Equalizer,
-                            iconTint = OsdTertiary,
-                            onClick = onOpenTracks,
-                        )
-                        OsdPillButton(
-                            label = "الترجمة: $subtitleLabel",
-                            leadingIcon = Ic.Subtitles,
-                            iconTint = OsdCyan,
-                            onClick = onOpenTracks,
-                        )
-                    }
-
-                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            if (playlistCount > 1) {
-                                OsdIconSquareButton(
-                                    icon = Ic.Previous,
-                                    description = Ar.previous,
-                                    onClick = onPrev,
-                                    size = 44.dp,
-                                    circle = true,
-                                )
-                            }
-                            OsdIconSquareButton(
-                                icon = Ic.Previous,
-                                description = "-10",
-                                label = "-10",
-                                onClick = { onSeekBy(-SEEK_STEP_MS) },
-                                size = 48.dp,
-                                circle = true,
-                            )
-                            OsdPrimaryPlayButton(
-                                isPlaying = isPlaying,
-                                onClick = onTogglePlay,
-                                size = 62.dp,
-                                cornerRadius = 31.dp,
-                                showOuterRing = true,
-                                focusRequester = playFocus,
-                            )
-                            OsdIconSquareButton(
-                                icon = Ic.Next,
-                                description = "+10",
-                                label = "+10",
-                                onClick = { onSeekBy(SEEK_STEP_MS) },
-                                size = 48.dp,
-                                circle = true,
-                            )
-                            if (playlistCount > 1) {
-                                OsdIconSquareButton(
-                                    icon = Ic.Next,
-                                    description = Ar.next,
-                                    onClick = onNext,
-                                    size = 44.dp,
-                                    circle = true,
-                                )
-                            }
-                        }
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OsdPillButton(
-                            label = qualityBtnLabel,
-                            leadingIcon = Ic.Quality,
-                            iconTint = OsdCyan,
-                            onClick = onOpenTracks,
-                        )
-                        OsdIconSquareButton(
-                            icon = Ic.Aspect,
-                            description = "نسبة العرض",
-                            onClick = onCycleResize,
-                            size = 40.dp,
-                        )
-                        OsdIconSquareButton(
-                            icon = Ic.Tune,
-                            description = "إعدادات المشغل",
-                            onClick = onOpenTracks,
-                            size = 40.dp,
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    ) {
-                        DpadHintItem("OK", "إيقاف / تشغيل", keyColor = OsdPrimary)
-                        if (isEpisode || playlistCount > 1) {
-                            DpadHintItem("▲", "إظهار قائمة الحلقات", keyColor = OsdOnSurface)
-                        }
-                        DpadHintItem("◀ / ▶", "تقديم وترجيع 10 ثوانٍ", keyColor = OsdCyan)
-                        DpadHintItem("▼", "خيارات الصوت والترجمة", keyColor = OsdTertiary)
-                        DpadHintItem("Back", "إخفاء الواجهة / رجوع", keyColor = OsdError)
                     }
                 }
             }
@@ -2926,13 +1914,13 @@ private fun VodEpisodesDrawer(
 
     Column(
         modifier = Modifier
-            .width(if (compact) 340.dp else 410.dp)
-            .widthIn(max = 420.dp)
+            .width(if (compact) 320.dp else 380.dp)
+            .widthIn(max = 400.dp)
             .fillMaxHeight()
-            .background(OsdSurfaceLowest.copy(alpha = 0.96f))
-            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
-            .padding(if (compact) 14.dp else 20.dp),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
+            .background(OsdSurfaceLowest.copy(alpha = 0.90f))
+            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
+            .padding(if (compact) 14.dp else 18.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -3269,7 +2257,7 @@ private fun GradientTimelineBar(
                     } else Modifier,
                 ),
         ) {
-            val trackHeight = 10.dp.toPx()
+            val trackHeight = 7.dp.toPx()
             val top = (size.height - trackHeight) / 2f
             val radius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
 
@@ -3458,54 +2446,6 @@ private fun OsdPillButton(
 }
 
 @Composable
-private fun OsdTwoLineTrackButton(
-    topLabel: String,
-    bottomLabel: String,
-    icon: ImageVector,
-    iconTint: Color,
-    onClick: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (focused) OsdPrimary else OsdSurfaceHigh.copy(alpha = 0.90f))
-            .border(
-                width = if (focused) 2.dp else 1.dp,
-                color = if (focused) Color.White else OsdOutlineVariant.copy(alpha = 0.35f),
-                shape = RoundedCornerShape(12.dp),
-            )
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = if (focused) OsdOnPrimary else iconTint,
-            modifier = Modifier.size(18.dp),
-        )
-        Column(verticalArrangement = Arrangement.Center) {
-            Text(
-                topLabel,
-                fontSize = 9.sp,
-                color = if (focused) OsdOnPrimary.copy(alpha = 0.8f) else OsdOnSurfaceVariant,
-            )
-            Text(
-                bottomLabel,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (focused) OsdOnPrimary else OsdOnSurface,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
 private fun FormatChip(label: String, textColor: Color) {
     Box(
         modifier = Modifier
@@ -3518,33 +2458,6 @@ private fun FormatChip(label: String, textColor: Color) {
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             color = textColor,
-        )
-    }
-}
-
-@Composable
-private fun DpadHintItem(keyLabel: String, description: String, keyColor: Color = OsdOnSurface) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(5.dp))
-                .background(OsdSurfaceHighest)
-                .padding(horizontal = 7.dp, vertical = 2.dp),
-        ) {
-            Text(
-                keyLabel,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = keyColor,
-            )
-        }
-        Text(
-            description,
-            fontSize = 11.sp,
-            color = OsdOnSurfaceVariant,
         )
     }
 }
