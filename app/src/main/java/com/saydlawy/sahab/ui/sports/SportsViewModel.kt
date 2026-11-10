@@ -40,24 +40,25 @@ sealed class SportsUiState {
 class SportsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val db by lazy {
-        val dbFile = app.getDatabasePath("sports_db")
-        if (!dbFile.exists()) {
-            dbFile.parentFile?.mkdirs()
-            try {
+        try {
+            val dbFile = app.getDatabasePath("sports_db")
+            if (!dbFile.exists()) {
+                dbFile.parentFile?.mkdirs()
                 app.assets.open("databases/sports_db").use { input ->
                     java.io.FileOutputStream(dbFile).use { output ->
                         input.copyTo(output)
                     }
                 }
-            } catch (e: Exception) {
-                // إذا فشل النسخ، سننشئ قاعدة بيانات فارغة
             }
+            Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
+                .fallbackToDestructiveMigration()
+                .build()
+        } catch (e: Exception) {
+            android.util.Log.e("SportsVM", "Fatal DB Init Error", e)
+            throw e // سيتم التقاطه في init
         }
-        Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
-            .fallbackToDestructiveMigration()
-            .build()
     }
-    private val dao = db.matchDao()
+    private val dao by lazy { db.matchDao() }
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -67,7 +68,7 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
     private val morphTvApi = MorphTvApi(okHttpClient)
     private val theSportsDbApi = TheSportsDbApi(okHttpClient)
     private val apiFootball = SportsApi(okHttpClient)
-    private val syncManager = SportsSyncManager(dao, okHttpClient)
+    private val syncManager by lazy { SportsSyncManager(dao, okHttpClient) }
 
     private var allFetchedMatches: List<Match> = emptyList()
 
@@ -104,36 +105,35 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
     val isStandingsLoading: StateFlow<Boolean> = _isStandingsLoading.asStateFlow()
     val selectedMatch: StateFlow<Match?> = _selectedMatch.asStateFlow()
 
-    init {
+        init {
         updateCategory(MainCategory.EGYPTIAN)
         
-        // 1. تحميل البيانات المحلية فوراً (Offline-First)
         viewModelScope.launch {
             try {
+                // 1. تحميل البيانات المحلية فوراً
                 val cached = dao.getAllMatches().map { it.toMatch() }
                 if (cached.isNotEmpty()) {
                     allFetchedMatches = cached
                     applyLocalFilters()
                 }
             } catch (e: Exception) {
-                android.util.Log.e("SportsViewModel", "DB Read failed: ${e.message}")
+                android.util.Log.e("SportsViewModel", "DB Read failed", e)
+                _uiState.value = SportsUiState.Error("خطأ في قاعدة البيانات: ${e.message}")
+                return@launch
             }
-        }
-        
-        // 2. تشغيل المزامنة الذكية في الخلفية (مع حماية من الانهيار)
-        viewModelScope.launch {
+
+            // 2. تشغيل المزامنة بعد التأكد من سلامة قاعدة البيانات
             try {
+                val syncManager = SportsSyncManager(dao, okHttpClient)
                 syncManager.runMonthlySync(
                     openFootKey = BuildConfig.OPENFOOT_API_KEY,
                     highlightlyKey = BuildConfig.HIGHLIGHTLY_API_KEY
                 )
-                // بعد انتهاء المزامنة، نحدّث الواجهة بالبيانات الجديدة من قاعدة البيانات
                 val updatedCache = dao.getAllMatches().map { it.toMatch() }
                 allFetchedMatches = updatedCache
                 applyLocalFilters()
             } catch (e: Exception) {
-                // تسجيل الخطأ في السجل فقط دون إغلاق التطبيق
-                android.util.Log.e("SportsViewModel", "Sync failed: ${e.message}")
+                android.util.Log.e("SportsViewModel", "Sync failed", e)
             }
         }
     }
@@ -211,57 +211,64 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun fetchMatchesFromApi() {
-        viewModelScope.launch {
-            _isLoading.value = true
-            if (allFetchedMatches.isEmpty()) _uiState.value = SportsUiState.Loading
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _isLoading.value = true
+                if (allFetchedMatches.isEmpty()) _uiState.value = SportsUiState.Loading
 
-            val leagueId = _selectedLeagueId.value
-            val currentFilter = _selectedTimeFilter.value
-            var resultMatches: List<Match> = emptyList()
+                val leagueId = _selectedLeagueId.value
+                val currentFilter = _selectedTimeFilter.value
+                var resultMatches: List<Match> = emptyList()
 
-            // 1. الطبقة الأولى: Morph TV (بدون مفتاح - سريع وموثوق)
-            val morphResult = morphTvApi.getMatches()
-            if (morphResult is ApiResult.Success) {
-                resultMatches = morphResult.data.filter { it.league.id == leagueId }
-            }
+                // 1. Morph TV
+                val morphResult = morphTvApi.getMatches()
+                if (morphResult is ApiResult.Success) {
+                    resultMatches = morphResult.data.filter { it.league.id == leagueId }
+                }
 
-            // 2. الطبقة الأخيرة: API-Football (فقط إذا فشل Morph TV أو لم يجد مباريات)
-            if (resultMatches.isEmpty()) {
-                val apiResult = when (currentFilter) {
-                    TimeFilter.LIVE -> apiFootball.getLiveMatches()
-                    TimeFilter.TODAY -> apiFootball.getFixturesByDate(getFormattedDate(Calendar.getInstance()))
-                    TimeFilter.TOMORROW -> {
-                        val cal = Calendar.getInstance()
-                        cal.add(Calendar.DAY_OF_YEAR, 1)
-                        apiFootball.getFixturesByDate(getFormattedDate(cal))
+                // 2. API-Football (احتياطي)
+                if (resultMatches.isEmpty()) {
+                    val apiResult = when (currentFilter) {
+                        TimeFilter.LIVE -> apiFootball.getLiveMatches()
+                        TimeFilter.TODAY -> apiFootball.getFixturesByDate(getFormattedDate(Calendar.getInstance()))
+                        TimeFilter.TOMORROW -> {
+                            val cal = Calendar.getInstance(); cal.add(Calendar.DAY_OF_YEAR, 1)
+                            apiFootball.getFixturesByDate(getFormattedDate(cal))
+                        }
+                        TimeFilter.END_OF_MONTH -> {
+                            val from = getFormattedDate(Calendar.getInstance())
+                            val calEnd = Calendar.getInstance()
+                            calEnd.set(Calendar.DAY_OF_MONTH, calEnd.getActualMaximum(Calendar.DAY_OF_MONTH))
+                            apiFootball.getFixturesByDateRange(from, getFormattedDate(calEnd), leagueId)
+                        }
                     }
-                    TimeFilter.END_OF_MONTH -> {
-                        val from = getFormattedDate(Calendar.getInstance())
-                        val calEnd = Calendar.getInstance()
-                        calEnd.set(Calendar.DAY_OF_MONTH, calEnd.getActualMaximum(Calendar.DAY_OF_MONTH))
-                        val to = getFormattedDate(calEnd)
-                        apiFootball.getFixturesByDateRange(from, to, leagueId)
+                    if (apiResult is ApiResult.Success) {
+                        resultMatches = apiResult.data.filter { it.league.id == leagueId }
                     }
                 }
 
-                when (apiResult) {
-                    is ApiResult.Success -> resultMatches = apiResult.data.filter { it.league.id == leagueId }
-                    is ApiResult.Error -> {
-                        if (allFetchedMatches.isEmpty()) _uiState.value = SportsUiState.Error(apiResult.message)
-                        _isLoading.value = false
-                        return@launch
-                    }
+                // 3. الحفظ في قاعدة البيانات (محمي)
+                try {
+                    dao.insertMatches(resultMatches.map { it.toEntity() })
+                    dao.deleteOldMatches(System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000))
+                } catch (e: Exception) {
+                    android.util.Log.e("SportsVM", "DB Insert failed: ${e.message}", e)
                 }
+
+                // 4. إعادة القراءة من الكاش (محمي)
+                try {
+                    allFetchedMatches = dao.getAllMatches().map { it.toMatch() }
+                } catch (e: Exception) {
+                    android.util.Log.e("SportsVM", "DB Read failed: ${e.message}", e)
+                }
+
+                applyLocalFilters()
+                _isLoading.value = false
+            } catch (e: Exception) {
+                android.util.Log.e("SportsVM", "Fetch failed: ${e.message}", e)
+                _isLoading.value = false
+                _uiState.value = SportsUiState.Error("حدث خطأ أثناء جلب البيانات: ${e.message}")
             }
-
-            // 3. حفظ في الكاش
-            dao.insertMatches(resultMatches.map { it.toEntity() })
-            val threeMonthsAgo = System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000)
-            dao.deleteOldMatches(threeMonthsAgo)
-
-            allFetchedMatches = dao.getAllMatches().map { it.toMatch() }
-            applyLocalFilters()
-            _isLoading.value = false
         }
     }
 
