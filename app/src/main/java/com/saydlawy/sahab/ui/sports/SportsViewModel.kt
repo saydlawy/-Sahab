@@ -261,8 +261,25 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             val merged = withContext(Dispatchers.IO) {
                 val targetDate = getFormattedDate(_selectedDate.value.offsetDays)
                 val apiFootballDeferred = async {
-                    if (_selectedDate.value == DateFilter.TODAY) sportsApi.getLiveMatches()
-                    else sportsApi.getFixturesByDate(targetDate)
+                    if (_selectedDate.value == DateFilter.TODAY) {
+                        // Today = full day schedule (fixtures?date=today) + live enrich (fixtures?live=all)
+                        val today = getFormattedDate(0)
+                        val liveDeferred = async { sportsApi.getLiveMatches() }
+                        val fixturesDeferred = async { sportsApi.getFixturesByDate(today) }
+                        val liveRes = liveDeferred.await()
+                        val fixRes = fixturesDeferred.await()
+                        when {
+                            fixRes is ApiResult.Success && liveRes is ApiResult.Success ->
+                                ApiResult.Success(
+                                    (fixRes.data + liveRes.data).distinctBy { it.id }
+                                )
+                            fixRes is ApiResult.Success -> fixRes
+                            liveRes is ApiResult.Success -> liveRes
+                            else -> fixRes
+                        }
+                    } else {
+                        sportsApi.getFixturesByDate(targetDate)
+                    }
                 }
                 val morphTvDeferred = async { morphTvApi.getMatches() }
 
