@@ -2,6 +2,7 @@ package com.saydlawy.sahab.ui.player
 
 import android.content.pm.ActivityInfo
 import android.view.ViewGroup
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -160,7 +161,7 @@ private val ResizeModes = intArrayOf(
 private val PlaybackSpeeds = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
 
 private const val SEEK_STEP_MS = 10_000L
-private const val CONTROLS_HIDE_MS = 5_000L
+private const val CONTROLS_HIDE_MS = 2_000L
 
 @Composable
 fun PlayerScreen(container: AppContainer, onBack: () -> Unit) {
@@ -210,19 +211,42 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         mutableStateOf(isLive && playlist.size > 1 && displayMode == DisplayMode.TABLET_OR_TV)
     }
     var showEpisodesDrawer by remember { mutableStateOf(false) }
-    var skipIntroDismissed by remember { mutableStateOf(false) }
     var retryKey by remember { mutableIntStateOf(0) }
     var formatAttempt by remember { mutableIntStateOf(0) }
     var autoReconnectCount by remember { mutableIntStateOf(0) }
     var reconnecting by remember { mutableStateOf(false) }
     var ended by remember { mutableStateOf(false) }
+    var forceFromZeroId by remember { mutableStateOf<String?>(null) }
+    var usedInitialPos by remember { mutableStateOf(false) }
+    var requestPlayFocusTick by remember { mutableIntStateOf(0) }
     var epg by remember { mutableStateOf<List<Program>>(emptyList()) }
     var seriesDetails by remember { mutableStateOf<SeriesDetails?>(null) }
     val rootFocus = remember { FocusRequester() }
+    val playFocus = remember { FocusRequester() }
 
     LaunchedEffect(item.groupId, item.kind) {
         if (item.kind == Kind.EPISODE && item.groupId.isNotBlank()) {
-            seriesDetails = runCatching { repo.seriesDetails(item.groupId) }.getOrNull()
+            val loaded = runCatching { repo.seriesDetails(item.groupId) }.getOrNull()
+            seriesDetails = loaded
+            // Expand single-item resume playlist to full series queue without interrupting active playback
+            if (loaded != null && loaded.episodes.isNotEmpty() && playlist.size <= 1) {
+                val expanded = loaded.episodes.map { e ->
+                    PlayItem(
+                        kind = Kind.EPISODE,
+                        id = e.id,
+                        title = loaded.name.ifBlank { item.title },
+                        subtitle = "${Ar.seasonEpisode(e.season, e.number)}: ${e.title}",
+                        icon = e.image.ifBlank { loaded.cover.ifBlank { item.icon } },
+                        ext = e.ext,
+                        groupId = loaded.id.ifBlank { item.groupId },
+                    )
+                }
+                val matchIdx = expanded.indexOfFirst { it.id == currentItem.id }
+                if (matchIdx >= 0) {
+                    playlist = expanded
+                    index = matchIdx
+                }
+            }
         }
     }
 
@@ -238,7 +262,6 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
             formatAttempt = 0
             autoReconnectCount = 0
             reconnecting = false
-            skipIntroDismissed = false
             error = null
             ended = false
             index = target
@@ -274,7 +297,6 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                 formatAttempt = 0
                 autoReconnectCount = 0
                 reconnecting = false
-                skipIntroDismissed = false
                 error = null
                 ended = false
                 index = newIdx
@@ -287,7 +309,15 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     val zapNext: () -> Unit = { if (playlist.size > 1) goTo(if (index >= playlist.lastIndex) 0 else index + 1) }
     val zapPrevious: () -> Unit = { if (playlist.size > 1) goTo(if (index <= 0) playlist.lastIndex else index - 1) }
     val togglePlay: () -> Unit = {
-        if (exo.isPlaying) exo.pause() else exo.play()
+        if (exo.playbackState == Player.STATE_ENDED) {
+            // Only restart on explicit manual user play press — never auto-repeat
+            exo.seekTo(0L)
+            exo.play()
+        } else if (exo.isPlaying) {
+            exo.pause()
+        } else {
+            exo.play()
+        }
         interactions++
     }
     val seekBy: (Long) -> Unit = { delta ->
@@ -348,6 +378,9 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { exo.pause() }
 
     DisposableEffect(exo) {
+        // Lock player software volume at 1.0f (unity gain) & disable looping permanently
+        exo.volume = 1.0f
+        exo.repeatMode = Player.REPEAT_MODE_OFF
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
@@ -390,23 +423,33 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         onDispose { exo.removeListener(listener) }
     }
 
-    LaunchedEffect(index, playlist, retryKey, formatAttempt, autoReconnectCount) {
+    LaunchedEffect(currentItem.id, retryKey, formatAttempt, autoReconnectCount) {
+        val activeItem = currentItem
         error = null
         buffering = true
         if (autoReconnectCount > 0) {
             delay(1_100)
         }
         val url = try {
-            repo.streamUrl(item, formatAttempt)
+            repo.streamUrl(activeItem, formatAttempt)
         } catch (e: Exception) {
             reconnecting = false
             error = Ar.errPlayback
             return@LaunchedEffect
         }
-        val resume = if (isLive || request.fromStart) 0L else {
-            exo.currentPosition.takeIf { autoReconnectCount > 0 && it > 0L }
-                ?: container.prefs.positionOf(item.kind, item.id)
+        val resume = when {
+            activeItem.kind == Kind.LIVE || request.fromStart || forceFromZeroId == activeItem.id -> 0L
+            autoReconnectCount > 0 && exo.currentPosition > 0L -> exo.currentPosition
+            request.initialPositionMs > 0L && !usedInitialPos &&
+                activeItem.id == request.items.getOrNull(request.startIndex)?.id -> {
+                usedInitialPos = true
+                request.initialPositionMs
+            }
+            else -> container.prefs.positionOf(activeItem.kind, activeItem.id)
         }
+        if (forceFromZeroId == activeItem.id) forceFromZeroId = null
+        exo.volume = 1.0f
+        exo.repeatMode = Player.REPEAT_MODE_OFF
         exo.setMediaItem(MediaItem.fromUri(url), resume.coerceAtLeast(0L))
         exo.prepare()
         exo.playWhenReady = true
@@ -415,7 +458,29 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     LaunchedEffect(ended) {
         if (ended) {
             ended = false
-            if (!isLive && index < playlist.lastIndex) goTo(index + 1)
+            if (!isLive) {
+                val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+                if (total > 0L) container.saveProgress(currentItem, total, total)
+                val nextInPlaylist = if (index < playlist.lastIndex) playlist[index + 1] else null
+                if (nextInPlaylist != null) {
+                    forceFromZeroId = nextInPlaylist.id
+                    goTo(index + 1)
+                } else {
+                    val allEps = seriesDetails?.episodes.orEmpty()
+                    val curEpIdx = allEps.indexOfFirst { it.id == currentItem.id }
+                    val nextEp = if (curEpIdx >= 0 && curEpIdx + 1 < allEps.size) allEps[curEpIdx + 1] else null
+                    if (nextEp != null) {
+                        forceFromZeroId = nextEp.id
+                        playEpisodeFromDrawer(nextEp)
+                    } else {
+                        // Last episode or movie ended: NEVER auto-repeat/loop same item
+                        exo.playWhenReady = false
+                        exo.pause()
+                        controlsVisible = true
+                        requestPlayFocusTick++
+                    }
+                }
+            }
         }
     }
 
@@ -459,24 +524,47 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    LaunchedEffect(controlsVisible) {
-        if (!controlsVisible && !showEpisodesDrawer) {
+    LaunchedEffect(controlsVisible, requestPlayFocusTick) {
+        if (controlsVisible && (requestPlayFocusTick > 0 || !isPlaying) && displayMode != DisplayMode.PHONE_PORTRAIT) {
+            delay(50)
+            runCatching { playFocus.requestFocus() }
+        } else if (!controlsVisible && !showEpisodesDrawer) {
             delay(60)
             runCatching { rootFocus.requestFocus() }
         }
     }
     LaunchedEffect(Unit) {
         delay(80)
-        runCatching { rootFocus.requestFocus() }
+        runCatching {
+            if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) playFocus.requestFocus()
+            else rootFocus.requestFocus()
+        }
+    }
+
+    BackHandler(
+        enabled = showEpisodesDrawer ||
+            (showQuickChannelsDrawer && isLive) ||
+            (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT),
+    ) {
+        when {
+            showEpisodesDrawer -> showEpisodesDrawer = false
+            showQuickChannelsDrawer && isLive -> showQuickChannelsDrawer = false
+            else -> controlsVisible = false
+        }
     }
 
     val onKey: (KeyEvent) -> Boolean = handler@{ event ->
         if (event.type != KeyEventType.KeyDown) return@handler false
+        // Preserve hardware/source volume: never intercept or alter volume internally
+        if (event.key == Key.VolumeUp || event.key == Key.VolumeDown || event.key == Key.VolumeMute) {
+            return@handler false
+        }
         interactions++
         when (event.key) {
             Key.MediaPlayPause -> {
                 togglePlay()
                 controlsVisible = true
+                requestPlayFocusTick++
                 true
             }
             Key.MediaPlay -> {
@@ -485,6 +573,8 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
             }
             Key.MediaPause -> {
                 exo.pause()
+                controlsVisible = true
+                requestPlayFocusTick++
                 true
             }
             Key.MediaFastForward -> {
@@ -510,6 +600,9 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                 } else if (showQuickChannelsDrawer && isLive && controlsVisible) {
                     showQuickChannelsDrawer = false
                     true
+                } else if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) {
+                    controlsVisible = false
+                    true
                 } else {
                     false
                 }
@@ -519,17 +612,41 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                     false
                 } else {
                     when (event.key) {
-                        Key.DirectionUp -> if (isLive) zapNext() else if (playlist.size > 1 || seriesDetails != null) {
-                            showEpisodesDrawer = true
+                        Key.DirectionCenter, Key.Enter, Key.Spacebar -> {
+                            // First OK pauses playback, shows OSD, and highlights Play/Pause button with cyan glow
+                            if (exo.isPlaying) {
+                                exo.pause()
+                            } else if (exo.playbackState == Player.STATE_ENDED) {
+                                exo.seekTo(0L)
+                                exo.play()
+                            } else {
+                                exo.play()
+                            }
+                            controlsVisible = true
+                            requestPlayFocusTick++
                         }
-                        Key.DirectionDown -> if (isLive) zapPrevious() else {
-                            showTracks = true
+                        Key.DirectionUp -> {
+                            if (isLive) zapNext() else if (playlist.size > 1 || seriesDetails != null) {
+                                showEpisodesDrawer = true
+                            }
+                            controlsVisible = true
                         }
-                        Key.DirectionRight -> if (!isLive) seekBy(SEEK_STEP_MS) else Unit
-                        Key.DirectionLeft -> if (!isLive) seekBy(-SEEK_STEP_MS) else Unit
-                        else -> Unit
+                        Key.DirectionDown -> {
+                            if (isLive) zapPrevious() else {
+                                showTracks = true
+                            }
+                            controlsVisible = true
+                        }
+                        Key.DirectionRight -> {
+                            if (!isLive) seekBy(SEEK_STEP_MS)
+                            controlsVisible = true
+                        }
+                        Key.DirectionLeft -> {
+                            if (!isLive) seekBy(-SEEK_STEP_MS)
+                            controlsVisible = true
+                        }
+                        else -> controlsVisible = true
                     }
-                    controlsVisible = true
                     true
                 }
             }
@@ -693,11 +810,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                 tracks = tracks,
                                 textOff = textOff,
                                 hasVideoOverride = hasVideoOverride,
-                                showSkipIntro = !isLive && !skipIntroDismissed && position in 3_000L..110_000L,
-                                onSkipIntro = {
-                                    skipIntroDismissed = true
-                                    seekBy(85_000L)
-                                },
+                                playFocus = playFocus,
                                 onBack = onBack,
                                 onTogglePlay = togglePlay,
                                 onSeekBy = seekBy,
@@ -749,6 +862,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                     showQuickChannelsDrawer = !showQuickChannelsDrawer
                                     interactions++
                                 },
+                                playFocus = playFocus,
                                 onSelectChannel = goTo,
                                 onBack = onBack,
                                 onTogglePlay = togglePlay,
@@ -781,11 +895,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                 tracks = tracks,
                                 textOff = textOff,
                                 hasVideoOverride = hasVideoOverride,
-                                showSkipIntro = !skipIntroDismissed && position in 3_000L..110_000L,
-                                onSkipIntro = {
-                                    skipIntroDismissed = true
-                                    seekBy(85_000L)
-                                },
+                                playFocus = playFocus,
                                 onBack = onBack,
                                 onTogglePlay = togglePlay,
                                 onSeekBy = seekBy,
@@ -1434,8 +1544,7 @@ private fun PhoneLandscapePlayerOsd(
     tracks: Tracks,
     textOff: Boolean,
     hasVideoOverride: Boolean,
-    showSkipIntro: Boolean,
-    onSkipIntro: () -> Unit,
+    playFocus: FocusRequester,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
     onSeekBy: (Long) -> Unit,
@@ -1571,6 +1680,7 @@ private fun PhoneLandscapePlayerOsd(
                     size = 60.dp,
                     cornerRadius = 30.dp,
                     showOuterRing = true,
+                    focusRequester = playFocus,
                 )
                 OsdIconSquareButton(
                     icon = Ic.Next,
@@ -1583,24 +1693,6 @@ private fun PhoneLandscapePlayerOsd(
                 if (playlistCount > 1) {
                     OsdIconSquareButton(Ic.Next, Ar.next, onNext, size = 44.dp, circle = true)
                 }
-            }
-        }
-
-        if (showSkipIntro) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 12.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(OsdPrimaryContainer)
-                    .border(1.dp, OsdCyan, RoundedCornerShape(14.dp))
-                    .clickable(onClick = onSkipIntro)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("تخطي المقدمة", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Icon(Ic.FastForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
             }
         }
 
@@ -1803,6 +1895,7 @@ private fun LiveExoPlayerOsd(
     formatExt: String,
     showQuickDrawer: Boolean,
     onToggleQuickDrawer: () -> Unit,
+    playFocus: FocusRequester,
     onSelectChannel: (Int) -> Unit,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -2324,6 +2417,7 @@ private fun LiveExoPlayerOsd(
                             onClick = onTogglePlay,
                             size = 48.dp,
                             cornerRadius = 16.dp,
+                            focusRequester = playFocus,
                         )
                         OsdIconSquareButton(
                             icon = Ic.Next,
@@ -2409,7 +2503,7 @@ private fun LiveExoPlayerOsd(
                     ) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(OsdCyan))
                         Text(
-                            "سحاب IPTV Engine • مشغل ExoPlayer Media3",
+                            "سحاب • مشغل ExoPlayer Media3",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = OsdCyan,
@@ -2437,8 +2531,7 @@ private fun VodMediaPlayerOsd(
     tracks: Tracks,
     textOff: Boolean,
     hasVideoOverride: Boolean,
-    showSkipIntro: Boolean,
-    onSkipIntro: () -> Unit,
+    playFocus: FocusRequester,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
     onSeekBy: (Long) -> Unit,
@@ -2648,52 +2741,6 @@ private fun VodMediaPlayerOsd(
                         )
                     }
                 }
-
-                if (showSkipIntro) {
-                    var skipFocused by remember { mutableStateOf(false) }
-                    Row(
-                        modifier = Modifier
-                            .shadow(16.dp, RoundedCornerShape(16.dp), ambientColor = OsdPrimary, spotColor = OsdCyan)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                if (skipFocused) OsdPrimaryContainer else OsdSurfaceHigh.copy(alpha = 0.95f),
-                            )
-                            .border(
-                                1.5.dp,
-                                Brush.horizontalGradient(listOf(OsdPrimary, OsdPrimaryContainer, OsdCyan)),
-                                RoundedCornerShape(16.dp),
-                            )
-                            .onFocusChanged { skipFocused = it.isFocused }
-                            .clickable(onClick = onSkipIntro)
-                            .padding(horizontal = 18.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.Start) {
-                            Text(
-                                "تخطي المقدمة (Skip Intro)",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                            )
-                            Text(
-                                "اضغط زر [OK] في الريموت",
-                                fontSize = 11.sp,
-                                color = OsdPrimary,
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, OsdCyan, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("85s", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
-                        }
-                        Icon(Ic.FastForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-                }
             }
 
             // 3. EXOPLAYER VOD CONTROLLER (BOTTOM PANEL)
@@ -2839,6 +2886,7 @@ private fun VodMediaPlayerOsd(
                                 size = 62.dp,
                                 cornerRadius = 31.dp,
                                 showOuterRing = true,
+                                focusRequester = playFocus,
                             )
                             OsdIconSquareButton(
                                 icon = Ic.Next,
@@ -3373,28 +3421,29 @@ private fun OsdPrimaryPlayButton(
     size: Dp,
     cornerRadius: Dp,
     showOuterRing: Boolean = false,
+    focusRequester: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(cornerRadius)
     Box(
-        modifier = Modifier
+        modifier = (if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .size(size)
             .shadow(
-                elevation = if (focused) 22.dp else 14.dp,
+                elevation = if (focused) 24.dp else 14.dp,
                 shape = shape,
-                ambientColor = OsdPrimaryContainer,
-                spotColor = OsdPrimary,
+                ambientColor = if (focused) OsdCyan else OsdPrimaryContainer,
+                spotColor = if (focused) OsdCyan else OsdPrimary,
             )
             .clip(shape)
             .background(
                 Brush.linearGradient(
-                    if (focused) listOf(OsdPrimary, OsdCyan)
+                    if (focused) listOf(OsdCyan, OsdPrimary)
                     else listOf(OsdPrimaryContainer, OsdPrimary),
                 ),
             )
             .border(
-                width = if (focused || showOuterRing) 2.dp else 1.dp,
-                color = if (focused) Color.White else OsdPrimary.copy(alpha = 0.65f),
+                width = if (focused) 2.5.dp else if (showOuterRing) 2.dp else 1.dp,
+                color = if (focused) OsdCyan else OsdPrimary.copy(alpha = 0.65f),
                 shape = shape,
             )
             .onFocusChanged { focused = it.isFocused }

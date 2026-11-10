@@ -113,6 +113,7 @@ data class PlayRequest(
     val items: List<PlayItem>,
     val startIndex: Int,
     val fromStart: Boolean = false,
+    val initialPositionMs: Long = -1L,
 )
 
 @Serializable

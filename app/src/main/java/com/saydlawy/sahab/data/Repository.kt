@@ -5,6 +5,7 @@ import android.util.Base64
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -81,7 +82,7 @@ class Repository(
         return info
     }
 
-    /** Pre-warms categories and full catalogs in background so any screen opens in 0ms. */
+    /** Pre-warms categories and full catalogs concurrently in background so any screen opens fast. */
     suspend fun prewarmCatalog() = supervisorScope {
         if (account == null) return@supervisorScope
         if (userInfo == null) {
@@ -89,19 +90,22 @@ class Repository(
                 userInfo = it
             }
         }
-        val liveCatsJob = async(Dispatchers.IO) { runCatching { liveCategories() } }
-        val vodCatsJob = async(Dispatchers.IO) { runCatching { movieCategories() } }
-        val seriesCatsJob = async(Dispatchers.IO) { runCatching { seriesCategories() } }
-        liveCatsJob.await()
-        vodCatsJob.await()
-        seriesCatsJob.await()
+        awaitAll(
+            async(Dispatchers.IO) { runCatching { liveCategories() } },
+            async(Dispatchers.IO) { runCatching { movieCategories() } },
+            async(Dispatchers.IO) { runCatching { seriesCategories() } },
+            async(Dispatchers.IO) { runCatching { liveChannels(null) } },
+            async(Dispatchers.IO) { runCatching { movies(null) } },
+            async(Dispatchers.IO) { runCatching { seriesList(null) } },
+        )
+    }
 
-        val liveAllJob = async(Dispatchers.IO) { runCatching { liveChannels(null) } }
-        val vodAllJob = async(Dispatchers.IO) { runCatching { movies(null) } }
-        val seriesAllJob = async(Dispatchers.IO) { runCatching { seriesList(null) } }
-        liveAllJob.await()
-        vodAllJob.await()
-        seriesAllJob.await()
+    /** Clears Xtream caches and forces a fresh reload of subscription info, channels, movies, and series. */
+    suspend fun refreshSubscription() = supervisorScope {
+        requireAccount()
+        clearCache(clearDisk = true)
+        runCatching { refreshUserInfo() }
+        prewarmCatalog()
     }
 
     fun liveExtensions(): List<String> {

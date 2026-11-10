@@ -35,6 +35,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.EnumMap
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -47,10 +48,20 @@ enum class MainCategory(val title: String) {
     EUROPEAN("الأوروبية الكبرى")
 }
 
-enum class DateFilter(val title: String, val offsetDays: Int) {
-    YESTERDAY("الأمس", -1),
-    TODAY("اليوم", 0),
-    TOMORROW("غداً", 1)
+enum class DateFilter(
+    val title: String,
+    val offsetDays: Int = 0,
+    val isRange: Boolean = false,
+    val rangeDays: Int = 0,
+) {
+    YESTERDAY("الأمس", offsetDays = -1),
+    TODAY("اليوم", offsetDays = 0),
+    TOMORROW("غداً", offsetDays = 1),
+    DAYS_7("7 أيام", isRange = true, rangeDays = 7),
+    DAYS_14("14 يوماً", isRange = true, rangeDays = 14),
+    DAYS_28("28 يوماً", isRange = true, rangeDays = 28),
+    DAYS_60("60 يوماً", isRange = true, rangeDays = 60),
+    DAYS_90("90 يوماً", isRange = true, rangeDays = 90),
 }
 
 sealed class SportsUiState {
@@ -110,7 +121,11 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
-                leagueIdNotNull && standingsPkValid
+                var hasPre2026 = false
+                sqLite.rawQuery("SELECT count(*) FROM matches WHERE date < '2026-01-01'", null).use { c ->
+                    if (c.moveToNext()) hasPre2026 = c.getInt(0) > 0
+                }
+                leagueIdNotNull && standingsPkValid && !hasPre2026
             }
         } catch (e: Exception) {
             false
@@ -163,6 +178,12 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
     private val _totalDbCount = MutableStateFlow(0)
     val totalDbCount: StateFlow<Int> = _totalDbCount.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _dateFilterCounts = MutableStateFlow<Map<DateFilter, Int>>(emptyMap())
+    val dateFilterCounts: StateFlow<Map<DateFilter, Int>> = _dateFilterCounts.asStateFlow()
+
     private val _uiState = MutableStateFlow<SportsUiState>(SportsUiState.Loading)
     val uiState: StateFlow<SportsUiState> = _uiState.asStateFlow()
 
@@ -214,6 +235,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     fun fetchMatchesFromApi(silent: Boolean = false) {
         viewModelScope.launch {
+            if (!silent) _isRefreshing.value = true
             if (!silent && allMatches.isEmpty()) {
                 _uiState.value = SportsUiState.Loading
             }
@@ -231,20 +253,30 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
                 val combinedMatches = mutableListOf<Match>()
                 if (apiResult is ApiResult.Success) {
-                    combinedMatches.addAll(apiResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES })
+                    combinedMatches.addAll(apiResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" })
                 }
                 if (morphResult is ApiResult.Success) {
-                    combinedMatches.addAll(morphResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES })
+                    combinedMatches.addAll(morphResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" })
                 }
 
                 if (combinedMatches.isNotEmpty()) {
-                    val distinctNew = combinedMatches.distinctBy { "${it.league.id}_${it.homeTeam.name}_${it.awayTeam.name}_${it.date}" }
+                    val distinctNew = combinedMatches.distinctBy {
+                        "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
+                    }
                     runCatching { dao.insertMatches(distinctNew.map { it.toEntity() }) }
                 }
 
-                runCatching { dao.getAllMatches().map { it.toMatch() } }.getOrDefault(allMatches)
+                runCatching {
+                    dao.getAllMatches()
+                        .map { it.toMatch() }
+                        .filter { it.date.isBlank() || it.date >= "2026-01-01" }
+                        .distinctBy {
+                            "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
+                        }
+                }.getOrDefault(allMatches)
             }
 
+            _isRefreshing.value = false
             _totalDbCount.value = merged.size
             if (merged.isNotEmpty()) {
                 allMatches = merged
@@ -422,7 +454,9 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         val category = _selectedCategory.value
         val subLeague = _selectedSubLeague.value
         val query = _searchQuery.value.trim()
-        val targetDate = getFormattedDate(_selectedDate.value.offsetDays)
+        val filter = _selectedDate.value
+        val todayDate = getFormattedDate(0)
+        val targetDate = getFormattedDate(filter.offsetDays)
 
         val categoryLeagueIds = when (category) {
             MainCategory.EGYPTIAN -> setOf(233)
@@ -432,7 +466,13 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             MainCategory.EUROPEAN -> setOf(39, 140, 135, 78, 61, 203)
         }
 
-        val byCategoryAndQuery = matchesToFilter.filter { match ->
+        val deduplicatedSource = matchesToFilter
+            .filter { it.date.isBlank() || it.date >= "2026-01-01" }
+            .distinctBy {
+                "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
+            }
+
+        val byCategoryAndQuery = deduplicatedSource.filter { match ->
             val inCategory = if (subLeague != null) {
                 match.league.id == subLeague
             } else {
@@ -448,14 +488,32 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             inCategory && matchesSearch
         }
 
-        // 1. المطابقة الدقيقة مع التاريخ المختار (اليوم / الأمس / غداً)
-        val exactDateMatches = byCategoryAndQuery.filter { match ->
-            match.date.isBlank() || match.date == targetDate
+        // Compute match counts per DateFilter based on actual local DB availability
+        val counts = EnumMap<DateFilter, Int>(DateFilter::class.java)
+        DateFilter.values().forEach { df ->
+            counts[df] = if (df.isRange) {
+                val endDate = getFormattedDate(df.rangeDays)
+                byCategoryAndQuery.count { it.date in todayDate..endDate }
+            } else {
+                val d = getFormattedDate(df.offsetDays)
+                byCategoryAndQuery.count { it.date == d }
+            }
+        }
+        _dateFilterCounts.value = counts
+
+        // Match exact date or date range (Today / Yesterday / Tomorrow / 7..90 days)
+        val exactMatches = if (filter.isRange) {
+            val endDate = getFormattedDate(filter.rangeDays)
+            byCategoryAndQuery.filter { it.date in todayDate..endDate }
+        } else {
+            byCategoryAndQuery.filter { match ->
+                match.date.isBlank() || match.date == targetDate
+            }
         }
 
-        // 2. إذا لم توجد مباريات في هذا اليوم المحدد بالضبط، نعرض أقرب المباريات القادمة أو الحديثة لهذه البطولة
-        val effectiveMatches = if (exactDateMatches.isNotEmpty() || query.isNotEmpty()) {
-            exactDateMatches
+        // Fallback to nearest upcoming matches if no fixtures exist for that exact single day
+        val effectiveMatches = if (exactMatches.isNotEmpty() || query.isNotEmpty() || filter.isRange) {
+            exactMatches
         } else {
             val targetEpoch = parseDateEpochDays(targetDate)
             val upcoming = byCategoryAndQuery

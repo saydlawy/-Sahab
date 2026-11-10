@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
-import com.saydlawy.sahab.ui.theme.TajawalFamily
+import com.saydlawy.sahab.ui.theme.CairoFamily
 import com.saydlawy.sahab.util.Ar
 
 /**
@@ -86,7 +86,7 @@ fun GlassTextField(
         color = Palette.Text,
         fontSize = 16.sp,
         fontWeight = FontWeight.Medium,
-        fontFamily = TajawalFamily,
+        fontFamily = CairoFamily,
         textDirection = if (ltr) TextDirection.Ltr else TextDirection.Content,
         textAlign = if (ltr) TextAlign.Left else TextAlign.Start,
     )

@@ -19,7 +19,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import com.saydlawy.sahab.R
 
 /**
- * Sahab IPTV identity (see the films / live / login reference designs):
+ * Sahab identity (see the films / live / login reference designs):
  * deep cosmic blue, royal purple actions, glowing cyan focus, gold and live-red accents,
  * and translucent frosted-glass panels.
  */
@@ -70,10 +70,16 @@ object Palette {
     val LogoBright: Brush = Brush.linearGradient(listOf(Royal, Blue, Glow))
 }
 
-val TajawalFamily = FontFamily(
-    Font(R.font.tajawal_regular, FontWeight.Normal),
-    Font(R.font.tajawal_medium, FontWeight.Medium),
-    Font(R.font.tajawal_bold, FontWeight.Bold),
+/**
+ * Google Font "Cairo" (static TrueType instances bundled in res/font, so it works offline,
+ * on Android TV boxes without Google Play Services, and on API 23+).
+ */
+val CairoFamily = FontFamily(
+    Font(R.font.cairo_regular, FontWeight.Normal),
+    Font(R.font.cairo_medium, FontWeight.Medium),
+    Font(R.font.cairo_semibold, FontWeight.SemiBold),
+    Font(R.font.cairo_bold, FontWeight.Bold),
+    Font(R.font.cairo_extrabold, FontWeight.ExtraBold),
 )
 
 @Composable
@@ -88,16 +94,26 @@ fun SahabTheme(content: @Composable () -> Unit) {
     )
     val base = Typography()
     val typography = base.copy(
-        titleLarge = base.titleLarge.copy(fontFamily = TajawalFamily),
-        titleMedium = base.titleMedium.copy(fontFamily = TajawalFamily),
-        bodyLarge = base.bodyLarge.copy(fontFamily = TajawalFamily),
-        bodyMedium = base.bodyMedium.copy(fontFamily = TajawalFamily),
-        labelLarge = base.labelLarge.copy(fontFamily = TajawalFamily),
+        displayLarge = base.displayLarge.copy(fontFamily = CairoFamily),
+        displayMedium = base.displayMedium.copy(fontFamily = CairoFamily),
+        displaySmall = base.displaySmall.copy(fontFamily = CairoFamily),
+        headlineLarge = base.headlineLarge.copy(fontFamily = CairoFamily),
+        headlineMedium = base.headlineMedium.copy(fontFamily = CairoFamily),
+        headlineSmall = base.headlineSmall.copy(fontFamily = CairoFamily),
+        titleLarge = base.titleLarge.copy(fontFamily = CairoFamily),
+        titleMedium = base.titleMedium.copy(fontFamily = CairoFamily),
+        titleSmall = base.titleSmall.copy(fontFamily = CairoFamily),
+        bodyLarge = base.bodyLarge.copy(fontFamily = CairoFamily),
+        bodyMedium = base.bodyMedium.copy(fontFamily = CairoFamily),
+        bodySmall = base.bodySmall.copy(fontFamily = CairoFamily),
+        labelLarge = base.labelLarge.copy(fontFamily = CairoFamily),
+        labelMedium = base.labelMedium.copy(fontFamily = CairoFamily),
+        labelSmall = base.labelSmall.copy(fontFamily = CairoFamily),
     )
     MaterialTheme(colorScheme = scheme, typography = typography) {
         CompositionLocalProvider(
             LocalLayoutDirection provides LayoutDirection.Rtl,
-            LocalTextStyle provides TextStyle(fontFamily = TajawalFamily, color = Palette.Text, fontSize = 16.sp),
+            LocalTextStyle provides TextStyle(fontFamily = CairoFamily, color = Palette.Text, fontSize = 16.sp),
             LocalContentColor provides Palette.Text,
         ) {
             content()

@@ -117,10 +117,10 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
     NavHost(
         navController = nav,
         startDestination = start,
-        enterTransition = { fadeIn(tween(240)) },
-        exitTransition = { fadeOut(tween(160)) },
-        popEnterTransition = { fadeIn(tween(240)) },
-        popExitTransition = { fadeOut(tween(160)) },
+        enterTransition = { fadeIn(tween(140)) },
+        exitTransition = { fadeOut(tween(100)) },
+        popEnterTransition = { fadeIn(tween(140)) },
+        popExitTransition = { fadeOut(tween(100)) },
     ) {
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
@@ -138,7 +138,14 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         }
         composable(Routes.FAVORITES) { FavoritesScreen(onBack = back, onOpen = open, onPlay = play) }
         composable(Routes.SPORTS) {
-            SportsScreen(onClose = back)
+            SportsScreen(
+                onClose = back,
+                onOpenLive = {
+                    nav.navigate(Routes.LIVE) {
+                        launchSingleTop = true
+                    }
+                },
+            )
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(

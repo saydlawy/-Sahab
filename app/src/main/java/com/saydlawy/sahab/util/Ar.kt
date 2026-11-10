@@ -6,7 +6,7 @@ import com.saydlawy.sahab.data.Kind
 object Ar {
     const val appName = "سحاب"
     const val tagline = "مشاهدتك، بكل هدوء"
-    const val brand = "سحاب IPTV"
+    const val brand = "سحاب"
     const val brandTagline = "البث التلفزيوني الذكي للشاشات الكبيرة"
     const val home = "الرئيسية"
     const val sports = "الرياضة"

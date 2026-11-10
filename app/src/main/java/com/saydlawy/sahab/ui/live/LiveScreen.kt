@@ -8,9 +8,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -158,6 +160,12 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
     private var channelsJob: Job? = null
     private var searchJob: Job? = null
     private var searchPool: List<Channel>? = null
+    private var indexedPool: List<Pair<Channel, String>>? = null
+
+    private fun updateSearchPool(channels: List<Channel>) {
+        searchPool = channels
+        indexedPool = channels.map { it to it.name.normalizeForSearch() }
+    }
 
     init {
         loadCategories()
@@ -182,7 +190,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                 val categories = repo.liveCategories()
                 val cachedAll = repo.peekAllLiveChannels()
                 if (!cachedAll.isNullOrEmpty()) {
-                    searchPool = cachedAll
+                    updateSearchPool(cachedAll)
                     val counts = computeCounts(cachedAll)
                     _state.update {
                         it.copy(
@@ -213,7 +221,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                 viewModelScope.launch {
                     val allChannels = runCatching { repo.liveChannels(null) }.getOrDefault(emptyList())
                     if (allChannels.isNotEmpty()) {
-                        searchPool = allChannels
+                        updateSearchPool(allChannels)
                         val counts = computeCounts(allChannels)
                         _state.update { current ->
                             current.copy(
@@ -266,7 +274,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 val targetId = if (categoryId == ALL_CAT_ID) null else categoryId
                 val channels = repo.liveChannels(targetId)
-                if (categoryId == ALL_CAT_ID) searchPool = channels
+                if (categoryId == ALL_CAT_ID) updateSearchPool(channels)
                 _state.update {
                     it.copy(
                         channels = channels,
@@ -298,9 +306,16 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
             delay(300)
             _state.update { it.copy(searching = true) }
             try {
-                val pool = searchPool ?: repo.liveChannels(null).also { searchPool = it }
+                val indexed = indexedPool ?: run {
+                    val pool = searchPool ?: repo.liveChannels(null).also { updateSearchPool(it) }
+                    indexedPool ?: pool.map { it to it.name.normalizeForSearch() }
+                }
                 val results = withContext(Dispatchers.Default) {
-                    pool.filter { it.name.normalizeForSearch().contains(needle) }.take(300)
+                    indexed.asSequence()
+                        .filter { it.second.contains(needle) }
+                        .map { it.first }
+                        .take(300)
+                        .toList()
                 }
                 _state.update { it.copy(searchResults = results, searching = false) }
             } catch (e: CancellationException) {
@@ -348,7 +363,16 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
         else onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)), 0))
     }
 
-    val activePreview = previewChannel?.takeIf { p -> channels.any { it.id == p.id } } ?: channels.firstOrNull()
+    val activePreview = previewChannel?.takeIf { p -> channels.any { it.id == p.id } }
+
+    val handleChannelActivate: (Int) -> Unit = { idx ->
+        val ch = channels.getOrNull(idx)
+        if (ch != null && activePreview?.id != ch.id) {
+            previewChannel = ch
+        } else {
+            playAt(idx)
+        }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val displayMode = LocalDisplayMode.current
@@ -360,7 +384,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                     favoriteIds = favoriteIds,
                     previewChannel = activePreview,
                     onPreview = { previewChannel = it },
-                    onPlayAt = playAt,
+                    onPlayAt = handleChannelActivate,
                     onPlayChannel = playChannel,
                     onToggleFavorite = vm::toggleFavorite,
                     onGuide = { guideFor = it },
@@ -377,14 +401,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                     favoriteIds = favoriteIds,
                     previewChannel = activePreview,
                     onPreview = { previewChannel = it },
-                    onPlayAt = { idx ->
-                        val ch = channels.getOrNull(idx)
-                        if (ch != null && activePreview?.id != ch.id) {
-                            previewChannel = ch
-                        } else {
-                            playAt(idx)
-                        }
-                    },
+                    onPlayAt = handleChannelActivate,
                     onPlayChannel = playChannel,
                     onToggleFavorite = vm::toggleFavorite,
                     onGuide = { guideFor = it },
@@ -401,14 +418,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                     favoriteIds = favoriteIds,
                     previewChannel = activePreview,
                     onPreview = { previewChannel = it },
-                    onPlayAt = { idx ->
-                        val ch = channels.getOrNull(idx)
-                        if (ch != null && activePreview?.id != ch.id) {
-                            previewChannel = ch
-                        } else {
-                            playAt(idx)
-                        }
-                    },
+                    onPlayAt = handleChannelActivate,
                     onPlayChannel = playChannel,
                     onToggleFavorite = vm::toggleFavorite,
                     onGuide = { guideFor = it },
@@ -453,10 +463,10 @@ private fun WideLiveLayout(
                     .padding(horizontal = appDp(24), vertical = appDp(10)),
                 horizontalArrangement = Arrangement.spacedBy(appDp(22)),
             ) {
-                // Column 1 (Right in RTL): Search + Categories sidebar (3/12)
+                // Column 1 (Right in RTL): Search + Categories sidebar
                 Column(
                     Modifier
-                        .weight(0.26f)
+                        .weight(0.24f)
                         .fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(appDp(10)),
                 ) {
@@ -479,7 +489,7 @@ private fun WideLiveLayout(
                     )
                 }
 
-                // Column 2 (Center): Live Channel List (4/12)
+                // Column 2 (Center): Live Channel List — wider so full channel names fit
                 ChannelColumn(
                     state = state,
                     channels = channels,
@@ -491,11 +501,11 @@ private fun WideLiveLayout(
                     onGuide = onGuide,
                     onRetry = onRetry,
                     modifier = Modifier
-                        .weight(0.35f)
+                        .weight(0.39f)
                         .fillMaxHeight(),
                 )
 
-                // Column 3 (Left in RTL): Video Preview & EPG Schedule (5/12)
+                // Column 3 (Left in RTL): Video Preview & EPG Schedule
                 PreviewPanel(
                     channel = previewChannel,
                     isFavorite = previewChannel?.id in favoriteIds,
@@ -504,7 +514,7 @@ private fun WideLiveLayout(
                     onGuide = onGuide,
                     showEpg = true,
                     modifier = Modifier
-                        .weight(0.39f)
+                        .weight(0.37f)
                         .fillMaxHeight(),
                 )
             }
@@ -773,18 +783,14 @@ private fun ChannelColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
                     contentPadding = PaddingValues(vertical = appDp(4)),
-                    verticalArrangement = Arrangement.spacedBy(appDp(10)),
+                    verticalArrangement = Arrangement.spacedBy(appDp(8)),
                 ) {
                     itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                         ChannelRow(
                             channel = channel,
-                            index = index + 1,
-                            isFavorite = channel.id in favoriteIds,
                             isPreviewed = channel.id == previewId,
-                            onPlay = { onPlayAt(index) },
-                            onFocus = { onPreview(channel) },
+                            onActivate = { onPlayAt(index) },
                             onToggleFavorite = { onToggleFavorite(channel) },
-                            onGuide = { onGuide(channel) },
                         )
                     }
                 }
@@ -793,16 +799,13 @@ private fun ChannelColumn(
     }
 }
 
+@kotlin.OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelRow(
     channel: Channel,
-    index: Int,
-    isFavorite: Boolean,
     isPreviewed: Boolean,
-    onPlay: () -> Unit,
-    onFocus: () -> Unit,
+    onActivate: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onGuide: () -> Unit,
 ) {
     val repo = LocalContainer.current.repo
     val now by produceState<Program?>(initialValue = null, channel.id) {
@@ -817,7 +820,7 @@ private fun ChannelRow(
     }
     var focused by remember { mutableStateOf(false) }
     val active = focused || isPreviewed
-    val shape = RoundedCornerShape(appDp(16))
+    val shape = RoundedCornerShape(appDp(14))
     val borderColor = when {
         focused -> Palette.Glow
         isPreviewed -> Palette.Glow.copy(alpha = 0.7f)
@@ -832,7 +835,7 @@ private fun ChannelRow(
             .then(
                 if (active) {
                     Modifier.shadow(
-                        elevation = appDp(14),
+                        elevation = appDp(12),
                         shape = shape,
                         ambientColor = Palette.Glow,
                         spotColor = Palette.Glow,
@@ -842,46 +845,39 @@ private fun ChannelRow(
             .clip(shape)
             .background(bg)
             .border(borderWidth, borderColor, shape)
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocus()
-            }
-            .clickable(onClick = onPlay)
-            .padding(horizontal = appDp(14), vertical = appDp(12)),
+            .onFocusChanged { focused = it.isFocused }
+            .combinedClickable(
+                onClick = onActivate,
+                onLongClick = onToggleFavorite,
+            )
+            .padding(horizontal = appDp(10), vertical = appDp(9)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(appDp(10)),
+        horizontalArrangement = Arrangement.spacedBy(appDp(8)),
     ) {
-        Text(
-            index.toString(),
-            fontSize = appSp(14),
-            fontWeight = FontWeight.Bold,
-            color = if (active) Palette.Text else Palette.TextDim,
-            modifier = Modifier.width(appDp(26)),
-        )
         RemoteImage(
             url = channel.icon,
             fallbackText = channel.name,
             modifier = Modifier
-                .size(appDp(40))
-                .clip(RoundedCornerShape(appDp(10)))
+                .size(appDp(26))
+                .clip(RoundedCornerShape(appDp(7)))
                 .background(Color.White.copy(alpha = 0.08f))
-                .padding(appDp(3)),
+                .padding(appDp(2)),
             contentScale = ContentScale.Fit,
         )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(3))) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(2))) {
             Text(
                 channel.name,
-                fontSize = appSp(15),
+                fontSize = appSp(14),
                 fontWeight = FontWeight.Bold,
                 color = if (active) Palette.Text else Palette.Glow,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             val program = now
             if (program != null) {
                 Text(
                     program.title.ifBlank { Ar.noName },
-                    fontSize = appSp(12),
+                    fontSize = appSp(11),
                     color = Palette.TextDim,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -889,33 +885,13 @@ private fun ChannelRow(
             }
         }
 
-        val program = now
-        if (program != null) {
-            val total = (program.end - program.start).coerceAtLeast(1)
-            val progress = ((System.currentTimeMillis() / 1000 - program.start).toFloat() / total).coerceIn(0f, 1f)
-            ProgressLine(progress, Modifier.width(appDp(56)), height = appDp(5))
-        } else if (active) {
+        if (isPreviewed) {
             LiveBadge()
         }
 
         qualityOf(channel.name)?.let { q ->
             Tag(q, if (q == "4K") Palette.Gold else Palette.Glow, fontSize = appSp(10))
         }
-
-        GlassIconButton(
-            icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
-            description = Ar.favorites,
-            onClick = onToggleFavorite,
-            size = appDp(34),
-            tint = if (isFavorite) Palette.Live else Palette.TextDim,
-        )
-        GlassIconButton(
-            icon = Ic.List,
-            description = Ar.guide,
-            onClick = onGuide,
-            size = appDp(34),
-            tint = Palette.TextDim,
-        )
     }
 }
 
@@ -977,11 +953,12 @@ private fun PreviewPanel(
     var isPlaying by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(false) }
     var videoReady by remember { mutableStateOf(false) }
-    var muted by remember { mutableStateOf(false) }
+    var muted by remember { mutableStateOf(true) }
     var formatAttempt by remember { mutableIntStateOf(0) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
 
     DisposableEffect(previewExo) {
+        previewExo.volume = if (muted) 0f else 1f
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
@@ -1030,12 +1007,11 @@ private fun PreviewPanel(
             videoReady = false
             return@LaunchedEffect
         }
-        // Debounce rapid D-Pad navigation so we only connect when the user settles on a channel
-        if (formatAttempt == 0) delay(400)
         val url = runCatching {
             repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon), formatAttempt)
         }.getOrNull() ?: return@LaunchedEffect
 
+        previewExo.volume = if (muted) 0f else 1f
         previewExo.setMediaItem(MediaItem.fromUri(url))
         previewExo.prepare()
         previewExo.playWhenReady = true
@@ -1109,7 +1085,26 @@ private fun PreviewPanel(
                         ),
                 )
 
-                if (buffering && !videoReady && channel != null) {
+                if (channel == null) {
+                    Column(
+                        Modifier
+                            .align(Alignment.Center)
+                            .clip(RoundedCornerShape(appDp(14)))
+                            .background(Color.Black.copy(alpha = 0.65f))
+                            .border(appDp(1), Palette.Glow.copy(alpha = 0.35f), RoundedCornerShape(appDp(14)))
+                            .padding(horizontal = appDp(16), vertical = appDp(10)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(appDp(6)),
+                    ) {
+                        Icon(Ic.Play, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size(appDp(26)))
+                        Text(
+                            "اختر قناة واضغط موافق أو المسها للمعاينة",
+                            fontSize = appSp(12),
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                    }
+                } else if (buffering && !videoReady) {
                     Box(Modifier.align(Alignment.Center)) {
                         CircularProgressIndicator(
                             color = Palette.Glow,

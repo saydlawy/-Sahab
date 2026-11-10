@@ -474,8 +474,24 @@ private fun RecentsStrip(
                                     0,
                                 ),
                             )
-                            Kind.MOVIE -> onOpen(Routes.movie(item.id))
-                            Kind.EPISODE -> if (item.groupId.isNotBlank()) onOpen(Routes.series(item.groupId)) else onPlay(
+                            Kind.MOVIE -> onPlay(
+                                PlayRequest(
+                                    listOf(
+                                        PlayItem(
+                                            Kind.MOVIE,
+                                            item.id,
+                                            item.title,
+                                            subtitle = item.subtitle,
+                                            icon = item.icon,
+                                            ext = item.ext,
+                                        ),
+                                    ),
+                                    startIndex = 0,
+                                    fromStart = false,
+                                    initialPositionMs = item.positionMs,
+                                ),
+                            )
+                            Kind.EPISODE -> onPlay(
                                 PlayRequest(
                                     listOf(
                                         PlayItem(
@@ -488,7 +504,9 @@ private fun RecentsStrip(
                                             groupId = item.groupId,
                                         ),
                                     ),
-                                    0,
+                                    startIndex = 0,
+                                    fromStart = false,
+                                    initialPositionMs = item.positionMs,
                                 ),
                             )
                             else -> onOpen(Routes.series(item.id))

@@ -58,6 +58,7 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Poster
+import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
@@ -67,12 +68,14 @@ import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.Chip
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassButton
+import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.GlassIconButton
 import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.PosterCard
+import com.saydlawy.sahab.ui.components.ProgressLine
 import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.SearchBox
@@ -94,6 +97,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val RECENTS_CAT_ID = "__RECENTS__"
 private const val FAV_CAT_ID = "__FAVORITES__"
 private const val ALL_CAT_ID = "__ALL__"
 
@@ -124,6 +128,12 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
     private var itemsJob: Job? = null
     private var searchJob: Job? = null
     private var searchPool: List<Poster>? = null
+    private var indexedPool: List<Pair<Poster, String>>? = null
+
+    private fun updateSearchPool(list: List<Poster>) {
+        searchPool = list
+        indexedPool = list.map { it to it.name.normalizeForSearch() }
+    }
 
     init {
         loadCategories()
@@ -153,7 +163,7 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
                 val categories = fetchCategories()
                 val cachedAll = peekAllItems()
                 if (!cachedAll.isNullOrEmpty()) {
-                    searchPool = cachedAll
+                    updateSearchPool(cachedAll)
                     val counts = computeCounts(cachedAll)
                     _state.update {
                         it.copy(
@@ -184,7 +194,7 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
                 viewModelScope.launch {
                     val allItems = runCatching { fetchItems(null) }.getOrDefault(emptyList())
                     if (allItems.isNotEmpty()) {
-                        searchPool = allItems
+                        updateSearchPool(allItems)
                         val counts = computeCounts(allItems)
                         _state.update { current ->
                             current.copy(
@@ -206,6 +216,16 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
 
     fun select(categoryId: String) {
         itemsJob?.cancel()
+        if (categoryId == RECENTS_CAT_ID) {
+            _state.update {
+                it.copy(
+                    selectedId = RECENTS_CAT_ID,
+                    loadingItems = false,
+                    error = null,
+                )
+            }
+            return
+        }
         if (categoryId == FAV_CAT_ID) {
             val pool = searchPool
             _state.update {
@@ -237,12 +257,12 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
             try {
                 val targetId = if (categoryId == ALL_CAT_ID) null else categoryId
                 val items = fetchItems(targetId)
-                if (categoryId == ALL_CAT_ID) searchPool = items
+                if (categoryId == ALL_CAT_ID) updateSearchPool(items)
                 _state.update {
                     it.copy(
                         items = items,
                         loadingItems = false,
-                        categoryCounts = if (categoryId != ALL_CAT_ID && categoryId != FAV_CAT_ID) {
+                        categoryCounts = if (categoryId != ALL_CAT_ID && categoryId != FAV_CAT_ID && categoryId != RECENTS_CAT_ID) {
                             it.categoryCounts + (categoryId to items.size)
                         } else it.categoryCounts,
                     )
@@ -267,9 +287,16 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
             delay(300)
             _state.update { it.copy(searching = true) }
             try {
-                val pool = searchPool ?: fetchItems(null).also { searchPool = it }
+                val indexed = indexedPool ?: run {
+                    val pool = searchPool ?: fetchItems(null).also { updateSearchPool(it) }
+                    indexedPool ?: pool.map { it to it.name.normalizeForSearch() }
+                }
                 val results = withContext(Dispatchers.Default) {
-                    pool.filter { it.name.normalizeForSearch().contains(needle) }.take(400)
+                    indexed.asSequence()
+                        .filter { it.second.contains(needle) }
+                        .map { it.first }
+                        .take(400)
+                        .toList()
                 }
                 _state.update { it.copy(searchResults = results, searching = false) }
             } catch (e: CancellationException) {
@@ -301,19 +328,58 @@ fun BrowseScreen(
     val kind = if (series) Kind.SERIES else Kind.MOVIE
     val route = if (series) Routes.SERIES else Routes.MOVIES
     val favorites by LocalContainer.current.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
+    val recents by LocalContainer.current.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
     val favoriteIds = remember(favorites, kind) { favorites.filter { it.kind == kind }.map { it.id }.toSet() }
+    val screenRecents = remember(recents, series) {
+        if (series) recents.filter { it.kind == Kind.SERIES || it.kind == Kind.EPISODE }
+        else recents.filter { it.kind == Kind.MOVIE }
+    }
     var previewPoster by remember { mutableStateOf<Poster?>(null) }
 
+    val playRecent: (RecentItem) -> Unit = { recent ->
+        onPlay(
+            PlayRequest(
+                items = listOf(
+                    PlayItem(
+                        kind = recent.kind,
+                        id = recent.id,
+                        title = recent.title,
+                        subtitle = recent.subtitle,
+                        icon = recent.icon,
+                        ext = recent.ext,
+                        groupId = recent.groupId,
+                    ),
+                ),
+                startIndex = 0,
+                fromStart = false,
+                initialPositionMs = recent.positionMs,
+            ),
+        )
+    }
+
     val rawItems = state.visibleItems
-    val items = remember(rawItems, state.selectedId, favoriteIds, state.searchResults, favorites) {
-        if (state.selectedId == FAV_CAT_ID && state.searchResults == null) {
-            val fromPool = rawItems.filter { it.id in favoriteIds }
-            if (fromPool.isNotEmpty()) fromPool
-            else favorites.filter { it.kind == kind }.map {
-                Poster(id = it.id, name = it.name, image = it.icon, rating = "", ext = it.ext, year = "")
+    val items = remember(rawItems, state.selectedId, favoriteIds, state.searchResults, favorites, screenRecents) {
+        when {
+            state.selectedId == RECENTS_CAT_ID && state.searchResults == null -> {
+                screenRecents.map { r ->
+                    Poster(
+                        id = if (series && r.groupId.isNotBlank()) r.groupId else r.id,
+                        name = r.title,
+                        image = r.icon,
+                        rating = "",
+                        ext = r.ext,
+                        year = r.subtitle,
+                    )
+                }.distinctBy { it.id }
             }
-        } else {
-            rawItems
+            state.selectedId == FAV_CAT_ID && state.searchResults == null -> {
+                val fromPool = rawItems.filter { it.id in favoriteIds }
+                if (fromPool.isNotEmpty()) fromPool
+                else favorites.filter { it.kind == kind }.map {
+                    Poster(id = it.id, name = it.name, image = it.icon, rating = "", ext = it.ext, year = "")
+                }
+            }
+            else -> rawItems
         }
     }
 
@@ -356,6 +422,7 @@ fun BrowseScreen(
                             onSelect = vm::select,
                             totalCount = state.totalCount,
                             favCount = favoriteIds.size,
+                            recentCount = screenRecents.size,
                             categoryCounts = state.categoryCounts,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -368,6 +435,8 @@ fun BrowseScreen(
                         series = series,
                         state = state,
                         items = items,
+                        recents = if (state.query.isBlank() && state.selectedId != RECENTS_CAT_ID) screenRecents else emptyList(),
+                        onPlayRecent = playRecent,
                         columnWidth = if (isTv) 152.dp else 138.dp,
                         onOpenItem = onOpenItem,
                         onPreview = { previewPoster = it },
@@ -419,6 +488,7 @@ fun BrowseScreen(
                             onSelect = vm::select,
                             totalCount = state.totalCount,
                             favCount = favoriteIds.size,
+                            recentCount = screenRecents.size,
                             categoryCounts = state.categoryCounts,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -431,6 +501,8 @@ fun BrowseScreen(
                         series = series,
                         state = state,
                         items = items,
+                        recents = if (state.query.isBlank() && state.selectedId != RECENTS_CAT_ID) screenRecents else emptyList(),
+                        onPlayRecent = playRecent,
                         columnWidth = 132.dp,
                         onOpenItem = onOpenItem,
                         onPreview = {},
@@ -452,6 +524,11 @@ fun BrowseScreen(
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        if (screenRecents.isNotEmpty()) {
+                            item(key = RECENTS_CAT_ID) {
+                                Chip(Ar.continueWatching, state.selectedId == RECENTS_CAT_ID, { vm.select(RECENTS_CAT_ID) })
+                            }
+                        }
                         item(key = FAV_CAT_ID) {
                             Chip(Ar.favorites, state.selectedId == FAV_CAT_ID, { vm.select(FAV_CAT_ID) })
                         }
@@ -466,6 +543,8 @@ fun BrowseScreen(
                         series = series,
                         state = state,
                         items = items,
+                        recents = if (state.query.isBlank() && state.selectedId != RECENTS_CAT_ID) screenRecents else emptyList(),
+                        onPlayRecent = playRecent,
                         columnWidth = 132.dp,
                         onOpenItem = onOpenItem,
                         onPreview = {},
@@ -489,6 +568,7 @@ private fun BrowseSidebar(
     onSelect: (String) -> Unit,
     totalCount: Int,
     favCount: Int,
+    recentCount: Int,
     categoryCounts: Map<String, Int>,
     modifier: Modifier = Modifier,
 ) {
@@ -497,6 +577,18 @@ private fun BrowseSidebar(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 4.dp),
     ) {
+        if (recentCount > 0) {
+            item(key = RECENTS_CAT_ID) {
+                SideNavItem(
+                    label = Ar.continueWatching,
+                    selected = selectedId == RECENTS_CAT_ID,
+                    onClick = { onSelect(RECENTS_CAT_ID) },
+                    count = recentCount,
+                    icon = Ic.Clock,
+                    iconTint = Palette.Gold,
+                )
+            }
+        }
         item(key = FAV_CAT_ID) {
             SideNavItem(
                 label = Ar.favorites,
@@ -534,6 +626,8 @@ private fun PosterGrid(
     series: Boolean,
     state: BrowseUiState,
     items: List<Poster>,
+    recents: List<RecentItem>,
+    onPlayRecent: (RecentItem) -> Unit,
     columnWidth: Dp,
     onOpenItem: (String) -> Unit,
     onPreview: (Poster) -> Unit,
@@ -545,6 +639,14 @@ private fun PosterGrid(
     val headerTitle = if (series) Ar.seriesLibrary else Ar.moviesLibrary
 
     Column(modifier) {
+        if (recents.isNotEmpty()) {
+            BrowseRecentsStrip(
+                title = if (series) "آخر ما تم مشاهدته في المسلسلات" else "آخر ما تم مشاهدته في الأفلام",
+                recents = recents.take(10),
+                onPlayRecent = onPlayRecent,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         Row(
             Modifier
                 .fillMaxWidth()
@@ -589,6 +691,66 @@ private fun PosterGrid(
                             onLongClick = { onToggleFavorite(poster) },
                             onFocused = { onPreview(poster) },
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrowseRecentsStrip(
+    title: String,
+    recents: List<RecentItem>,
+    onPlayRecent: (RecentItem) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        DotTitle(title, Palette.Gold, fontSize = 14.sp)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 2.dp),
+        ) {
+            items(recents, key = { "browse_recent_${it.kind}_${it.id}" }) { item ->
+                val progress = if (item.durationMs > 0) {
+                    (item.positionMs.toFloat() / item.durationMs).coerceIn(0f, 1f)
+                } else null
+                GlassCard(
+                    onClick = { onPlayRecent(item) },
+                    modifier = Modifier.width(200.dp),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RemoteImage(
+                                url = item.icon,
+                                fallbackText = item.title,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(9.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Spacer(Modifier.width(9.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    item.title,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Palette.Text,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    item.subtitle.ifBlank { Ar.kindLabel(item.kind) },
+                                    fontSize = 11.sp,
+                                    color = Palette.Glow,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (progress != null) {
+                            ProgressLine(progress, height = 3.dp)
+                        }
                     }
                 }
             }

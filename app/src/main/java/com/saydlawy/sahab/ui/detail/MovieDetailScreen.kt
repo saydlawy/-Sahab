@@ -317,7 +317,7 @@ private fun MovieInfoPanel(
             val canResume = resumeMs > 10_000
             GlassButton(
                 text = if (canResume) Ar.resumeFrom(formatDuration(resumeMs)) else Ar.play,
-                onClick = { onPlay(PlayRequest(listOf(item), 0)) },
+                onClick = { onPlay(PlayRequest(listOf(item), 0, initialPositionMs = resumeMs)) },
                 icon = Ic.Play,
                 primary = true,
                 autoFocus = true,

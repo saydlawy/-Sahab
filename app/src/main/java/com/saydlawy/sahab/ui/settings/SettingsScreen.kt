@@ -65,10 +65,31 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
     val scope = rememberCoroutineScope()
     val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
     var confirmLogout by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
     var refreshed by remember { mutableStateOf(false) }
+    var refreshError by remember { mutableStateOf<String?>(null) }
+    var accountInfo by remember { mutableStateOf(container.repo.userInfo) }
     val account: Account? = container.repo.account
-    val info: UserInfo? = container.repo.userInfo
+    val info: UserInfo? = accountInfo ?: container.repo.userInfo
     val context = LocalContext.current
+
+    val performRefresh: () -> Unit = {
+        if (!refreshing) {
+            refreshing = true
+            refreshed = false
+            refreshError = null
+            scope.launch {
+                val res = runCatching { container.repo.refreshSubscription() }
+                refreshing = false
+                if (res.isSuccess) {
+                    accountInfo = container.repo.userInfo
+                    refreshed = true
+                } else {
+                    refreshError = res.exceptionOrNull()?.message ?: Ar.errUnknown
+                }
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         SahabTopBar(current = Routes.SETTINGS, onBack = onBack)
@@ -96,13 +117,11 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         AccountPanel(account, info, Modifier.weight(1f))
                         SystemControlsColumn(
                             light = light,
+                            refreshing = refreshing,
                             refreshed = refreshed,
+                            refreshError = refreshError,
                             onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } },
-                            onRefresh = {
-                                container.repo.clearCache(clearDisk = true)
-                                container.appScope.launch { container.repo.prewarmCatalog() }
-                                refreshed = true
-                            },
+                            onRefresh = performRefresh,
                             onLogout = { confirmLogout = true },
                             modifier = Modifier.weight(1f),
                         )
@@ -111,13 +130,11 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                     AccountPanel(account, info, Modifier.fillMaxWidth())
                     SystemControlsColumn(
                         light = light,
+                        refreshing = refreshing,
                         refreshed = refreshed,
+                        refreshError = refreshError,
                         onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } },
-                        onRefresh = {
-                            container.repo.clearCache(clearDisk = true)
-                            container.appScope.launch { container.repo.prewarmCatalog() }
-                            refreshed = true
-                        },
+                        onRefresh = performRefresh,
                         onLogout = { confirmLogout = true },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -238,7 +255,9 @@ private fun AccountPanel(account: Account?, info: UserInfo?, modifier: Modifier 
 @Composable
 private fun SystemControlsColumn(
     light: Boolean,
+    refreshing: Boolean,
     refreshed: Boolean,
+    refreshError: String?,
     onToggleLight: () -> Unit,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
@@ -276,12 +295,19 @@ private fun SystemControlsColumn(
         }
 
         GlassButton(
-            text = if (refreshed) Ar.refreshed else Ar.refreshData,
+            text = when {
+                refreshing -> "جاري تحديث الاشتراك والقنوات..."
+                refreshed -> Ar.refreshed
+                else -> "تحديث الاشتراك والقنوات (${Ar.refreshData})"
+            },
             onClick = onRefresh,
             modifier = Modifier.fillMaxWidth(),
             icon = Ic.Refresh,
             primary = true,
         )
+        if (!refreshError.isNullOrBlank()) {
+            Text(refreshError, fontSize = 12.sp, color = Palette.Danger, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        }
         GlassButton(
             text = Ar.logout,
             onClick = onLogout,

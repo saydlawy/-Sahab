@@ -181,11 +181,19 @@ private fun SeriesContent(
     val season = seasons.getOrNull(selectedSeasonIndex) ?: seasons.firstOrNull()
     val visibleEpisodes = details.episodes.filter { it.season == season }
     val queue = remember(details) { details.episodes.map { playItem(details, it) } }
-    val progress = remember(recents) {
-        recents.filter { it.kind == Kind.EPISODE && it.groupId == details.id }.associateBy { it.id }
+    val episodeIds = remember(details) { details.episodes.map { it.id }.toSet() }
+    val progress = remember(recents, details.id, episodeIds) {
+        recents.filter {
+            it.kind == Kind.EPISODE && (it.groupId == details.id || it.id in episodeIds)
+        }.associateBy { it.id }
     }
-    val lastWatched = recents.firstOrNull { it.kind == Kind.EPISODE && it.groupId == details.id }
+    val lastWatched = remember(recents, details.id, episodeIds) {
+        recents.firstOrNull {
+            it.kind == Kind.EPISODE && (it.groupId == details.id || it.id in episodeIds)
+        }
+    }
     val resumeIndex = lastWatched?.let { last -> details.episodes.indexOfFirst { it.id == last.id } } ?: -1
+    val resumePosMs = lastWatched?.positionMs ?: -1L
     val episodesState = rememberLazyListState()
     val seasonsRowState = rememberLazyListState()
 
@@ -214,6 +222,7 @@ private fun SeriesContent(
                             SeriesInfoPanel(
                                 details = details,
                                 resumeIndex = resumeIndex,
+                                resumePositionMs = resumePosMs,
                                 queue = queue,
                                 isFavorite = isFavorite,
                                 onToggleFavorite = onToggleFavorite,
@@ -231,6 +240,7 @@ private fun SeriesContent(
                             SeriesInfoPanel(
                                 details = details,
                                 resumeIndex = resumeIndex,
+                                resumePositionMs = resumePosMs,
                                 queue = queue,
                                 isFavorite = isFavorite,
                                 onToggleFavorite = onToggleFavorite,
@@ -250,6 +260,7 @@ private fun SeriesContent(
                             SeriesInfoPanel(
                                 details = details,
                                 resumeIndex = resumeIndex,
+                                resumePositionMs = resumePosMs,
                                 queue = queue,
                                 isFavorite = isFavorite,
                                 onToggleFavorite = onToggleFavorite,
@@ -346,6 +357,7 @@ private fun SeriesCoverFrame(url: String, title: String, modifier: Modifier) {
 private fun SeriesInfoPanel(
     details: SeriesDetails,
     resumeIndex: Int,
+    resumePositionMs: Long,
     queue: List<PlayItem>,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
@@ -402,7 +414,16 @@ private fun SeriesInfoPanel(
                 val resumeItem = queue.getOrNull(resumeIndex)
                 GlassButton(
                     text = if (resumeItem != null) Ar.resumeEpisode else Ar.playFirst,
-                    onClick = { onPlay(PlayRequest(queue, resumeIndex.coerceAtLeast(0))) },
+                    onClick = {
+                        onPlay(
+                            PlayRequest(
+                                items = queue,
+                                startIndex = resumeIndex.coerceAtLeast(0),
+                                fromStart = false,
+                                initialPositionMs = if (resumeItem != null) resumePositionMs else -1L,
+                            ),
+                        )
+                    },
                     icon = Ic.Play,
                     primary = true,
                     autoFocus = true,
