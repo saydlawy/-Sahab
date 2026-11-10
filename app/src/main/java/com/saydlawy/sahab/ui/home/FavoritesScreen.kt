@@ -93,9 +93,6 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                         Chip(Ar.series, filterKind == Kind.SERIES, { filterKind = Kind.SERIES })
                     }
                 }
-                if (isTv) {
-                    Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
-                }
             }
 
             Spacer(Modifier.height(4.dp))

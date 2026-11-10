@@ -759,9 +759,7 @@ private fun ChannelColumn(
                 fontWeight = FontWeight.Bold,
                 color = Palette.TextDim,
             )
-            if (LocalIsTv.current) {
-                Tag(Ar.dpadReady, Palette.Gold, fontSize = appSp(10))
-            } else if (channels.isNotEmpty()) {
+            if (channels.isNotEmpty()) {
                 Tag(Ar.itemsCount(channels.size), Palette.Glow, fontSize = appSp(10))
             }
         }
@@ -869,7 +867,7 @@ private fun ChannelRow(
                 channel.name,
                 fontSize = appSp(14),
                 fontWeight = FontWeight.Bold,
-                color = if (active) Palette.Text else Palette.Glow,
+                color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )

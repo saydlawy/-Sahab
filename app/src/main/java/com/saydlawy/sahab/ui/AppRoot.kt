@@ -7,7 +7,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -17,6 +23,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -61,7 +69,9 @@ fun AppRoot(container: AppContainer) {
 
     val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
     val entry by nav.currentBackStackEntryAsState()
-    val onPlayer = entry?.destination?.route == Routes.PLAYER
+    val currentRoute = entry?.destination?.route
+    val onPlayer = currentRoute == Routes.PLAYER
+    val onSports = currentRoute == Routes.SPORTS
 
     val onTab: (String) -> Unit = { route ->
         if (entry?.destination?.route != route) {
@@ -85,15 +95,31 @@ fun AppRoot(container: AppContainer) {
                 LocalWindowInfo provides windowInfo,
                 LocalDisplayMode provides windowInfo.mode,
             ) {
+                val layoutDir = LocalLayoutDirection.current
+                val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Palette.Bg),
+                        .background(if (onSports) Color(0xFF0C0919) else Palette.Bg),
                 ) {
-                    if (!onPlayer) DreamyBackground()
-                    val contentModifier =
-                        if (onPlayer && windowInfo.mode != DisplayMode.PHONE_PORTRAIT) Modifier.fillMaxSize()
-                        else Modifier.fillMaxSize().safeDrawingPadding()
+                    if (!onPlayer && !onSports) DreamyBackground()
+                    val contentModifier = when {
+                        onPlayer && windowInfo.mode != DisplayMode.PHONE_PORTRAIT -> Modifier.fillMaxSize()
+                        windowInfo.isPhoneLandscape -> {
+                            // Keep symmetric horizontal margins across notch/cutout on landscape phones
+                            val symH = maxOf(
+                                safeInsets.calculateStartPadding(layoutDir),
+                                safeInsets.calculateEndPadding(layoutDir),
+                            )
+                            Modifier.fillMaxSize().padding(
+                                start = symH,
+                                end = symH,
+                                top = safeInsets.calculateTopPadding(),
+                                bottom = safeInsets.calculateBottomPadding(),
+                            )
+                        }
+                        else -> Modifier.fillMaxSize().safeDrawingPadding()
+                    }
                     Box(contentModifier) {
                         val startRoute = start
                         if (startRoute != null) AppNavHost(nav, container, startRoute)

@@ -1,12 +1,16 @@
 package com.saydlawy.sahab.ui.sports
 
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -15,7 +19,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,15 +32,25 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -45,6 +58,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,6 +70,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,12 +103,13 @@ import com.saydlawy.sahab.data.sports.Standing
 import com.saydlawy.sahab.data.sports.Team
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
+import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import java.util.Locale
 
-// Palette derived directly from sport/DESIGN.md and sport/code.html
+// Palette derived from sport/DESIGN.md and sport/code.html
 private val SportSurface = Color(0xFF0C0919)
 private val SportContainer = Color(0xFF151026)
 private val SportContainerHigh = Color(0xFF1F1838)
@@ -113,8 +130,8 @@ fun SportsScreen(
     onOpenLive: () -> Unit = {},
 ) {
     val displayMode = LocalDisplayMode.current
+    val isTv = LocalIsTv.current
     val windowInfo = LocalWindowInfo.current
-    // Scale cleanly for Tablets and 40" - 90" TVs without breaking phone layouts
     val largeScale = when {
         displayMode != DisplayMode.TABLET_OR_TV -> 1f
         windowInfo.widthDp >= 1440.dp -> 1.22f
@@ -137,10 +154,9 @@ fun SportsScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     var showStandingsDialog by remember { mutableStateOf(false) }
-    var showPortraitDetailsDialog by remember { mutableStateOf(false) }
+    var showPhoneDetailsDialog by remember { mutableStateOf(false) }
     var showSearchField by remember { mutableStateOf(false) }
 
-    // Available filters driven by local DB availability (always keep Yesterday/Today/Tomorrow, plus 7..90 when available)
     val availableDateFilters = remember(dateFilterCounts, selectedDate) {
         val core = setOf(DateFilter.YESTERDAY, DateFilter.TODAY, DateFilter.TOMORROW)
         DateFilter.values().filter { df ->
@@ -148,35 +164,52 @@ fun SportsScreen(
         }
     }
 
+    val portraitListState = rememberLazyListState()
+    val landscapeGridState = rememberLazyGridState()
+    val phoneScrolled by remember(displayMode) {
+        derivedStateOf {
+            when (displayMode) {
+                DisplayMode.PHONE_PORTRAIT ->
+                    portraitListState.firstVisibleItemIndex > 0 || portraitListState.firstVisibleItemScrollOffset > 28
+                DisplayMode.PHONE_LANDSCAPE ->
+                    landscapeGridState.firstVisibleItemIndex > 0 || landscapeGridState.firstVisibleItemScrollOffset > 28
+                DisplayMode.TABLET_OR_TV -> false
+            }
+        }
+    }
+
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(SportSurface),
-        ) {
-            // Ambient Neon Cosmic Backdrops from sport/code.html
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Soft radial cosmic accents rendered smoothly over AppRoot's full-bleed background
             Box(
                 Modifier
-                    .size(460.dp)
-                    .offset(x = (-90).dp, y = (-120).dp)
+                    .size(440.dp)
+                    .offset(x = (-80).dp, y = (-100).dp)
                     .clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(SportViolet.copy(alpha = 0.16f), Color.Transparent))),
+                    .background(Brush.radialGradient(listOf(SportViolet.copy(alpha = 0.14f), Color.Transparent))),
             )
             Box(
                 Modifier
                     .align(Alignment.BottomStart)
-                    .size(420.dp)
-                    .offset(x = 60.dp, y = 120.dp)
+                    .size(380.dp)
+                    .offset(x = 60.dp, y = 100.dp)
                     .clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(SportCyan.copy(alpha = 0.10f), Color.Transparent))),
+                    .background(Brush.radialGradient(listOf(SportCyan.copy(alpha = 0.08f), Color.Transparent))),
             )
 
             Column(modifier = Modifier.fillMaxSize()) {
-                SahabTopBar(current = Routes.SPORTS, onBack = onClose)
+                AnimatedVisibility(
+                    visible = displayMode == DisplayMode.TABLET_OR_TV || !phoneScrolled,
+                    enter = expandVertically(tween(180)) + fadeIn(tween(160)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(140)),
+                ) {
+                    SahabTopBar(current = Routes.SPORTS, onBack = onClose)
+                }
 
                 when (displayMode) {
                     DisplayMode.PHONE_PORTRAIT -> {
                         PhonePortraitSportsLayout(
+                            listState = portraitListState,
                             selectedCategory = selectedCategory,
                             subLeagues = subLeagues,
                             selectedSubLeague = selectedSubLeague,
@@ -188,7 +221,7 @@ fun SportsScreen(
                             onToggleSearch = { showSearchField = !showSearchField },
                             onSearchChange = viewModel::updateSearchQuery,
                             isRefreshing = isRefreshing,
-                            onRefresh = { viewModel.fetchMatchesFromApi(silent = false) },
+                            onRefresh = viewModel::refreshActiveFilter,
                             onShowStandings = {
                                 viewModel.fetchStandings()
                                 showStandingsDialog = true
@@ -200,13 +233,14 @@ fun SportsScreen(
                             selectedMatch = selectedMatch,
                             onMatchClick = { match ->
                                 viewModel.selectMatch(match)
-                                showPortraitDetailsDialog = true
+                                showPhoneDetailsDialog = true
                             },
                         )
                     }
 
                     DisplayMode.PHONE_LANDSCAPE -> {
                         PhoneLandscapeSportsLayout(
+                            gridState = landscapeGridState,
                             selectedCategory = selectedCategory,
                             subLeagues = subLeagues,
                             selectedSubLeague = selectedSubLeague,
@@ -218,7 +252,7 @@ fun SportsScreen(
                             onToggleSearch = { showSearchField = !showSearchField },
                             onSearchChange = viewModel::updateSearchQuery,
                             isRefreshing = isRefreshing,
-                            onRefresh = { viewModel.fetchMatchesFromApi(silent = false) },
+                            onRefresh = viewModel::refreshActiveFilter,
                             onShowStandings = {
                                 viewModel.fetchStandings()
                                 showStandingsDialog = true
@@ -228,35 +262,34 @@ fun SportsScreen(
                             onSelectDate = viewModel::updateDate,
                             uiState = uiState,
                             selectedMatch = selectedMatch,
-                            onMatchClick = viewModel::selectMatch,
-                            onWatchLive = onOpenLive,
+                            onMatchClick = { match ->
+                                viewModel.selectMatch(match)
+                                showPhoneDetailsDialog = true
+                            },
                         )
                     }
 
                     DisplayMode.TABLET_OR_TV -> {
                         LargeScreenSportsLayout(
                             scale = largeScale,
+                            isTv = isTv,
                             selectedCategory = selectedCategory,
                             subLeagues = subLeagues,
                             selectedSubLeague = selectedSubLeague,
                             availableDateFilters = availableDateFilters,
                             selectedDate = selectedDate,
                             dateFilterCounts = dateFilterCounts,
-                            searchQuery = searchQuery,
-                            showSearchField = showSearchField,
-                            onToggleSearch = { showSearchField = !showSearchField },
-                            onSearchChange = viewModel::updateSearchQuery,
                             isRefreshing = isRefreshing,
-                            onRefresh = { viewModel.fetchMatchesFromApi(silent = false) },
-                            onShowStandings = {
-                                viewModel.fetchStandings()
-                                showStandingsDialog = true
-                            },
+                            onRefresh = viewModel::refreshActiveFilter,
                             onSelectCategory = viewModel::updateCategory,
                             onSelectSubLeague = viewModel::updateSubLeague,
                             onSelectDate = viewModel::updateDate,
                             uiState = uiState,
                             selectedMatch = selectedMatch,
+                            standings = standings,
+                            standingsLoading = standingsLoading,
+                            standingsError = standingsError,
+                            standingsLeagueName = standingsLeagueName,
                             onMatchClick = viewModel::selectMatch,
                             onWatchLive = onOpenLive,
                         )
@@ -266,14 +299,15 @@ fun SportsScreen(
         }
     }
 
-    if (showPortraitDetailsDialog && selectedMatch != null) {
-        Dialog(onDismissRequest = { showPortraitDetailsDialog = false }) {
+    if (showPhoneDetailsDialog && selectedMatch != null) {
+        Dialog(onDismissRequest = { showPhoneDetailsDialog = false }) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = SportContainer,
-                border = BorderStroke(1.dp, SportViolet.copy(alpha = 0.45f)),
+                border = BorderStroke(1.dp, SportViolet.copy(alpha = 0.50f)),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .wrapContentHeight()
                     .heightIn(max = 560.dp),
             ) {
                 Column(
@@ -282,31 +316,30 @@ fun SportsScreen(
                         .verticalScroll(rememberScrollState()),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "مركز تفاصيل المباراة",
+                            "تفاصيل المباراة",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                         )
-                        IconButton(onClick = { showPortraitDetailsDialog = false }, modifier = Modifier.size(32.dp)) {
+                        IconButton(onClick = { showPhoneDetailsDialog = false }, modifier = Modifier.size(36.dp)) {
                             Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color.White)
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
                     LiveMatchHubContent(
                         match = selectedMatch!!,
                         scale = 1f,
                         onOpenStandings = {
-                            showPortraitDetailsDialog = false
+                            showPhoneDetailsDialog = false
                             viewModel.fetchStandings()
                             showStandingsDialog = true
                         },
                         onWatchLive = {
-                            showPortraitDetailsDialog = false
+                            showPhoneDetailsDialog = false
                             onOpenLive()
                         },
                     )
@@ -326,8 +359,12 @@ fun SportsScreen(
     }
 }
 
+/**
+ * Mode A: Mobile Portrait — single column, DatePickerPill, clear touch targets.
+ */
 @Composable
 private fun PhonePortraitSportsLayout(
+    listState: LazyListState,
     selectedCategory: MainCategory,
     subLeagues: List<Pair<Int?, String>>,
     selectedSubLeague: Int?,
@@ -351,12 +388,14 @@ private fun PhonePortraitSportsLayout(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SportsHeaderToolbar(
-            scale = 1f,
-            compact = true,
+        SportsCompactPhoneToolbar(
+            availableDateFilters = availableDateFilters,
+            selectedDate = selectedDate,
+            dateFilterCounts = dateFilterCounts,
+            onSelectDate = onSelectDate,
             showSearchField = showSearchField,
             searchQuery = searchQuery,
             isRefreshing = isRefreshing,
@@ -365,10 +404,9 @@ private fun PhonePortraitSportsLayout(
             onRefresh = onRefresh,
             onShowStandings = onShowStandings,
         )
-        MainCategoryBar(selectedCategory, onSelectCategory, scale = 1f)
-        DateFilterBar(availableDateFilters, selectedDate, dateFilterCounts, onSelectDate, scale = 1f)
+        MainCategoryBar(selectedCategory, onSelectCategory, scale = 1f, isTv = false)
         if (subLeagues.isNotEmpty()) {
-            SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = 1f)
+            SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = 1f, isTv = false)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             SportsStateBody(
@@ -376,6 +414,9 @@ private fun PhonePortraitSportsLayout(
                 selectedMatch = selectedMatch,
                 scale = 1f,
                 compactCard = true,
+                highlightSelection = false,
+                useTwoColumnGrid = false,
+                listState = listState,
                 onMatchClick = onMatchClick,
                 onRetry = onRefresh,
             )
@@ -383,8 +424,13 @@ private fun PhonePortraitSportsLayout(
     }
 }
 
+/**
+ * Mode B: Mobile Landscape — zero left Detail Pane duplication!
+ * Collapsed single control bar (Categories + DatePickerPill + Actions) -> Full-width 2-column match grid.
+ */
 @Composable
 private fun PhoneLandscapeSportsLayout(
+    gridState: LazyGridState,
     selectedCategory: MainCategory,
     subLeagues: List<Pair<Int?, String>>,
     selectedSubLeague: Int?,
@@ -404,59 +450,184 @@ private fun PhoneLandscapeSportsLayout(
     uiState: SportsUiState,
     selectedMatch: Match?,
     onMatchClick: (Match) -> Unit,
-    onWatchLive: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        SportsHeaderToolbar(
-            scale = 0.92f,
-            compact = true,
-            showSearchField = showSearchField,
-            searchQuery = searchQuery,
-            isRefreshing = isRefreshing,
-            onToggleSearch = onToggleSearch,
-            onSearchChange = onSearchChange,
-            onRefresh = onRefresh,
-            onShowStandings = onShowStandings,
-        )
+        // Single unified horizontal strip: scrolling categories on start + DatePickerPill & actions on end (no collision/clipping)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f)) {
-                MainCategoryBar(selectedCategory, onSelectCategory, scale = 0.92f)
+                MainCategoryBar(selectedCategory, onSelectCategory, scale = 0.94f, isTv = false)
             }
-            Box(Modifier.weight(1f)) {
-                DateFilterBar(availableDateFilters, selectedDate, dateFilterCounts, onSelectDate, scale = 0.92f)
-            }
+            DatePickerPill(
+                filters = availableDateFilters,
+                selected = selectedDate,
+                counts = dateFilterCounts,
+                onSelect = onSelectDate,
+            )
+            ActionPillButton(
+                icon = Icons.Default.List,
+                label = "الترتيب",
+                highlighted = false,
+                scale = 0.94f,
+                isTv = false,
+                onClick = onShowStandings,
+            )
+            ActionPillButton(
+                icon = Icons.Default.Refresh,
+                label = null,
+                highlighted = false,
+                accentCyan = true,
+                spinning = isRefreshing,
+                scale = 0.94f,
+                isTv = false,
+                onClick = onRefresh,
+            )
+            ActionPillButton(
+                icon = Icons.Default.Search,
+                label = null,
+                highlighted = showSearchField || searchQuery.isNotBlank(),
+                scale = 0.94f,
+                isTv = false,
+                onClick = onToggleSearch,
+            )
         }
+
+        if (showSearchField) {
+            SportsSearchInput(searchQuery = searchQuery, onSearchChange = onSearchChange, scale = 0.95f)
+        }
+
         if (subLeagues.isNotEmpty()) {
-            SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = 0.92f)
+            SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = 0.94f, isTv = false)
         }
+
+        // Full-width 2-column grid of Match Cards — tapping any match opens modal details/standings
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            SportsStateBody(
+                uiState = uiState,
+                selectedMatch = selectedMatch,
+                scale = 0.96f,
+                compactCard = true,
+                highlightSelection = false,
+                useTwoColumnGrid = true,
+                gridState = gridState,
+                onMatchClick = onMatchClick,
+                onRetry = onRefresh,
+            )
+        }
+    }
+}
+
+/**
+ * Mode C: Tablet & Large TV (40" to 90") — Full 12-Column Master-Detail Hub matching sport/code.html.
+ */
+@Composable
+private fun LargeScreenSportsLayout(
+    scale: Float,
+    isTv: Boolean,
+    selectedCategory: MainCategory,
+    subLeagues: List<Pair<Int?, String>>,
+    selectedSubLeague: Int?,
+    availableDateFilters: List<DateFilter>,
+    selectedDate: DateFilter,
+    dateFilterCounts: Map<DateFilter, Int>,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    onSelectCategory: (MainCategory) -> Unit,
+    onSelectSubLeague: (Int?) -> Unit,
+    onSelectDate: (DateFilter) -> Unit,
+    uiState: SportsUiState,
+    selectedMatch: Match?,
+    standings: List<Standing>,
+    standingsLoading: Boolean,
+    standingsError: String?,
+    standingsLeagueName: String,
+    onMatchClick: (Match) -> Unit,
+    onWatchLive: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = (24 * scale).dp, vertical = (8 * scale).dp),
+        verticalArrangement = Arrangement.spacedBy((8 * scale).dp),
+    ) {
+        // Row 1: Main Category Pills + Content Refresh button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MainCategoryBar(
+                selected = selectedCategory,
+                onSelect = onSelectCategory,
+                scale = scale,
+                isTv = isTv,
+            )
+            ActionPillButton(
+                icon = Icons.Default.Refresh,
+                label = if (isRefreshing) "جاري التحديث..." else "تحديث المحتوى",
+                highlighted = false,
+                accentCyan = true,
+                spinning = isRefreshing,
+                scale = scale,
+                isTv = isTv,
+                onClick = onRefresh,
+            )
+        }
+
+        // Row 2: Date Filters Bar
+        DateFilterBar(
+            filters = availableDateFilters,
+            selected = selectedDate,
+            counts = dateFilterCounts,
+            onSelect = onSelectDate,
+            scale = scale,
+            isTv = isTv,
+        )
+
+        // Row 3: Sub-Leagues Bar (if any)
+        if (subLeagues.isNotEmpty()) {
+            SubLeagueBar(
+                subLeagues = subLeagues,
+                selectedId = selectedSubLeague,
+                onSelect = onSelectSubLeague,
+                scale = scale,
+                isTv = isTv,
+            )
+        }
+
+        // Row 4: Two-Pane Split: Matches (Right) and Live Standings (Left)
         Row(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy((16 * scale).dp),
         ) {
-            Box(Modifier.weight(0.57f).fillMaxHeight()) {
+            Box(Modifier.weight(6.5f).fillMaxHeight()) {
                 SportsStateBody(
                     uiState = uiState,
                     selectedMatch = selectedMatch,
-                    scale = 0.94f,
-                    compactCard = true,
+                    scale = scale,
+                    compactCard = false,
+                    highlightSelection = true,
+                    useTwoColumnGrid = false,
+                    suppressLeagueHeaderIfSingle = true,
                     onMatchClick = onMatchClick,
                     onRetry = onRefresh,
                 )
             }
-            Box(Modifier.weight(0.43f).fillMaxHeight()) {
-                LiveMatchHubPane(
-                    match = selectedMatch,
-                    scale = 0.92f,
-                    onOpenStandings = onShowStandings,
+            Box(Modifier.weight(5.5f).fillMaxHeight()) {
+                StandingsPane(
+                    leagueName = standingsLeagueName,
+                    standings = standings,
+                    isLoading = standingsLoading,
+                    errorMessage = standingsError,
+                    scale = scale,
                     onWatchLive = onWatchLive,
                 )
             }
@@ -465,85 +636,288 @@ private fun PhoneLandscapeSportsLayout(
 }
 
 @Composable
-private fun LargeScreenSportsLayout(
+private fun StandingsPane(
+    leagueName: String,
+    standings: List<Standing>,
+    isLoading: Boolean,
+    errorMessage: String?,
     scale: Float,
-    selectedCategory: MainCategory,
-    subLeagues: List<Pair<Int?, String>>,
-    selectedSubLeague: Int?,
-    availableDateFilters: List<DateFilter>,
-    selectedDate: DateFilter,
-    dateFilterCounts: Map<DateFilter, Int>,
-    searchQuery: String,
-    showSearchField: Boolean,
-    onToggleSearch: () -> Unit,
-    onSearchChange: (String) -> Unit,
-    isRefreshing: Boolean,
-    onRefresh: () -> Unit,
-    onShowStandings: () -> Unit,
-    onSelectCategory: (MainCategory) -> Unit,
-    onSelectSubLeague: (Int?) -> Unit,
-    onSelectDate: (DateFilter) -> Unit,
-    uiState: SportsUiState,
-    selectedMatch: Match?,
-    onMatchClick: (Match) -> Unit,
     onWatchLive: () -> Unit,
 ) {
+    val shape = RoundedCornerShape((20 * scale).dp)
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = (24 * scale).dp, vertical = (10 * scale).dp),
+            .clip(shape)
+            .background(SportContainer.copy(alpha = 0.90f))
+            .border(1.dp, SportViolet.copy(alpha = 0.35f), shape)
+            .padding((16 * scale).dp),
         verticalArrangement = Arrangement.spacedBy((10 * scale).dp),
     ) {
-        SportsHeaderToolbar(
-            scale = scale,
-            compact = false,
-            showSearchField = showSearchField,
-            searchQuery = searchQuery,
-            isRefreshing = isRefreshing,
-            onToggleSearch = onToggleSearch,
-            onSearchChange = onSearchChange,
-            onRefresh = onRefresh,
-            onShowStandings = onShowStandings,
-        )
-
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy((12 * scale).dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.weight(0.52f)) {
-                MainCategoryBar(selectedCategory, onSelectCategory, scale = scale)
-            }
-            Box(Modifier.weight(0.48f)) {
-                DateFilterBar(availableDateFilters, selectedDate, dateFilterCounts, onSelectDate, scale = scale)
-            }
-        }
-
-        if (subLeagues.isNotEmpty()) {
-            SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = scale)
-        }
-
-        // 12-Column Grid equivalent (7 cols Fixtures + 5 cols Live Match Hub)
-        Row(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy((18 * scale).dp),
-        ) {
-            Box(Modifier.weight(7f).fillMaxHeight()) {
-                SportsStateBody(
-                    uiState = uiState,
-                    selectedMatch = selectedMatch,
-                    scale = scale,
-                    compactCard = false,
-                    onMatchClick = onMatchClick,
-                    onRetry = onRefresh,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(SportCyan))
+                Text(
+                    "جدول الترتيب",
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = (15 * scale).sp,
                 )
             }
-            Box(Modifier.weight(5f).fillMaxHeight()) {
-                LiveMatchHubPane(
-                    match = selectedMatch,
-                    scale = scale,
-                    onOpenStandings = onShowStandings,
-                    onWatchLive = onWatchLive,
+            if (leagueName.isNotBlank()) {
+                Text(
+                    leagueName,
+                    color = SportPrimary,
+                    fontSize = (12.5f * scale).sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+        when {
+            isLoading && standings.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = SportCyan)
+                }
+            }
+            standings.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        errorMessage ?: "جدول الترتيب غير متاح لهذه البطولة حالياً",
+                        color = SportTextMuted,
+                        fontSize = (13 * scale).sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+            else -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("#", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(26.dp))
+                    Text("الفريق", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.weight(1f))
+                    Text("لعب", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(32.dp), textAlign = TextAlign.Center)
+                    Text("فاز", color = SportTextMuted, fontSize = (11 * scale).sp, modifier = Modifier.width(30.dp), textAlign = TextAlign.Center)
+                    Text("نقاط", color = SportCyan, fontSize = (11 * scale).sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
+                }
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy((5 * scale).dp),
+                ) {
+                    items(standings, key = { "${it.rank}_${it.teamName}" }) { row ->
+                        val rankColor = when (row.rank) {
+                            1 -> SportGold
+                            2, 3 -> SportCyan
+                            else -> SportTextMuted
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(SportContainerHigh.copy(alpha = 0.65f))
+                                .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                .padding(vertical = (7 * scale).dp, horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "${row.rank}",
+                                color = rankColor,
+                                fontSize = (12 * scale).sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.width(26.dp),
+                            )
+                            Text(
+                                row.teamName,
+                                color = Color.White,
+                                fontSize = (12.5f * scale).sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "${row.played}",
+                                color = SportTextMuted,
+                                fontSize = (11.5f * scale).sp,
+                                modifier = Modifier.width(32.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                "${row.win}",
+                                color = SportTextMuted,
+                                fontSize = (11.5f * scale).sp,
+                                modifier = Modifier.width(30.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                "${row.points}",
+                                color = SportCyan,
+                                fontSize = (12.5f * scale).sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.width(36.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SportsCompactPhoneToolbar(
+    availableDateFilters: List<DateFilter>,
+    selectedDate: DateFilter,
+    dateFilterCounts: Map<DateFilter, Int>,
+    onSelectDate: (DateFilter) -> Unit,
+    showSearchField: Boolean,
+    searchQuery: String,
+    isRefreshing: Boolean,
+    onToggleSearch: () -> Unit,
+    onSearchChange: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onShowStandings: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            DatePickerPill(
+                filters = availableDateFilters,
+                selected = selectedDate,
+                counts = dateFilterCounts,
+                onSelect = onSelectDate,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ActionPillButton(
+                    icon = Icons.Default.List,
+                    label = "الترتيب",
+                    highlighted = false,
+                    scale = 1f,
+                    isTv = false,
+                    onClick = onShowStandings,
+                )
+                ActionPillButton(
+                    icon = Icons.Default.Refresh,
+                    label = if (isRefreshing) "..." else "تحديث",
+                    highlighted = false,
+                    accentCyan = true,
+                    spinning = isRefreshing,
+                    scale = 1f,
+                    isTv = false,
+                    onClick = onRefresh,
+                )
+                ActionPillButton(
+                    icon = Icons.Default.Search,
+                    label = null,
+                    highlighted = showSearchField || searchQuery.isNotBlank(),
+                    scale = 1f,
+                    isTv = false,
+                    onClick = onToggleSearch,
+                )
+            }
+        }
+        if (showSearchField) {
+            SportsSearchInput(searchQuery = searchQuery, onSearchChange = onSearchChange, scale = 1f)
+        }
+    }
+}
+
+@Composable
+private fun DatePickerPill(
+    filters: List<DateFilter>,
+    selected: DateFilter,
+    counts: Map<DateFilter, Int>,
+    onSelect: (DateFilter) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val count = counts[selected] ?: 0
+    Box {
+        Row(
+            modifier = Modifier
+                .heightIn(min = 42.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(SportContainerHigh)
+                .border(1.dp, SportViolet.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                selected.title,
+                color = Color.White,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            if (count > 0) {
+                Text(
+                    "$count",
+                    color = SportCyan,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(SportSurface)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = SportPrimary, modifier = Modifier.size(18.dp))
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(SportContainer),
+        ) {
+            filters.forEach { df ->
+                val dfCount = counts[df] ?: 0
+                val active = df == selected
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                df.title,
+                                color = if (active) SportCyan else Color.White,
+                                fontWeight = if (active) FontWeight.ExtraBold else FontWeight.Medium,
+                                fontSize = 13.sp,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (dfCount > 0) "$dfCount" else "—",
+                                color = if (dfCount > 0) SportPrimary else SportTextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(df)
+                    },
                 )
             }
         }
@@ -553,7 +927,7 @@ private fun LargeScreenSportsLayout(
 @Composable
 private fun SportsHeaderToolbar(
     scale: Float,
-    compact: Boolean,
+    isTv: Boolean,
     showSearchField: Boolean,
     searchQuery: String,
     isRefreshing: Boolean,
@@ -562,14 +936,6 @@ private fun SportsHeaderToolbar(
     onRefresh: () -> Unit,
     onShowStandings: () -> Unit,
 ) {
-    val spinTransition = rememberInfiniteTransition(label = "refreshSpin")
-    val spinAngle by spinTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
-        label = "refreshAngle",
-    )
-
     Column(verticalArrangement = Arrangement.spacedBy((8 * scale).dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -583,28 +949,26 @@ private fun SportsHeaderToolbar(
                 Text(
                     "مركز المباريات والرياضة",
                     color = Color.White,
-                    fontSize = if (compact) 15.sp else (18 * scale).sp,
+                    fontSize = (18 * scale).sp,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
                 )
-                if (!compact) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(SportContainer)
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(50))
-                            .padding(horizontal = (10 * scale).dp, vertical = (4 * scale).dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(SportEmerald))
-                        Text(
-                            "بيانات محدثة • 2026+",
-                            color = SportTextMuted,
-                            fontSize = (11 * scale).sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(SportContainer)
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(50))
+                        .padding(horizontal = (10 * scale).dp, vertical = (4 * scale).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(SportEmerald))
+                    Text(
+                        "بيانات محدثة • 2026+",
+                        color = SportTextMuted,
+                        fontSize = (11 * scale).sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
 
@@ -614,59 +978,67 @@ private fun SportsHeaderToolbar(
             ) {
                 ActionPillButton(
                     icon = Icons.Default.Search,
-                    label = if (compact) null else "بحث",
+                    label = "بحث",
                     highlighted = showSearchField || searchQuery.isNotBlank(),
                     scale = scale,
+                    isTv = isTv,
                     onClick = onToggleSearch,
                 )
                 ActionPillButton(
                     icon = Icons.Default.List,
-                    label = if (compact) "الترتيب" else "جدول الترتيب",
+                    label = "جدول الترتيب",
                     highlighted = true,
                     scale = scale,
+                    isTv = isTv,
                     onClick = onShowStandings,
                 )
                 ActionPillButton(
                     icon = Icons.Default.Refresh,
-                    label = if (isRefreshing) "جاري التحديث..." else if (compact) "تحديث" else "جلب التحديث",
+                    label = if (isRefreshing) "جاري التحديث..." else "جلب التحديث",
                     highlighted = false,
                     accentCyan = true,
-                    iconRotation = if (isRefreshing) spinAngle else 0f,
+                    spinning = isRefreshing,
                     scale = scale,
+                    isTv = isTv,
                     onClick = onRefresh,
                 )
             }
         }
 
         if (showSearchField) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                placeholder = { Text("ابحث عن نادي أو بطولة...", color = SportTextMuted, fontSize = (13 * scale).sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = SportCyan) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { onSearchChange("") }) {
-                            Icon(Icons.Default.Close, contentDescription = "مسح", tint = SportTextMuted)
-                        }
-                    }
-                },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height((48 * scale).dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = SportCyan,
-                    unfocusedBorderColor = SportViolet.copy(alpha = 0.4f),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedContainerColor = SportContainer,
-                    unfocusedContainerColor = SportContainer,
-                ),
-            )
+            SportsSearchInput(searchQuery = searchQuery, onSearchChange = onSearchChange, scale = scale)
         }
     }
+}
+
+@Composable
+private fun SportsSearchInput(searchQuery: String, onSearchChange: (String) -> Unit, scale: Float) {
+    OutlinedTextField(
+        value = searchQuery,
+        onValueChange = onSearchChange,
+        placeholder = { Text("ابحث عن نادي أو بطولة...", color = SportTextMuted, fontSize = (13 * scale).sp) },
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = SportCyan) },
+        trailingIcon = {
+            if (searchQuery.isNotEmpty()) {
+                IconButton(onClick = { onSearchChange("") }) {
+                    Icon(Icons.Default.Close, contentDescription = "مسح", tint = SportTextMuted)
+                }
+            }
+        },
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = SportCyan,
+            unfocusedBorderColor = SportViolet.copy(alpha = 0.4f),
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            focusedContainerColor = SportContainer,
+            unfocusedContainerColor = SportContainer,
+        ),
+    )
 }
 
 @Composable
@@ -675,14 +1047,24 @@ private fun ActionPillButton(
     label: String?,
     highlighted: Boolean,
     scale: Float,
+    isTv: Boolean,
     accentCyan: Boolean = false,
-    iconRotation: Float = 0f,
+    spinning: Boolean = false,
     onClick: () -> Unit,
 ) {
-    var focused by remember { mutableStateOf(false) }
+    var focusedRaw by remember { mutableStateOf(false) }
+    val focused = focusedRaw && isTv
+    val spinTransition = rememberInfiniteTransition(label = "refreshSpin")
+    val spinAngle by spinTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
+        label = "refreshAngle",
+    )
+
     val bg = when {
         focused -> Brush.horizontalGradient(listOf(SportViolet, SportVioletDark))
-        highlighted -> Brush.horizontalGradient(listOf(SportViolet.copy(alpha = 0.30f), SportContainerHigh))
+        highlighted -> Brush.horizontalGradient(listOf(SportViolet.copy(alpha = 0.28f), SportContainerHigh))
         else -> Brush.horizontalGradient(listOf(SportContainerHigh, SportContainer))
     }
     val borderColor = when {
@@ -694,13 +1076,13 @@ private fun ActionPillButton(
 
     Row(
         modifier = Modifier
+            .heightIn(min = 42.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .border(if (focused) 2.dp else 1.dp, borderColor, RoundedCornerShape(12.dp))
-            .onFocusChanged { focused = it.isFocused }
-            .focusable()
+            .onFocusChanged { focusedRaw = it.isFocused }
             .clickable(onClick = onClick)
-            .padding(horizontal = (if (label == null) 10f else 12f * scale).dp, vertical = (8f * scale).dp),
+            .padding(horizontal = (if (label == null) 11f else 12f * scale).dp, vertical = (8f * scale).dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -709,8 +1091,8 @@ private fun ActionPillButton(
             contentDescription = label,
             tint = if (accentCyan) SportCyan else SportPrimary,
             modifier = Modifier
-                .size((17 * scale).dp)
-                .rotate(iconRotation),
+                .size((18 * scale).dp)
+                .rotate(if (spinning) spinAngle else 0f),
         )
         if (label != null) {
             Text(
@@ -725,11 +1107,12 @@ private fun ActionPillButton(
 }
 
 @Composable
-private fun MainCategoryBar(selected: MainCategory, onSelect: (MainCategory) -> Unit, scale: Float) {
+private fun MainCategoryBar(selected: MainCategory, onSelect: (MainCategory) -> Unit, scale: Float, isTv: Boolean) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)) {
         items(MainCategory.values()) { category ->
             val isSelected = category == selected
-            var isFocused by remember { mutableStateOf(false) }
+            var focusedRaw by remember { mutableStateOf(false) }
+            val isFocused = focusedRaw && isTv
             val fill = when {
                 isSelected -> Brush.horizontalGradient(listOf(SportViolet, SportVioletDark))
                 isFocused -> Brush.horizontalGradient(listOf(SportContainerHighest, SportContainerHigh))
@@ -737,6 +1120,7 @@ private fun MainCategoryBar(selected: MainCategory, onSelect: (MainCategory) -> 
             }
             Row(
                 modifier = Modifier
+                    .heightIn(min = 42.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(fill)
                     .border(
@@ -748,8 +1132,7 @@ private fun MainCategoryBar(selected: MainCategory, onSelect: (MainCategory) -> 
                         },
                         shape = RoundedCornerShape(12.dp),
                     )
-                    .onFocusChanged { isFocused = it.isFocused }
-                    .focusable()
+                    .onFocusChanged { focusedRaw = it.isFocused }
                     .clickable { onSelect(category) }
                     .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -777,6 +1160,7 @@ private fun DateFilterBar(
     counts: Map<DateFilter, Int>,
     onSelect: (DateFilter) -> Unit,
     scale: Float,
+    isTv: Boolean,
 ) {
     LazyRow(
         modifier = Modifier
@@ -788,7 +1172,8 @@ private fun DateFilterBar(
     ) {
         items(filters) { filter ->
             val isSelected = filter == selected
-            var isFocused by remember { mutableStateOf(false) }
+            var focusedRaw by remember { mutableStateOf(false) }
+            val isFocused = focusedRaw && isTv
             val count = counts[filter] ?: 0
             Row(
                 modifier = Modifier
@@ -799,8 +1184,7 @@ private fun DateFilterBar(
                         color = if (isFocused) SportCyan else Color.Transparent,
                         shape = RoundedCornerShape(9.dp),
                     )
-                    .onFocusChanged { isFocused = it.isFocused }
-                    .focusable()
+                    .onFocusChanged { focusedRaw = it.isFocused }
                     .clickable { onSelect(filter) }
                     .padding(horizontal = (10 * scale).dp, vertical = (6 * scale).dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -836,6 +1220,7 @@ private fun SubLeagueBar(
     selectedId: Int?,
     onSelect: (Int?) -> Unit,
     scale: Float,
+    isTv: Boolean,
 ) {
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy((8 * scale).dp),
@@ -845,19 +1230,21 @@ private fun SubLeagueBar(
             Text(
                 "البطولات:",
                 color = SportTextMuted,
-                fontSize = (11 * scale).sp,
+                fontSize = (11.5f * scale).sp,
                 fontWeight = FontWeight.Bold,
             )
         }
         items(subLeagues) { (id, name) ->
             val isSelected = id == selectedId
-            var isFocused by remember { mutableStateOf(false) }
+            var focusedRaw by remember { mutableStateOf(false) }
+            val isFocused = focusedRaw && isTv
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(9.dp))
+                    .heightIn(min = if (isTv) 34.dp else 40.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(
                         when {
-                            isSelected -> SportViolet.copy(alpha = 0.28f)
+                            isSelected -> SportViolet.copy(alpha = 0.30f)
                             isFocused -> SportContainerHigh
                             else -> SportContainer
                         },
@@ -866,20 +1253,20 @@ private fun SubLeagueBar(
                         width = if (isFocused) 1.5.dp else 1.dp,
                         color = when {
                             isFocused -> SportCyan
-                            isSelected -> SportViolet.copy(alpha = 0.65f)
+                            isSelected -> SportViolet.copy(alpha = 0.70f)
                             else -> Color.White.copy(alpha = 0.06f)
                         },
-                        shape = RoundedCornerShape(9.dp),
+                        shape = RoundedCornerShape(10.dp),
                     )
-                    .onFocusChanged { isFocused = it.isFocused }
-                    .focusable()
+                    .onFocusChanged { focusedRaw = it.isFocused }
                     .clickable { onSelect(id) }
-                    .padding(horizontal = (11 * scale).dp, vertical = (5 * scale).dp),
+                    .padding(horizontal = (12 * scale).dp, vertical = (7 * scale).dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     name,
-                    color = if (isSelected) SportPrimary else Color.White.copy(alpha = 0.85f),
-                    fontSize = (11.5f * scale).sp,
+                    color = if (isSelected) SportPrimary else Color.White.copy(alpha = 0.88f),
+                    fontSize = (12 * scale).sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1,
                 )
@@ -894,6 +1281,11 @@ private fun SportsStateBody(
     selectedMatch: Match?,
     scale: Float,
     compactCard: Boolean,
+    highlightSelection: Boolean,
+    useTwoColumnGrid: Boolean,
+    suppressLeagueHeaderIfSingle: Boolean = false,
+    listState: LazyListState = rememberLazyListState(),
+    gridState: LazyGridState = rememberLazyGridState(),
     onMatchClick: (Match) -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -924,19 +1316,60 @@ private fun SportsStateBody(
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "جرّب نطاقاً زمنياً أوسع (مثل 7 أو 28 يوماً) أو اضغط جلب التحديث",
+                            "جرّب نطاقاً زمنياً أوسع (مثل 7 أو 28 يوماً) أو اضغط تحديث",
                             color = SportTextMuted,
                             fontSize = (12 * scale).sp,
                         )
                     }
                 }
+            } else if (useTwoColumnGrid) {
+                MatchesGrid(
+                    groupedMatches = uiState.groupedMatches,
+                    gridState = gridState,
+                    scale = scale,
+                    onMatchClick = onMatchClick,
+                )
             } else {
                 MatchesList(
                     groupedMatches = uiState.groupedMatches,
+                    listState = listState,
                     selectedMatch = selectedMatch,
+                    highlightSelection = highlightSelection,
                     scale = scale,
                     compactCard = compactCard,
+                    suppressLeagueHeaderIfSingle = suppressLeagueHeaderIfSingle,
                     onMatchClick = onMatchClick,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MatchesGrid(
+    groupedMatches: Map<League, List<Match>>,
+    gridState: LazyGridState,
+    scale: Float,
+    onMatchClick: (Match) -> Unit,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        state = gridState,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 18.dp),
+    ) {
+        groupedMatches.forEach { (league, matches) ->
+            item(key = "ghdr_${league.id}_${league.name}", span = { GridItemSpan(2) }) {
+                LeagueGroupHeader(league = league, count = matches.size, scale = scale)
+            }
+            items(matches, key = { it.id }) { match ->
+                SportMatchCard(
+                    match = match,
+                    isSelected = false,
+                    scale = scale,
+                    compact = true,
+                    onClick = { onMatchClick(match) },
                 )
             }
         }
@@ -947,59 +1380,75 @@ private fun SportsStateBody(
 @Composable
 private fun MatchesList(
     groupedMatches: Map<League, List<Match>>,
+    listState: LazyListState,
     selectedMatch: Match?,
+    highlightSelection: Boolean,
     scale: Float,
     compactCard: Boolean,
+    suppressLeagueHeaderIfSingle: Boolean = false,
     onMatchClick: (Match) -> Unit,
 ) {
+    val showHeaders = !suppressLeagueHeaderIfSingle || groupedMatches.size > 1
     LazyColumn(
+        state = listState,
         verticalArrangement = Arrangement.spacedBy((10 * scale).dp),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         groupedMatches.forEach { (league, matches) ->
-            stickyHeader(key = "hdr_${league.id}_${league.name}") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SportContainerHigh.copy(alpha = 0.96f))
-                        .border(1.dp, SportViolet.copy(alpha = 0.28f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = (12 * scale).dp, vertical = (7 * scale).dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(SportViolet))
-                        Text(
-                            league.name,
-                            color = SportPrimary,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = (13 * scale).sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Text(
-                        "${matches.size} مباراة",
-                        color = SportCyan,
-                        fontSize = (11 * scale).sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+            if (showHeaders) {
+                stickyHeader(key = "hdr_${league.id}_${league.name}") {
+                    LeagueGroupHeader(league = league, count = matches.size, scale = scale)
                 }
             }
             items(matches, key = { it.id }) { match ->
                 SportMatchCard(
                     match = match,
-                    isSelected = match.id == selectedMatch?.id,
+                    isSelected = highlightSelection && match.id == selectedMatch?.id,
                     scale = scale,
                     compact = compactCard,
                     onClick = { onMatchClick(match) },
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LeagueGroupHeader(league: League, count: Int, scale: Float) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight()
+            .clip(RoundedCornerShape(10.dp))
+            .background(SportContainerHigh.copy(alpha = 0.96f))
+            .border(1.dp, SportViolet.copy(alpha = 0.28f), RoundedCornerShape(10.dp))
+            .padding(horizontal = (12 * scale).dp, vertical = (7 * scale).dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(SportViolet))
+            Text(
+                league.name,
+                color = SportPrimary,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = (13 * scale).sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "$count مباراة",
+            color = SportCyan,
+            fontSize = (11 * scale).sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
     }
 }
 
@@ -1011,7 +1460,9 @@ private fun SportMatchCard(
     compact: Boolean,
     onClick: () -> Unit,
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    val isTv = LocalIsTv.current
+    var focusedRaw by remember { mutableStateOf(false) }
+    val isFocused = focusedRaw && isTv
     val active = isSelected || isFocused
     val shape = RoundedCornerShape((16 * scale).dp)
 
@@ -1020,7 +1471,7 @@ private fun SportMatchCard(
             listOf(SportViolet.copy(alpha = 0.24f), SportContainer.copy(alpha = 0.96f)),
         )
     } else {
-        Brush.verticalGradient(listOf(SportContainer.copy(alpha = 0.88f), SportContainer.copy(alpha = 0.88f)))
+        Brush.verticalGradient(listOf(SportContainer.copy(alpha = 0.90f), SportContainer.copy(alpha = 0.90f)))
     }
     val borderColor = when {
         isFocused -> SportCyan
@@ -1031,10 +1482,11 @@ private fun SportMatchCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .wrapContentHeight()
             .then(
                 if (active) {
                     Modifier.shadow(
-                        elevation = (16 * scale).dp,
+                        elevation = (14 * scale).dp,
                         shape = shape,
                         ambientColor = SportViolet,
                         spotColor = SportViolet,
@@ -1044,13 +1496,12 @@ private fun SportMatchCard(
             .clip(shape)
             .background(bg)
             .border(if (active) 2.dp else 1.dp, borderColor, shape)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            .onFocusChanged { focusedRaw = it.isFocused }
             .clickable(onClick = onClick)
             .padding((if (compact) 11f else 14f * scale).dp),
         verticalArrangement = Arrangement.spacedBy((8 * scale).dp),
     ) {
-        // Card Header: Championship & Time / Live Status & Broadcast Channel
+        // Card Header: Date + Optional Stadium + Status Badge + Channel (NO duplicate time here!)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1067,6 +1518,7 @@ private fun SportMatchCard(
                         color = SportTextMuted,
                         fontSize = (10.5f * scale).sp,
                         fontWeight = FontWeight.Medium,
+                        maxLines = 1,
                     )
                 }
                 if (match.stadium.isNotBlank() && !compact) {
@@ -1084,7 +1536,7 @@ private fun SportMatchCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                StatusTimePill(match = match, scale = scale)
+                MatchStatusChip(match = match, scale = scale)
                 if (match.channel.isNotBlank()) {
                     Text(
                         match.channel,
@@ -1105,9 +1557,9 @@ private fun SportMatchCard(
 
         HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
 
-        // Card Center: Home Team | Score / Match Time | Away Team
+        // Card Center: Home Team | Score OR Single Clear Time Pill | Away Team
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().wrapContentHeight(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -1116,33 +1568,25 @@ private fun SportMatchCard(
             TeamRow(match.awayTeam, Modifier.weight(1f), Alignment.End, scale = scale, crestSize = (if (compact) 30f else 36f * scale).dp)
         }
 
-        if (!compact && (match.commentator.isNotBlank() || match.status == MatchStatus.LIVE)) {
+        // Card Footer: Only rendered for LIVE matches to indicate live broadcast availability
+        if (match.status == MatchStatus.LIVE) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(SportSurface.copy(alpha = 0.55f))
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .background(SportLiveRed.copy(alpha = 0.15f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = if (match.commentator.isNotBlank()) "المعلق: ${match.commentator}" else "توقيت المباراة: ${formatMatchClock(match.time)}",
-                    color = SportTextMuted,
-                    fontSize = (11 * scale).sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (match.status == MatchStatus.LIVE) {
-                    Text("متاح على البث المباشر", color = SportCyan, fontSize = (11 * scale).sp, fontWeight = FontWeight.Bold)
-                }
+                Text("متاح على البث المباشر", color = SportCyan, fontSize = (11 * scale).sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 @Composable
-private fun StatusTimePill(match: Match, scale: Float) {
+private fun MatchStatusChip(match: Match, scale: Float) {
     when (match.status) {
         MatchStatus.LIVE -> {
             Row(
@@ -1165,7 +1609,7 @@ private fun StatusTimePill(match: Match, scale: Float) {
         }
         MatchStatus.FINISHED -> {
             Text(
-                "منتهية • ${formatMatchClock(match.time)}",
+                "انتهت",
                 color = SportTextMuted,
                 fontSize = (10 * scale).sp,
                 fontWeight = FontWeight.Bold,
@@ -1177,14 +1621,14 @@ private fun StatusTimePill(match: Match, scale: Float) {
         }
         else -> {
             Text(
-                "⏰ ${formatMatchClock(match.time)}",
-                color = SportCyan,
-                fontSize = (10.5f * scale).sp,
-                fontWeight = FontWeight.ExtraBold,
+                "لم تبدأ",
+                color = SportPrimary,
+                fontSize = (10 * scale).sp,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(7.dp))
-                    .background(Color(0xFF00FBFB).copy(alpha = 0.14f))
-                    .border(1.dp, SportCyan.copy(alpha = 0.35f), RoundedCornerShape(7.dp))
+                    .background(SportViolet.copy(alpha = 0.20f))
+                    .border(1.dp, SportViolet.copy(alpha = 0.40f), RoundedCornerShape(7.dp))
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             )
         }
@@ -1214,17 +1658,34 @@ private fun CenterScoreOrTime(match: Match, scale: Float, compact: Boolean) {
                 }
             }
             else -> {
-                Text(
-                    formatMatchClock(match.time),
-                    color = Color.White,
-                    fontSize = (if (compact) 13f else 15f * scale).sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SportContainerHighest)
-                        .border(1.dp, SportCyan.copy(alpha = 0.30f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = (if (compact) 9f else 12f * scale).dp, vertical = (5f * scale).dp),
-                )
+                val clock = formatMatchClock(match.time)
+                if (clock.isNotBlank()) {
+                    Text(
+                        clock,
+                        color = SportCyan,
+                        fontSize = (if (compact) 13f else 15f * scale).sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(SportContainerHighest)
+                            .border(1.dp, SportCyan.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = (if (compact) 9f else 12f * scale).dp, vertical = (5f * scale).dp),
+                    )
+                } else {
+                    Text(
+                        match.date.takeLast(5).ifBlank { "قريباً" },
+                        color = SportTextMuted,
+                        fontSize = (if (compact) 11f else 12f * scale).sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(SportContainerHighest)
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = (if (compact) 8f else 10f * scale).dp, vertical = (4f * scale).dp),
+                    )
+                }
             }
         }
     }
@@ -1249,7 +1710,7 @@ private fun TeamRow(
             Text(
                 team.name,
                 color = Color.White,
-                fontSize = (13 * scale).sp,
+                fontSize = (12.5f * scale).sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1258,7 +1719,7 @@ private fun TeamRow(
             Text(
                 team.name,
                 color = Color.White,
-                fontSize = (13 * scale).sp,
+                fontSize = (12.5f * scale).sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1338,12 +1799,11 @@ private fun LiveMatchHubContent(
     onWatchLive: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().wrapContentHeight(),
         verticalArrangement = Arrangement.spacedBy((12 * scale).dp),
     ) {
-        // Header row
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().wrapContentHeight().padding(top = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1356,13 +1816,14 @@ private fun LiveMatchHubContent(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            StatusTimePill(match = match, scale = scale)
+            Spacer(Modifier.width(8.dp))
+            MatchStatusChip(match = match, scale = scale)
         }
 
-        // Stadium Showcase Card
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .wrapContentHeight()
                 .clip(RoundedCornerShape(16.dp))
                 .background(
                     Brush.linearGradient(
@@ -1415,12 +1876,10 @@ private fun LiveMatchHubContent(
             }
         }
 
-        // Real Live Match Stats when returned by API
         match.stats?.let { stats ->
-            MatchStatsBlock(match = match, stats = stats, scale = scale)
+            MatchStatsBlock(stats = stats, scale = scale)
         }
 
-        // Goal / Match Events when returned by API
         if (match.homeEvents.isNotEmpty() || match.awayEvents.isNotEmpty()) {
             Column(
                 modifier = Modifier
@@ -1441,7 +1900,6 @@ private fun LiveMatchHubContent(
             }
         }
 
-        // Detailed Meta Info Rows
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1451,14 +1909,13 @@ private fun LiveMatchHubContent(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            InfoRow("التاريخ", match.date.ifBlank { "غير محدد" }, scale)
+            InfoRow("التاريخ", match.date.ifBlank { "لم يُحدد" }, scale)
             InfoRow("توقيت المباراة", formatMatchClock(match.time), scale, valueColor = SportCyan)
-            InfoRow("الملعب", match.stadium.ifBlank { "غير محدد" }, scale)
-            InfoRow("القناة الناقلة", match.channel.ifBlank { "يُحدد لاحقاً" }, scale)
-            InfoRow("المعلق", match.commentator.ifBlank { "يُحدد لاحقاً" }, scale)
+            if (match.stadium.isNotBlank()) InfoRow("الملعب", match.stadium, scale)
+            if (match.channel.isNotBlank()) InfoRow("القناة الناقلة", match.channel, scale)
+            if (match.commentator.isNotBlank()) InfoRow("المعلق", match.commentator, scale)
         }
 
-        // Action Buttons (Open Standings + Watch Live Channels)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1495,7 +1952,7 @@ private fun LiveMatchHubContent(
 }
 
 @Composable
-private fun MatchStatsBlock(match: Match, stats: MatchStats, scale: Float) {
+private fun MatchStatsBlock(stats: MatchStats, scale: Float) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1506,7 +1963,6 @@ private fun MatchStatsBlock(match: Match, stats: MatchStats, scale: Float) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("إحصائيات المباراة", color = SportCyan, fontSize = (12 * scale).sp, fontWeight = FontWeight.Bold)
-        // Possession bar
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("${stats.homePossession}%", color = SportPrimary, fontSize = (11.5f * scale).sp, fontWeight = FontWeight.Bold)
             Text("الاستحواذ", color = SportTextMuted, fontSize = (11 * scale).sp)
@@ -1662,6 +2118,8 @@ private fun StandingsDialog(
 
 private fun formatMatchClock(rawTime: String): String {
     val clean = rawTime.trim()
-    if (clean.isBlank() || clean == "null") return "يُحدد لاحقاً"
+    if (clean.isBlank() || clean == "null" || clean == "00:00" || clean.startsWith("00:00:")) {
+        return ""
+    }
     return clean.take(5).lowercase(Locale.US)
 }

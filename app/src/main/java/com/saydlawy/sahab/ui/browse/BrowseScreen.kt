@@ -1,5 +1,11 @@
 package com.saydlawy.sahab.ui.browse
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +27,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -31,6 +39,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -383,12 +392,26 @@ fun BrowseScreen(
         }
     }
 
+    val gridState = rememberLazyGridState()
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val displayMode = LocalDisplayMode.current
         val showPreview = displayMode == DisplayMode.TABLET_OR_TV && maxWidth >= 1040.dp
+        val showTopBar by remember(displayMode) {
+            derivedStateOf {
+                displayMode == DisplayMode.TABLET_OR_TV ||
+                    (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset < 28)
+            }
+        }
 
         Column(Modifier.fillMaxSize()) {
-            SahabTopBar(current = route, onBack = onBack)
+            AnimatedVisibility(
+                visible = showTopBar,
+                enter = expandVertically(tween(180)) + fadeIn(tween(160)),
+                exit = shrinkVertically(tween(180)) + fadeOut(tween(140)),
+            ) {
+                SahabTopBar(current = route, onBack = onBack)
+            }
 
             when {
                 state.loadingCategories -> LoadingBox()
@@ -435,6 +458,7 @@ fun BrowseScreen(
                         series = series,
                         state = state,
                         items = items,
+                        gridState = gridState,
                         recents = if (state.query.isBlank() && state.selectedId != RECENTS_CAT_ID) screenRecents else emptyList(),
                         onPlayRecent = playRecent,
                         columnWidth = if (isTv) 152.dp else 138.dp,
@@ -466,15 +490,15 @@ fun BrowseScreen(
                 displayMode == DisplayMode.PHONE_LANDSCAPE -> Row(
                     Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    // Compact sidebar on right in RTL for landscape phones
+                    // Narrower sidebar (-25%) so landscape phones have spacious multi-column grid
                     Column(
                         Modifier
-                            .width(210.dp)
+                            .width(158.dp)
                             .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         SearchBox(
                             state.query,
@@ -496,14 +520,15 @@ fun BrowseScreen(
                         )
                     }
 
-                    // Poster grid taking all remaining width without 3rd column squeeze
+                    // Poster grid taking full remaining width with recents scrolling smoothly inside
                     PosterGrid(
                         series = series,
                         state = state,
                         items = items,
-                        recents = if (state.query.isBlank() && state.selectedId != RECENTS_CAT_ID) screenRecents else emptyList(),
+                        gridState = gridState,
+                        recents = if (state.query.isBlank() && state.selectedId == RECENTS_CAT_ID) screenRecents else emptyList(),
                         onPlayRecent = playRecent,
-                        columnWidth = 132.dp,
+                        columnWidth = 108.dp,
                         onOpenItem = onOpenItem,
                         onPreview = {},
                         onToggleFavorite = vm::toggleFavorite,
@@ -543,9 +568,10 @@ fun BrowseScreen(
                         series = series,
                         state = state,
                         items = items,
-                        recents = if (state.query.isBlank() && state.selectedId != RECENTS_CAT_ID) screenRecents else emptyList(),
+                        gridState = gridState,
+                        recents = if (state.query.isBlank() && state.selectedId == RECENTS_CAT_ID) screenRecents else emptyList(),
                         onPlayRecent = playRecent,
-                        columnWidth = 132.dp,
+                        columnWidth = if (displayMode == DisplayMode.PHONE_LANDSCAPE) 92.dp else 100.dp,
                         onOpenItem = onOpenItem,
                         onPreview = {},
                         onToggleFavorite = vm::toggleFavorite,
@@ -626,6 +652,7 @@ private fun PosterGrid(
     series: Boolean,
     state: BrowseUiState,
     items: List<Poster>,
+    gridState: LazyGridState,
     recents: List<RecentItem>,
     onPlayRecent: (RecentItem) -> Unit,
     columnWidth: Dp,
@@ -635,51 +662,50 @@ private fun PosterGrid(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val gridState = rememberLazyGridState()
     val headerTitle = if (series) Ar.seriesLibrary else Ar.moviesLibrary
 
     Column(modifier) {
-        if (recents.isNotEmpty()) {
-            BrowseRecentsStrip(
-                title = if (series) "آخر ما تم مشاهدته في المسلسلات" else "آخر ما تم مشاهدته في الأفلام",
-                recents = recents.take(10),
-                onPlayRecent = onPlayRecent,
-            )
-            Spacer(Modifier.height(8.dp))
-        }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(headerTitle, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.TextDim)
-                if (items.isNotEmpty()) {
-                    Tag(Ar.itemsCount(items.size), Palette.Glow, fontSize = 10.sp)
+        if (LocalDisplayMode.current == DisplayMode.TABLET_OR_TV) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(headerTitle, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.TextDim)
+                    if (items.isNotEmpty()) {
+                        Tag(Ar.itemsCount(items.size), Palette.Glow, fontSize = 10.sp)
+                    }
                 }
             }
-            if (LocalIsTv.current) {
-                Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
-            }
+            Spacer(Modifier.height(4.dp))
         }
-
-        Spacer(Modifier.height(4.dp))
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 state.busy && items.isEmpty() -> SkeletonGrid(columnWidth = columnWidth)
                 state.error != null && items.isEmpty() -> MessageBox(state.error, actionLabel = Ar.retry, onAction = onRetry)
-                items.isEmpty() -> MessageBox(if (state.selectedId == FAV_CAT_ID) Ar.noFavorites else Ar.noTitles)
+                items.isEmpty() && recents.isEmpty() -> MessageBox(if (state.selectedId == FAV_CAT_ID) Ar.noFavorites else Ar.noTitles)
                 else -> LazyVerticalGrid(
                     columns = GridCells.Adaptive(columnWidth),
                     state = gridState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
                     contentPadding = PaddingValues(6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
+                    // Place "آخر ما تم مشاهدته" inside the scrollable grid header so posters below are never squeezed/cut off
+                    if (recents.isNotEmpty()) {
+                        item(key = "browse_recents_header", span = { GridItemSpan(maxLineSpan) }) {
+                            BrowseRecentsStrip(
+                                title = if (series) "آخر ما تم مشاهدته في المسلسلات" else "آخر ما تم مشاهدته في الأفلام",
+                                recents = recents.take(10),
+                                onPlayRecent = onPlayRecent,
+                            )
+                        }
+                    }
                     items(items, key = { it.id }) { poster ->
                         PosterCard(
                             title = poster.name,

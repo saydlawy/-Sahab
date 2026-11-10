@@ -410,7 +410,16 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                     }
                     else -> {
                         reconnecting = false
-                        error = Ar.errPlayback
+                        val causeMsg = e.cause?.message ?: e.message ?: ""
+                        val errorCodeName = e.errorCodeName
+                        val codeMatch = Regex("""\b(401|403|404|458|500|502|503)\b""").find(causeMsg)?.value
+                        val hint = when (codeMatch) {
+                            "401", "403", "458" -> "تم تجاوز الحد الأقصى للأجهزة المتصلة أو انتهى الاشتراك ($codeMatch)"
+                            "404" -> "القناة أو المحتوى غير متوفر حالياً على السيرفر (404)"
+                            "500", "502", "503" -> "خلل في خادم البث ($codeMatch)"
+                            else -> if (errorCodeName.isNotBlank()) "فشل تشغيل البث ($errorCodeName)" else Ar.errPlayback
+                        }
+                        error = hint
                     }
                 }
             }
@@ -1710,44 +1719,51 @@ private fun PhoneLandscapePlayerOsd(
             val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0.85f
             val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0.95f
 
-            GradientTimelineBar(
-                progress = progressFraction,
-                buffered = bufferedFraction,
-                showChapters = !isLive,
-                onSeekToFraction = if (!isLive && duration > 0L) {
-                    { frac -> onSeekTo((duration * frac).toLong()) }
-                } else null,
-                onSeekBy = onSeekBy,
-            )
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                GradientTimelineBar(
+                    progress = progressFraction,
+                    buffered = bufferedFraction,
+                    showChapters = !isLive,
+                    onSeekToFraction = if (!isLive && duration > 0L) {
+                        { frac -> onSeekTo((duration * frac).toLong()) }
+                    } else null,
+                    onSeekBy = onSeekBy,
+                )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isLive) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(OsdCyan))
-                        Text("طرف البث الحي (Live Edge)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isLive) {
                         Text(formatDuration(position), fontSize = 12.sp, color = OsdOnSurface)
-                    }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Text(formatDuration(position), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("/", fontSize = 12.sp, color = OsdOutline)
-                        Text(formatDuration(duration), fontSize = 12.sp, color = OsdOnSurfaceVariant)
-                        Spacer(Modifier.width(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Box(Modifier.size(7.dp).clip(CircleShape).background(OsdCyan))
+                            Text("طرف البث الحي (Live Edge)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
+                        }
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(formatDuration(position), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("/", fontSize = 12.sp, color = OsdOutline)
+                            Text(formatDuration(duration), fontSize = 12.sp, color = OsdOnSurfaceVariant)
+                        }
                         val rem = (duration - position).coerceAtLeast(0L)
                         Text("المتبقي: -${formatDuration(rem)}", fontSize = 11.sp, color = OsdTertiary)
                     }
                 }
+            }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1821,7 +1837,15 @@ private fun PhoneLandscapeChannelsDrawer(
             OsdIconSquareButton(Ic.Close, Ar.close, onClose, size = 34.dp, circle = true)
         }
 
+        val channelListState = rememberLazyListState()
+        LaunchedEffect(currentIndex) {
+            if (currentIndex > 0) {
+                channelListState.scrollToItem((currentIndex - 1).coerceAtLeast(0))
+            }
+        }
+
         LazyColumn(
+            state = channelListState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
@@ -2078,36 +2102,19 @@ private fun LiveExoPlayerOsd(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(OsdSurfaceHighest.copy(alpha = 0.68f))
-                            .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(50))
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            Icon(Ic.Speed, contentDescription = null, tint = OsdCyan, modifier = Modifier.size(15.dp))
-                            Text(bitrateText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
-                        }
-                        Text("|", fontSize = 12.sp, color = OsdOutlineVariant)
-                        Text("$formatExt • Media3 v1.5", fontSize = 11.sp, color = OsdOnSurfaceVariant)
-                        Text("|", fontSize = 12.sp, color = OsdOutlineVariant)
+                    if (videoBadge.isNotBlank()) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(OsdPrimary.copy(alpha = 0.20f))
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(OsdSurfaceHighest.copy(alpha = 0.70f))
+                                .border(1.dp, OsdOutlineVariant.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
                         ) {
                             Text(
                                 videoBadge,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = OsdPrimary,
+                                color = OsdCyan,
                             )
                         }
                     }
@@ -2138,45 +2145,21 @@ private fun LiveExoPlayerOsd(
                 }
             }
 
-            // CENTER STAGE: Sync Toast & Adaptive Quick Channels EPG Drawer
+            // CENTER STAGE: Adaptive Quick Channels Drawer
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(vertical = 10.dp),
             ) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .clip(RoundedCornerShape(50))
-                        .background(OsdSurfaceLow.copy(alpha = 0.85f))
-                        .border(1.dp, OsdCyan.copy(alpha = 0.30f), RoundedCornerShape(50))
-                        .padding(horizontal = 16.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(OsdCyan.copy(alpha = dotAlpha)),
-                    )
-                    Text(
-                        "متزامن مع البث الحي الفعلي (تأخير 0.8 ثانية)",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = OsdCyan,
-                    )
-                }
-
                 if (showQuickDrawer && playlist.isNotEmpty()) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
-                            .width(300.dp)
+                            .width(320.dp)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(20.dp))
-                            .background(OsdSurfaceLow.copy(alpha = 0.92f))
+                            .background(OsdSurfaceLow.copy(alpha = 0.94f))
                             .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(20.dp))
                             .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -2214,7 +2197,15 @@ private fun LiveExoPlayerOsd(
                             }
                         }
 
+                        val liveChannelListState = rememberLazyListState()
+                        LaunchedEffect(currentIndex) {
+                            if (currentIndex > 0) {
+                                liveChannelListState.scrollToItem(currentIndex)
+                            }
+                        }
+
                         LazyColumn(
+                            state = liveChannelListState,
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier
                                 .weight(1f)
@@ -2249,12 +2240,6 @@ private fun LiveExoPlayerOsd(
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         modifier = Modifier.weight(1f),
                                     ) {
-                                        Text(
-                                            String.format(Locale.US, "%02d", idx + 1),
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (active) OsdCyan else OsdOnSurfaceVariant,
-                                        )
                                         Column(Modifier.weight(1f)) {
                                             Text(
                                                 ch.title,
@@ -2322,16 +2307,38 @@ private fun LiveExoPlayerOsd(
                     .padding(horizontal = 18.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val liveProgress = remember(currentProgram, position, duration) {
+                            if (currentProgram != null && currentProgram.end > currentProgram.start) {
+                                val now = System.currentTimeMillis() / 1000
+                                ((now - currentProgram.start).toFloat() / (currentProgram.end - currentProgram.start)).coerceIn(0.08f, 0.96f)
+                            } else if (duration > 0L) {
+                                (position.toFloat() / duration).coerceIn(0.05f, 0.95f)
+                            } else {
+                                0.82f
+                            }
+                        }
+                        GradientTimelineBar(
+                            progress = liveProgress,
+                            buffered = (liveProgress + 0.10f).coerceAtMost(1f),
+                            showChapters = false,
+                            onSeekToFraction = null,
+                            onSeekBy = onSeekBy,
+                        )
+
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            Text(
+                                formatDuration(position.coerceAtLeast(0L)),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = OsdOnSurface,
+                            )
+
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(50))
@@ -2353,43 +2360,8 @@ private fun LiveExoPlayerOsd(
                                     color = OsdCyan,
                                 )
                             }
-                            Text(
-                                formatDuration(position.coerceAtLeast(0L)),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = OsdOnSurface,
-                            )
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text("التأخير:", fontSize = 12.sp, color = OsdOnSurfaceVariant)
-                            Text("-00:01s", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
-                            Text("/", fontSize = 12.sp, color = OsdOnSurfaceVariant)
-                            val totalText = if (duration > 0L) formatDuration(duration) else "LIVE"
-                            Text(totalText, fontSize = 12.sp, color = OsdOnSurfaceVariant)
                         }
                     }
-
-                    val liveProgress = remember(currentProgram, position, duration) {
-                        if (currentProgram != null && currentProgram.end > currentProgram.start) {
-                            val now = System.currentTimeMillis() / 1000
-                            ((now - currentProgram.start).toFloat() / (currentProgram.end - currentProgram.start)).coerceIn(0.08f, 0.96f)
-                        } else if (duration > 0L) {
-                            (position.toFloat() / duration).coerceIn(0.05f, 0.95f)
-                        } else {
-                            0.82f
-                        }
-                    }
-                    GradientTimelineBar(
-                        progress = liveProgress,
-                        buffered = (liveProgress + 0.10f).coerceAtMost(1f),
-                        showChapters = false,
-                        onSeekToFraction = null,
-                        onSeekBy = onSeekBy,
-                    )
                 }
 
                 Row(
@@ -2642,7 +2614,7 @@ private fun VodMediaPlayerOsd(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             val subText = item.subtitle.ifBlank {
-                                if (isEpisode) "حلقة كاملة" else "نسخة أصلية فائقة الوضوح"
+                                if (isEpisode) "حلقة كاملة" else "نسخة أصلية"
                             }
                             Text(
                                 subText,
@@ -2651,11 +2623,6 @@ private fun VodMediaPlayerOsd(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Box(Modifier.size(5.dp).clip(CircleShape).background(OsdOutlineVariant))
-                            FormatChip("4K Ultra HD", OsdPrimary)
-                            FormatChip("HDR10+", OsdCyan)
-                            FormatChip("Dolby Vision", OsdOnSurface)
-                            FormatChip("Atmos 5.1", OsdTertiary)
                         }
                     }
                 }
@@ -2666,24 +2633,6 @@ private fun VodMediaPlayerOsd(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(OsdSurfaceHighest.copy(alpha = 0.75f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        Box(
-                            Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(OsdCyan.copy(alpha = dotAlpha)),
-                        )
-                        Text(bitrateText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OsdCyan)
-                        Text("Media3 Buffer", fontSize = 10.sp, color = OsdOutline)
-                    }
-
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
@@ -2712,38 +2661,7 @@ private fun VodMediaPlayerOsd(
                 }
             }
 
-            // 2. CENTER FLOATING AREA
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(OsdSurfaceLowest.copy(alpha = 0.82f))
-                        .border(1.dp, OsdOutlineVariant.copy(alpha = 0.40f), RoundedCornerShape(14.dp))
-                        .clickable(onClick = onOpenTracks)
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(Ic.Subtitles, contentDescription = null, tint = OsdCyan, modifier = Modifier.size(20.dp))
-                    Column {
-                        Text("الترجمة النشطة", fontSize = 10.sp, color = OsdOutline)
-                        Text(
-                            if (textOff) "بدون ترجمة" else "العربية (الأصلية - UTF-8)",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                        )
-                    }
-                }
-            }
-
-            // 3. EXOPLAYER VOD CONTROLLER (BOTTOM PANEL)
+            // 2. EXOPLAYER VOD CONTROLLER (BOTTOM PANEL)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2753,51 +2671,53 @@ private fun VodMediaPlayerOsd(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-                    val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0f
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                        val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0f
 
-                    GradientTimelineBar(
-                        progress = progressFraction,
-                        buffered = bufferedFraction,
-                        showChapters = true,
-                        onSeekToFraction = { frac ->
-                            if (duration > 0L) onSeekTo((duration * frac).toLong())
-                            onInteract()
-                        },
-                        onSeekBy = onSeekBy,
-                    )
+                        GradientTimelineBar(
+                            progress = progressFraction,
+                            buffered = bufferedFraction,
+                            showChapters = true,
+                            onSeekToFraction = { frac ->
+                                if (duration > 0L) onSeekTo((duration * frac).toLong())
+                                onInteract()
+                            },
+                            onSeekBy = onSeekBy,
+                        )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    formatDuration(position),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                )
+                                Text("/", fontSize = 13.sp, color = OsdOutline)
+                                Text(
+                                    formatDuration(duration),
+                                    fontSize = 13.sp,
+                                    color = OsdOutline,
+                                )
+                            }
+
+                            val remaining = (duration - position).coerceAtLeast(0L)
                             Text(
-                                formatDuration(position),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                            )
-                            Text("/", fontSize = 13.sp, color = OsdOutline)
-                            Text(
-                                formatDuration(duration),
-                                fontSize = 13.sp,
-                                color = OsdOutline,
+                                "المتبقي: -${formatDuration(remaining)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = OsdTertiary,
                             )
                         }
-
-                        val remaining = (duration - position).coerceAtLeast(0L)
-                        Text(
-                            "المتبقي: -${formatDuration(remaining)}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = OsdTertiary,
-                        )
                     }
                 }
 
@@ -2991,6 +2911,18 @@ private fun VodEpisodesDrawer(
 
     val totalCount = if (allEpisodes.isNotEmpty()) allEpisodes.size else playlist.size
 
+    val episodeListState = rememberLazyListState()
+    LaunchedEffect(selectedSeason, currentItem.id, currentIndex) {
+        val targetIndex = if (seasonEpisodes.isNotEmpty()) {
+            seasonEpisodes.indexOfFirst { it.id == currentItem.id }.takeIf { it >= 0 } ?: 0
+        } else {
+            currentIndex.coerceIn(0, (playlist.size - 1).coerceAtLeast(0))
+        }
+        if (targetIndex > 0) {
+            episodeListState.scrollToItem((targetIndex - 1).coerceAtLeast(0))
+        }
+    }
+
     Column(
         modifier = Modifier
             .width(if (compact) 340.dp else 410.dp)
@@ -3062,6 +2994,7 @@ private fun VodEpisodesDrawer(
         }
 
         LazyColumn(
+            state = episodeListState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
@@ -3111,34 +3044,6 @@ private fun VodEpisodesDrawer(
                         onClick = { onSelectPlaylistIndex(idx) },
                     )
                 }
-            }
-        }
-
-        if (!compact) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(Ic.CheckCircle, contentDescription = null, tint = OsdPrimary, modifier = Modifier.size(18.dp))
-                    Text(
-                        "مخزن مؤقتاً عبر Media3 للاستجابة الفورية",
-                        fontSize = 11.sp,
-                        color = OsdPrimary,
-                    )
-                }
-                Text(
-                    "كاش ذكي",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = OsdCyan,
-                )
             }
         }
     }

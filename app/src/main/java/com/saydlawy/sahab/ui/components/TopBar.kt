@@ -136,17 +136,19 @@ fun ClockPill(extra: String? = null, modifier: Modifier = Modifier) {
 
 @Composable
 private fun NavTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    val isTv = com.saydlawy.sahab.ui.LocalIsTv.current
     val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
+    val focusedRaw by interaction.collectIsFocusedAsState()
+    val focused = focusedRaw && isTv
     val shape = RoundedCornerShape(12.dp)
     val fill: Brush = when {
         focused -> Palette.ActiveFill
-        selected -> SolidColor(Palette.Royal.copy(alpha = 0.40f))
+        selected -> SolidColor(Palette.Royal.copy(alpha = if (isTv) 0.40f else 0.30f))
         else -> SolidColor(Color.Transparent)
     }
     val border = when {
         focused -> Palette.Glow
-        selected -> Palette.Glow.copy(alpha = 0.40f)
+        selected -> if (isTv) Palette.Glow.copy(alpha = 0.40f) else Palette.Royal.copy(alpha = 0.60f)
         else -> Color.Transparent
     }
     Box(
@@ -155,11 +157,11 @@ private fun NavTab(label: String, selected: Boolean, onClick: () -> Unit) {
             .background(fill)
             .border(if (focused) 2.dp else 1.dp, border, shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .padding(horizontal = if (isTv) 16.dp else 12.dp, vertical = if (isTv) 9.dp else 7.dp),
     ) {
         Text(
             label,
-            fontSize = 14.sp,
+            fontSize = if (isTv) 14.sp else 13.sp,
             fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
             color = if (selected || focused) Palette.Text else Palette.TextDim,
             maxLines = 1,
@@ -230,28 +232,20 @@ fun SahabTopBar(
                         selected = current == Routes.SETTINGS,
                         tint = Palette.TextDim,
                     )
-                    Spacer(Modifier.width(10.dp))
-                    GlassIconButton(
-                        Ic.Person,
-                        Ar.profile,
-                        { if (current != Routes.SETTINGS) onTab(Routes.SETTINGS) },
-                        size = 46.dp,
-                        tint = Palette.TextDim,
-                    )
                 }
             }
             DisplayMode.PHONE_LANDSCAPE -> {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (onBack != null) {
-                        GlassIconButton(Ic.Back, Ar.back, onBack, size = 40.dp)
+                        GlassIconButton(Ic.Back, Ar.back, onBack, size = 38.dp)
                     }
-                    BrandMark(subtitle = null, logoSize = 36.dp, titleSize = 17)
+                    BrandMark(subtitle = null, logoSize = 32.dp, titleSize = 16)
                     if (showTabs) {
                         LazyRow(
                             modifier = Modifier.weight(1f),

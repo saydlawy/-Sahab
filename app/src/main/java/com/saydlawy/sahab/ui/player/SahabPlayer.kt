@@ -138,7 +138,7 @@ object SahabPlayer {
             .build()
     }
 
-    /** Formats a live technical video badge (e.g. "1080p 50fps" or "4K 60fps") from active tracks. */
+    /** Formats a live technical video badge from active tracks. */
     fun videoBadge(tracks: Tracks, fallbackQuality: String? = null): String {
         val selectedFormat = tracks.groups
             .firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
@@ -158,17 +158,14 @@ object SahabPlayer {
                 else -> "${h}p"
             }
             val fps = if (selectedFormat.frameRate > 0f) {
-                "${selectedFormat.frameRate.roundToInt()}fps"
-            } else {
-                "50fps"
-            }
-            return "$res $fps"
+                " ${selectedFormat.frameRate.roundToInt()}fps"
+            } else ""
+            return "$res$fps"
         }
-        val fb = fallbackQuality ?: "1080p"
-        return "$fb 60fps"
+        return fallbackQuality?.takeIf { it.isNotBlank() } ?: "HD"
     }
 
-    /** Formats an audio stream badge (e.g. "الصوت: العربية (AAC)") from active tracks. */
+    /** Formats an audio stream badge from active tracks. */
     fun audioBadge(tracks: Tracks): String? {
         val selectedFormat = tracks.groups
             .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
@@ -181,11 +178,11 @@ object SahabPlayer {
         val langName = if (!langCode.isNullOrBlank() && langCode != "und") {
             Locale(langCode).getDisplayLanguage(Locale("ar")).ifBlank { langCode }
         } else {
-            selectedFormat.label?.takeIf { it.isNotBlank() } ?: "العربية"
+            selectedFormat.label?.takeIf { it.isNotBlank() } ?: "الصوت"
         }
 
         val codec = codecShortName(selectedFormat)
-        return if (codec != null) "الصوت: $langName ($codec)" else "الصوت: $langName"
+        return if (codec != null) "$langName ($codec)" else langName
     }
 
     fun videoQualityLabel(format: Format): String {
@@ -209,14 +206,7 @@ object SahabPlayer {
         if (format != null && format.bitrate > 0) {
             return String.format(Locale.US, "%.1f Mbps", format.bitrate / 1_000_000f)
         }
-        val h = format?.height ?: 0
-        return when {
-            h >= 2160 -> "24.6 Mbps"
-            h >= 1080 -> "18.4 Mbps"
-            h >= 720 -> "11.2 Mbps"
-            isLive -> "18.4 Mbps"
-            else -> "24.6 Mbps"
-        }
+        return ""
     }
 
     fun activeAudioLabel(tracks: Tracks): String {
@@ -225,16 +215,16 @@ object SahabPlayer {
             ?.let { g ->
                 (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) }
                     ?: if (g.length > 0) g.getTrackFormat(0) else null
-            } ?: return "العربية (Dolby 5.1)"
+            } ?: return "الصوت الافتراضي"
 
         val langCode = format.language
         val langName = if (!langCode.isNullOrBlank() && langCode != "und") {
             Locale(langCode).getDisplayLanguage(Locale("ar")).ifBlank { langCode }
         } else {
-            format.label?.takeIf { it.isNotBlank() } ?: "العربية"
+            format.label?.takeIf { it.isNotBlank() } ?: "الصوت"
         }
-        val codec = codecShortName(format) ?: "Dolby 5.1"
-        return "$langName ($codec)"
+        val codec = codecShortName(format)
+        return if (codec != null) "$langName ($codec)" else langName
     }
 
     fun activeSubtitleLabel(tracks: Tracks, disabled: Boolean): String {
@@ -242,12 +232,12 @@ object SahabPlayer {
         val format = tracks.groups
             .firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.isSelected }
             ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
-            ?: return "العربية (CC)"
+            ?: return "بدون ترجمة"
         val langCode = format.language
         val langName = if (!langCode.isNullOrBlank() && langCode != "und") {
             Locale(langCode).getDisplayLanguage(Locale("ar")).ifBlank { langCode }
         } else {
-            format.label?.takeIf { it.isNotBlank() } ?: "العربية"
+            format.label?.takeIf { it.isNotBlank() } ?: "ترجمة"
         }
         return "$langName (CC)"
     }

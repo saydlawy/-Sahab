@@ -166,7 +166,7 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                         horizontalArrangement = Arrangement.spacedBy(36.dp),
                                         verticalAlignment = Alignment.Top,
                                     ) {
-                                        MoviePosterFrame(details.image, details.name, Modifier.width(270.dp))
+                                        MoviePosterFrame(details.image, details.name, Modifier.width(190.dp))
                                         MovieInfoPanel(
                                             details = details,
                                             resumeMs = resumeMs,
@@ -184,7 +184,7 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                                         verticalAlignment = Alignment.Top,
                                     ) {
-                                        MoviePosterFrame(details.image, details.name, Modifier.width(168.dp))
+                                        MoviePosterFrame(details.image, details.name, Modifier.width(140.dp))
                                         MovieInfoPanel(
                                             details = details,
                                             resumeMs = resumeMs,
@@ -201,7 +201,7 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                     MoviePosterFrame(
                                         details.image,
                                         details.name,
-                                        Modifier.width(190.dp).align(Alignment.CenterHorizontally),
+                                        Modifier.width(160.dp).align(Alignment.CenterHorizontally),
                                     )
                                     Spacer(Modifier.height(18.dp))
                                     MovieInfoPanel(

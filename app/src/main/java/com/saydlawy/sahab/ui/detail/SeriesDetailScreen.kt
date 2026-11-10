@@ -218,7 +218,7 @@ private fun SeriesContent(
                             horizontalArrangement = Arrangement.spacedBy(36.dp),
                             verticalAlignment = Alignment.Top,
                         ) {
-                            SeriesCoverFrame(details.cover, details.name, Modifier.width(250.dp))
+                            SeriesCoverFrame(details.cover, details.name, Modifier.width(185.dp))
                             SeriesInfoPanel(
                                 details = details,
                                 resumeIndex = resumeIndex,
@@ -236,7 +236,7 @@ private fun SeriesContent(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
                             verticalAlignment = Alignment.Top,
                         ) {
-                            SeriesCoverFrame(details.cover, details.name, Modifier.width(160.dp))
+                            SeriesCoverFrame(details.cover, details.name, Modifier.width(140.dp))
                             SeriesInfoPanel(
                                 details = details,
                                 resumeIndex = resumeIndex,
@@ -254,7 +254,7 @@ private fun SeriesContent(
                             SeriesCoverFrame(
                                 details.cover,
                                 details.name,
-                                Modifier.width(185.dp).align(Alignment.CenterHorizontally),
+                                Modifier.width(160.dp).align(Alignment.CenterHorizontally),
                             )
                             Spacer(Modifier.height(16.dp))
                             SeriesInfoPanel(
@@ -305,9 +305,6 @@ private fun SeriesContent(
                         dot = Palette.Glow,
                         fontSize = 16.sp,
                     )
-                    if (LocalIsTv.current) {
-                        Tag(Ar.dpadReady, Palette.Gold, fontSize = 10.sp)
-                    }
                 }
             }
 

@@ -45,7 +45,7 @@ enum class MainCategory(val title: String) {
     SAUDI("دوري روشن"),
     CLUBS_INTL("الدولية للأندية"),
     NATIONAL_TEAMS("الدولية للمنتخبات"),
-    EUROPEAN("الأوروبية الكبرى")
+    EUROPEAN("بطولات أخرى")
 }
 
 enum class DateFilter(
@@ -121,11 +121,14 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
-                var hasPre2026 = false
-                sqLite.rawQuery("SELECT count(*) FROM matches WHERE date < '2026-01-01'", null).use { c ->
-                    if (c.moveToNext()) hasPre2026 = c.getInt(0) > 0
+                var hasPre2026OrYouth = false
+                sqLite.rawQuery(
+                    "SELECT count(*) FROM matches WHERE date < '2026-01-01' OR time = '00:00' OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
+                    null,
+                ).use { c ->
+                    if (c.moveToNext()) hasPre2026OrYouth = c.getInt(0) > 0
                 }
-                leagueIdNotNull && standingsPkValid && !hasPre2026
+                leagueIdNotNull && standingsPkValid && !hasPre2026OrYouth
             }
         } catch (e: Exception) {
             false
@@ -193,6 +196,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         configureSubLeaguesFor(MainCategory.EGYPTIAN)
+        fetchStandings()
 
         viewModelScope.launch {
             try {
@@ -253,10 +257,10 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
                 val combinedMatches = mutableListOf<Match>()
                 if (apiResult is ApiResult.Success) {
-                    combinedMatches.addAll(apiResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" })
+                    combinedMatches.addAll(apiResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" && isSeniorFixture(it) })
                 }
                 if (morphResult is ApiResult.Success) {
-                    combinedMatches.addAll(morphResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" })
+                    combinedMatches.addAll(morphResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" && isSeniorFixture(it) })
                 }
 
                 if (combinedMatches.isNotEmpty()) {
@@ -269,7 +273,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 runCatching {
                     dao.getAllMatches()
                         .map { it.toMatch() }
-                        .filter { it.date.isBlank() || it.date >= "2026-01-01" }
+                        .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
                         .distinctBy {
                             "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
                         }
@@ -423,11 +427,18 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         configureSubLeaguesFor(category)
         applyFilters(allMatches)
         fetchMatchesFromApi(silent = true)
+        fetchStandings()
     }
 
     fun updateSubLeague(leagueId: Int?) {
         _selectedSubLeague.value = leagueId
         applyFilters(allMatches)
+        fetchStandings()
+    }
+
+    fun refreshActiveFilter() {
+        fetchMatchesFromApi(silent = false)
+        fetchStandings()
     }
 
     fun updateDate(date: DateFilter) {
@@ -467,7 +478,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         val deduplicatedSource = matchesToFilter
-            .filter { it.date.isBlank() || it.date >= "2026-01-01" }
+            .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
             .distinctBy {
                 "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
             }
@@ -554,6 +565,18 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
         val grouped = sortedMatches.groupBy { it.league }
         _uiState.value = SportsUiState.Success(grouped)
+    }
+
+    private fun isSeniorFixture(match: Match): Boolean {
+        val haystack = "${match.league.name} ${match.homeTeam.name} ${match.awayTeam.name}"
+        return !YOUTH_OR_CUP_REGEX.containsMatchIn(haystack)
+    }
+
+    private companion object {
+        val YOUTH_OR_CUP_REGEX = Regex(
+            """\b(U18|U19|U20|U21|U23|EFL Trophy|Premier League 2|Reserves)\b""",
+            RegexOption.IGNORE_CASE,
+        )
     }
 
     private fun getFormattedDate(offsetDays: Int): String {

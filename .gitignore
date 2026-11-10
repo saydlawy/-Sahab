@@ -17,4 +17,8 @@ local.properties
 keystore.b64
 *.b64
 app/release.keystore
-app/release.keystore
+
+# Build & caches
+.kotlin/
+__pycache__/
+*.pyc

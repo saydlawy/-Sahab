@@ -109,7 +109,9 @@ fun GlassCard(
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
+    val focusedRaw by interaction.collectIsFocusedAsState()
+    val isTv = LocalIsTv.current
+    val focused = focusedRaw && isTv
     val pressed by interaction.collectIsPressedAsState()
     val light = LocalLightEffects.current
 
@@ -123,16 +125,17 @@ fun GlassCard(
 
     val background: Brush = when {
         fill != null -> fill
-        focused || selected -> Palette.ActiveFill
+        focused -> Palette.ActiveFill
+        selected -> if (isTv) Palette.ActiveFill else Brush.verticalGradient(listOf(Palette.Royal.copy(alpha = 0.28f), Palette.Royal.copy(alpha = 0.20f)))
         else -> Brush.verticalGradient(listOf(Palette.Glass, Palette.Glass))
     }
     val borderColor = when {
         focused -> Palette.Glow
-        selected -> Palette.Glow.copy(alpha = 0.65f)
+        selected -> if (isTv) Palette.Glow.copy(alpha = 0.65f) else Palette.Royal.copy(alpha = 0.75f)
         fill != null -> PrimaryBorder
         else -> IdleBorder
     }
-    val borderWidth = if (focused) 2.dp else if (selected) 1.5.dp else 1.dp
+    val borderWidth = if (focused) 2.dp else if (selected) 1.dp else 1.dp
 
     Box(
         modifier = modifier

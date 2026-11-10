@@ -194,14 +194,15 @@ fun SideNavItem(
     trailingText: String? = null,
     trailingColor: Color = Palette.Gold,
 ) {
+    val isTv = com.saydlawy.sahab.ui.LocalIsTv.current
     GlassCard(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         selected = selected,
-        focusScale = 1.02f,
+        focusScale = if (isTv) 1.02f else 1f,
     ) { focused ->
-        if (selected) {
+        if (selected && isTv) {
             Box(Modifier.matchParentSize()) {
                 Box(
                     Modifier
@@ -215,13 +216,13 @@ fun SideNavItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 54.dp)
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .heightIn(min = if (isTv) 54.dp else 44.dp)
+                .padding(horizontal = if (isTv) 18.dp else 12.dp, vertical = if (isTv) 12.dp else 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = label,
-                fontSize = 16.sp,
+                fontSize = if (isTv) 16.sp else 13.5.sp,
                 fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
                 color = if (selected || focused) Palette.Text else Palette.TextDim,
                 maxLines = 1,
