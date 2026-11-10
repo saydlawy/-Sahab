@@ -700,7 +700,7 @@ private fun ActionPillButton(
             .onFocusChanged { focused = it.isFocused }
             .focusable()
             .clickable(onClick = onClick)
-            .padding(horizontal = (if (label == null) 10 else 12 * scale).dp, vertical = (8 * scale).dp),
+            .padding(horizontal = (if (label == null) 10f else 12f * scale).dp, vertical = (8f * scale).dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -1047,7 +1047,7 @@ private fun SportMatchCard(
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
             .clickable(onClick = onClick)
-            .padding((if (compact) 11 else 14 * scale).dp),
+            .padding((if (compact) 11f else 14f * scale).dp),
         verticalArrangement = Arrangement.spacedBy((8 * scale).dp),
     ) {
         // Card Header: Championship & Time / Live Status & Broadcast Channel
@@ -1111,9 +1111,9 @@ private fun SportMatchCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            TeamRow(match.homeTeam, Modifier.weight(1f), Alignment.Start, scale = scale, crestSize = (if (compact) 30 else 36 * scale).dp)
+            TeamRow(match.homeTeam, Modifier.weight(1f), Alignment.Start, scale = scale, crestSize = (if (compact) 30f else 36f * scale).dp)
             CenterScoreOrTime(match = match, scale = scale, compact = compact)
-            TeamRow(match.awayTeam, Modifier.weight(1f), Alignment.End, scale = scale, crestSize = (if (compact) 30 else 36 * scale).dp)
+            TeamRow(match.awayTeam, Modifier.weight(1f), Alignment.End, scale = scale, crestSize = (if (compact) 30f else 36f * scale).dp)
         }
 
         if (!compact && (match.commentator.isNotBlank() || match.status == MatchStatus.LIVE)) {
@@ -1204,26 +1204,26 @@ private fun CenterScoreOrTime(match: Match, scale: Float, compact: Boolean) {
                         .clip(RoundedCornerShape(10.dp))
                         .background(SportSurface.copy(alpha = 0.90f))
                         .border(1.dp, SportViolet.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = (if (compact) 10 else 14 * scale).dp, vertical = (4 * scale).dp),
+                        .padding(horizontal = (if (compact) 10f else 14f * scale).dp, vertical = (4f * scale).dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("${match.homeScore ?: 0}", color = Color.White, fontSize = (if (compact) 15 else 18 * scale).sp, fontWeight = FontWeight.Black)
-                    Text(":", color = SportTextMuted, fontSize = (14 * scale).sp)
-                    Text("${match.awayScore ?: 0}", color = Color.White, fontSize = (if (compact) 15 else 18 * scale).sp, fontWeight = FontWeight.Black)
+                    Text("${match.homeScore ?: 0}", color = Color.White, fontSize = (if (compact) 15f else 18f * scale).sp, fontWeight = FontWeight.Black)
+                    Text(":", color = SportTextMuted, fontSize = (14f * scale).sp)
+                    Text("${match.awayScore ?: 0}", color = Color.White, fontSize = (if (compact) 15f else 18f * scale).sp, fontWeight = FontWeight.Black)
                 }
             }
             else -> {
                 Text(
                     formatMatchClock(match.time),
                     color = Color.White,
-                    fontSize = (if (compact) 13 else 15 * scale).sp,
+                    fontSize = (if (compact) 13f else 15f * scale).sp,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
                         .background(SportContainerHighest)
                         .border(1.dp, SportCyan.copy(alpha = 0.30f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = (if (compact) 9 else 12 * scale).dp, vertical = (5 * scale).dp),
+                        .padding(horizontal = (if (compact) 9f else 12f * scale).dp, vertical = (5f * scale).dp),
                 )
             }
         }
