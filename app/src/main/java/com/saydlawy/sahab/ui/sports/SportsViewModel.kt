@@ -1,11 +1,10 @@
 package com.saydlawy.sahab.ui.sports
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.saydlawy.sahab.data.sports.ApiResult
-import com.saydlawy.sahab.data.sports.Match
-import com.saydlawy.sahab.data.sports.MatchStatus
-import com.saydlawy.sahab.data.sports.SportsApi
+import androidx.room.Room
+import com.saydlawy.sahab.data.sports.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +29,14 @@ sealed class SportsUiState {
     data class Error(val errorMessage: String) : SportsUiState()
 }
 
-class SportsViewModel : ViewModel() {
+class SportsViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val db by lazy {
+        Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
+            .fallbackToDestructiveMigration()
+            .build()
+    }
+    private val dao = db.matchDao()
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -38,6 +44,11 @@ class SportsViewModel : ViewModel() {
         .build()
 
     private val api = SportsApi(okHttpClient)
+
+    // قائمة الـ IDs المسموح بها فقط (18 بطولة ودوري)
+    private val ALLOWED_LEAGUES = setOf(
+        233, 307, 12, 17, 20, 2, 3, 6, 403, 8, 1, 452, 39, 140, 135, 78, 61, 203
+    )
 
     private var allFetchedMatches: List<Match> = emptyList()
 
@@ -63,14 +74,27 @@ class SportsViewModel : ViewModel() {
     val selectedMatch: StateFlow<Match?> = _selectedMatch.asStateFlow()
 
     init {
-        fetchMatches()
+        loadFromDatabaseThenFetch()
+    }
+
+    private fun loadFromDatabaseThenFetch() {
+        viewModelScope.launch {
+            // 1. قراءة البيانات من الكاش أولاً
+            val cached = dao.getAllMatches().map { it.toMatch() }
+            if (cached.isNotEmpty()) {
+                allFetchedMatches = cached
+                applyLeagueFilter()
+            }
+            // 2. جلب البيانات الجديدة في الخلفية
+            fetchMatchesFromApi()
+        }
     }
 
     fun selectDateFilter(filter: DateFilter) {
         if (_selectedDateFilter.value == filter && _uiState.value is SportsUiState.Success) return
         _selectedDateFilter.value = filter
         _selectedLeague.value = "كل البطولات"
-        fetchMatches()
+        fetchMatchesFromApi()
     }
 
     fun selectLeagueFilter(leagueName: String) {
@@ -83,46 +107,49 @@ class SportsViewModel : ViewModel() {
     }
 
     fun fetchMatches() {
+        fetchMatchesFromApi()
+    }
+
+    private fun fetchMatchesFromApi() {
         viewModelScope.launch {
             _isLoading.value = true
-            _uiState.value = SportsUiState.Loading
+            if (allFetchedMatches.isEmpty()) _uiState.value = SportsUiState.Loading
 
             val currentFilter = _selectedDateFilter.value
             val result: ApiResult<List<Match>> = if (currentFilter == DateFilter.LIVE) {
                 api.getLiveMatches()
             } else {
-                val targetDate = getFormattedDate(currentFilter.dayOffset)
-                api.getFixturesByDate(targetDate)
+                api.getFixturesByDate(getFormattedDate(currentFilter.dayOffset))
             }
 
             when (result) {
                 is ApiResult.Success -> {
-                    val sortedMatches = result.data.sortedWith(
-                        compareBy<Match> {
-                            when (it.status) {
-                                MatchStatus.LIVE -> 0
-                                MatchStatus.UPCOMING -> 1
-                                MatchStatus.FINISHED -> 2
-                                else -> 3
-                            }
-                        }.thenBy { it.time }
-                    )
+                    // فلترة النتائج لتشمل البطولات المسموح بها فقط
+                    val filteredByLeague = result.data.filter { ALLOWED_LEAGUES.contains(it.league.id) }
+                    
+                    // حفظ في قاعدة البيانات
+                    dao.insertMatches(filteredByLeague.map { it.toEntity() })
+                    
+                    // مسح البيانات الأقدم من شهر
+                    val oneMonthAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+                    dao.deleteOldMatches(oneMonthAgo)
 
-                    allFetchedMatches = sortedMatches
+                    // إعادة القراءة من الكاش بعد التحديث
+                    val updatedCache = dao.getAllMatches().map { it.toMatch() }
+                    allFetchedMatches = updatedCache
 
                     val leagues = mutableListOf("كل البطولات")
-                    leagues.addAll(sortedMatches.map { it.league.name }.distinct())
+                    leagues.addAll(updatedCache.map { it.league.name }.distinct())
                     _availableLeagues.value = leagues
 
                     applyLeagueFilter()
                 }
                 is ApiResult.Error -> {
-                    allFetchedMatches = emptyList()
-                    _matches.value = emptyList()
-                    _uiState.value = SportsUiState.Error(result.message)
+                    if (allFetchedMatches.isEmpty()) {
+                        _uiState.value = SportsUiState.Error(result.message)
+                    }
                 }
             }
-
             _isLoading.value = false
         }
     }
@@ -139,10 +166,10 @@ class SportsViewModel : ViewModel() {
 
         if (filtered.isEmpty()) {
             val emptyMsg = when (_selectedDateFilter.value) {
-                DateFilter.LIVE -> "لا توجد مباريات جارية في هذه اللحظة"
-                DateFilter.TODAY -> "لا توجد مباريات مسجلة لهذا اليوم"
-                DateFilter.YESTERDAY -> "لا توجد مباريات مسجلة ليوم أمس"
-                DateFilter.TOMORROW -> "لا توجد مباريات مسجلة ليوم الغد"
+                DateFilter.LIVE -> "لا توجد مباريات جارية"
+                DateFilter.TODAY -> "لا توجد مباريات اليوم"
+                DateFilter.YESTERDAY -> "لا توجد مباريات أمس"
+                DateFilter.TOMORROW -> "لا توجد مباريات غداً"
             }
             _uiState.value = SportsUiState.Empty(emptyMsg)
             _selectedMatch.value = null
