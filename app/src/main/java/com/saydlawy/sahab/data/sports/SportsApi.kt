@@ -33,6 +33,10 @@ class SportsApi(private val client: OkHttpClient) {
         return fetchFixtures("https://v3.football.api-sports.io/fixtures?league=$leagueId&season=$season")
     }
 
+
+    suspend fun getFixturesByDateRange(from: String, to: String): ApiResult<List<Match>> {
+        return fetchFixtures("https://v3.football.api-sports.io/fixtures?from=$from&to=$to")
+    }
     private suspend fun fetchFixtures(url: String): ApiResult<List<Match>> {
         if (apiFootballKey.isBlank() || apiFootballKey == "null") {
             return ApiResult.Error("مفتاح API_FOOTBALL_KEY غير موجود أو فارغ في BuildConfig.")
