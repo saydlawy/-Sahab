@@ -59,6 +59,7 @@ object SahabPlayer {
         client: OkHttpClient,
         isLive: Boolean,
         isPreview: Boolean = false,
+        accountHash: String = "anon",
     ): ExoPlayer {
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
@@ -79,7 +80,9 @@ object SahabPlayer {
             if (cache != null) {
                 val sanitizedKeyFactory = CacheKeyFactory { dataSpec ->
                     val rawKey = dataSpec.key ?: dataSpec.uri.toString()
-                    rawKey.replace(Regex("/(live|movie|series)/[^/]+/[^/]+/"), "/$1/cached/")
+                    // Isolate cache per account: /kind/<accountHash>/<id>.<ext>
+                    // (hash derived from server+user; never stores credentials in cache keys)
+                    rawKey.replace(Regex("/(live|movie|series)/[^/]+/[^/]+/"), "/$1/$accountHash/")
                 }
                 CacheDataSource.Factory()
                     .setCache(cache)

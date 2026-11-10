@@ -945,6 +945,7 @@ private fun PreviewPanel(
             client = container.client,
             isLive = true,
             isPreview = true,
+            accountHash = container.accountHash,
         )
     }
 

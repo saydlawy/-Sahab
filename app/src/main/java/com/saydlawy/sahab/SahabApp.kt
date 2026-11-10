@@ -48,6 +48,16 @@ class AppContainer(context: Context) {
     @Volatile
     var playback: PlayRequest? = null
 
+    /** Short stable hash of (server + user). Used to isolate the video cache per account
+     *  without exposing credentials. Returns "anon" before login. */
+    val accountHash: String
+        get() {
+            val a = repo.account ?: return "anon"
+            val bytes = java.security.MessageDigest.getInstance("SHA-256")
+                .digest("${a.server}|${a.user}".toByteArray(Charsets.UTF_8))
+            return bytes.take(4).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        }
+
     fun saveProgress(item: PlayItem, positionMs: Long, durationMs: Long) {
         val live = item.kind == Kind.LIVE
         val recent = RecentItem(

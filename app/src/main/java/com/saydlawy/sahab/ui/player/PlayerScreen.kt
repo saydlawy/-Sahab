@@ -191,7 +191,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     val currentItem by rememberUpdatedState(item)
     val isLive = item.kind == Kind.LIVE
 
-    val exo = remember { SahabPlayer.create(context, container.client, isLive = isLive, isPreview = false) }
+    val exo = remember { SahabPlayer.create(context, container.client, isLive = isLive, isPreview = false, accountHash = container.accountHash) }
 
     var isPlaying by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
