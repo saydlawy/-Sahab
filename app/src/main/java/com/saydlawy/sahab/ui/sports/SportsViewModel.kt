@@ -40,6 +40,7 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val db by lazy {
         Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
+            .createFromAsset("databases/sports_db")
             .fallbackToDestructiveMigration()
             .build()
     }
