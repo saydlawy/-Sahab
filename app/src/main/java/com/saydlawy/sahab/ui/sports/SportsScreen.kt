@@ -56,6 +56,9 @@ fun SportsScreen(
     val selectedLeagueId by viewModel.selectedLeagueId.collectAsState()
     val selectedTimeFilter by viewModel.selectedTimeFilter.collectAsState()
     val selectedMatch by viewModel.selectedMatch.collectAsState()
+    val showStandings by viewModel.showStandings.collectAsState()
+    val standings by viewModel.standings.collectAsState()
+    val isStandingsLoading by viewModel.isStandingsLoading.collectAsState()
 
     var showMobileMatchDetails by remember { mutableStateOf(false) }
 
@@ -69,7 +72,7 @@ fun SportsScreen(
             val isTvOrWideScreen = maxWidth >= 720.dp
 
             Column(modifier = Modifier.fillMaxSize()) {
-                SportsTopBar(onRefresh = { viewModel.fetchMatches() }, onClose = onClose)
+                SportsTopBar(onRefresh = { viewModel.fetchMatches() }, onClose = onClose, onShowStandings = { viewModel.fetchStandings() })
 
                 // الشريط الأول: التصنيفات الرئيسية
                 LazyRow(
@@ -161,12 +164,66 @@ fun SportsScreen(
                     MatchDetailsPanel(match = selectedMatch!!, onCloseDialog = { showMobileMatchDetails = false })
                 }
             }
+
+            if (showStandings) {
+                Dialog(onDismissRequest = { viewModel.hideStandings() }) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = CardColor),
+                        border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("جدول الترتيب", color = AccentCyan, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                                FocusableIconButton(onClick = { viewModel.hideStandings() }) { Icon(imageVector = Icons.Default.Close, contentDescription = "إغلاق", tint = TextWhite) }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            if (isStandingsLoading) {
+                                Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = PrimaryPurple)
+                                }
+                            } else if (standings.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                                    Text("لا يوجد جدول ترتيب لهذه البطولة حالياً", color = TextSecondary)
+                                }
+                            } else {
+                                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    item {
+                                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                            Text("#", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(30.dp))
+                                            Text("الفريق", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                            Text("لعب", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(35.dp), textAlign = TextAlign.Center)
+                                            Text("فاز", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(35.dp), textAlign = TextAlign.Center)
+                                            Text("تعادل", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(45.dp), textAlign = TextAlign.Center)
+                                            Text("خسر", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(35.dp), textAlign = TextAlign.Center)
+                                            Text("نقاط", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(45.dp), textAlign = TextAlign.Center)
+                                        }
+                                    }
+                                    items(standings) { team ->
+                                        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(BgColor).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(team.rank.toString(), color = TextWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(30.dp))
+                                            Text(team.teamName, color = TextWhite, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(team.played.toString(), color = TextSecondary, fontSize = 13.sp, modifier = Modifier.width(35.dp), textAlign = TextAlign.Center)
+                                            Text(team.win.toString(), color = TextSecondary, fontSize = 13.sp, modifier = Modifier.width(35.dp), textAlign = TextAlign.Center)
+                                            Text(team.draw.toString(), color = TextSecondary, fontSize = 13.sp, modifier = Modifier.width(45.dp), textAlign = TextAlign.Center)
+                                            Text(team.loss.toString(), color = TextSecondary, fontSize = 13.sp, modifier = Modifier.width(35.dp), textAlign = TextAlign.Center)
+                                            Text(team.points.toString(), color = AccentCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(45.dp), textAlign = TextAlign.Center)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
         }
     }
 }
 
 @Composable
-private fun SportsTopBar(onRefresh: () -> Unit, onClose: () -> Unit) {
+private fun SportsTopBar(onRefresh: () -> Unit, onClose: () -> Unit, onShowStandings: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             FocusableIconButton(onClick = onClose) { Icon(imageVector = Icons.Default.Close, contentDescription = "إغلاق", tint = TextWhite) }
@@ -178,6 +235,8 @@ private fun SportsTopBar(onRefresh: () -> Unit, onClose: () -> Unit) {
                 Text(text = "محدث تلقائياً", color = LiveGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
             FocusableIconButton(onClick = onRefresh) { Icon(imageVector = Icons.Default.Refresh, contentDescription = "تحديث", tint = AccentCyan) }
+            Spacer(modifier = Modifier.width(8.dp))
+            FocusableActionButton(text = "جدول الترتيب", onClick = onShowStandings)
         }
     }
 }
@@ -208,7 +267,12 @@ private fun MatchCard(match: Match, isSelected: Boolean, onClick: () -> Unit) {
                 TeamDisplay(team = match.homeTeam, alignment = Alignment.Start, modifier = Modifier.weight(1f))
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(10.dp)).background(BgColor).padding(horizontal = 14.dp, vertical = 8.dp)) {
                     if (match.status == MatchStatus.UPCOMING) {
-                        Text(text = match.time.ifBlank { "--:--" }, color = TextWhite, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (match.date.isNotBlank()) {
+                                Text(text = match.date, color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Text(text = match.time.ifBlank { "--:--" }, color = TextWhite, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(text = "${match.homeScore ?: 0}", color = TextWhite, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)

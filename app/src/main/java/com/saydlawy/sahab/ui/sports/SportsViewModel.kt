@@ -51,6 +51,7 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
         .build()
 
     private val morphTvApi = MorphTvApi(okHttpClient)
+    private val theSportsDbApi = TheSportsDbApi(okHttpClient)
     private val apiFootball = SportsApi(okHttpClient)
 
     private var allFetchedMatches: List<Match> = emptyList()
@@ -77,6 +78,15 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
     val selectedTimeFilter: StateFlow<TimeFilter> = _selectedTimeFilter.asStateFlow()
 
     private val _selectedMatch = MutableStateFlow<Match?>(null)
+
+    private val _standings = MutableStateFlow<List<Standing>>(emptyList())
+    val standings: StateFlow<List<Standing>> = _standings.asStateFlow()
+
+    private val _showStandings = MutableStateFlow(false)
+    val showStandings: StateFlow<Boolean> = _showStandings.asStateFlow()
+
+    private val _isStandingsLoading = MutableStateFlow(false)
+    val isStandingsLoading: StateFlow<Boolean> = _isStandingsLoading.asStateFlow()
     val selectedMatch: StateFlow<Match?> = _selectedMatch.asStateFlow()
 
     init {
@@ -117,6 +127,32 @@ class SportsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun fetchMatches() {
         fetchMatchesFromApi()
+    }
+
+
+    fun fetchStandings() {
+        viewModelScope.launch {
+            val tsdbId = AllowedLeaguesConfig.THESPORTSDB_LEAGUE_ID[_selectedLeagueId.value]
+            if (tsdbId == null) {
+                _uiState.value = SportsUiState.Error("جدول الترتيب غير متاح لهذه البطولة حالياً")
+                return@launch
+            }
+            _isStandingsLoading.value = true
+            _showStandings.value = true
+            val result = theSportsDbApi.getStandings(tsdbId, "2024-2025")
+            when (result) {
+                is ApiResult.Success -> _standings.value = result.data
+                is ApiResult.Error -> {
+                    _standings.value = emptyList()
+                    _uiState.value = SportsUiState.Error(result.message)
+                }
+            }
+            _isStandingsLoading.value = false
+        }
+    }
+
+    fun hideStandings() {
+        _showStandings.value = false
     }
 
     private fun loadFromDatabaseThenFetch() {
