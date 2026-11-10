@@ -841,7 +841,7 @@ private fun StandingsPane(
                                 textAlign = TextAlign.Center,
                             )
                             Text(
-                                "${row.lose}",
+                                "${row.loss}",
                                 color = SportTextMuted,
                                 fontSize = (11.5f * scale).sp,
                                 modifier = Modifier.width(24.dp),

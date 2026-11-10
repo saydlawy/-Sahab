@@ -1739,7 +1739,7 @@ private fun UnifiedFullscreenPlayerOsd(
                         )
                         OsdIconSquareButton(
                             icon = Ic.Speed,
-                            description = "${Ar.speed} ($speedDesc)",
+                            description = "السرعة ($speedDesc)",
                             onClick = onCycleSpeed,
                             size = 38.dp,
                         )
