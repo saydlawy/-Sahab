@@ -83,6 +83,10 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        noCompress += "sports_db"
+    }
+
     lint {
         abortOnError = false
         checkReleaseBuilds = false
