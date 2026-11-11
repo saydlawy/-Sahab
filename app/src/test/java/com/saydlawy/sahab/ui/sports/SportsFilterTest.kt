@@ -81,5 +81,32 @@ class SportsFilterTest {
             dateOfOffset = ::offsetDate,
         )
         assertEquals(listOf(2, 3, 4, 5, 6, 7, 8), days90Res.sortedMatches.map { it.id })
+
+        // When a date has zero matches, filter strictly returns empty (no silent fallback to other dates).
+        val emptySample = sample.filterNot { it.id == 2 }
+        val emptyTodayRes = SportsViewModel.filterMatchesPure(
+            matchesToFilter = emptySample,
+            category = MainCategory.EGYPTIAN,
+            subLeague = 233,
+            query = "",
+            filter = DateFilter.TODAY,
+            todayDate = baseDay,
+            targetDate = baseDay,
+            dateOfOffset = ::offsetDate,
+        )
+        assertEquals(emptyList<Int>(), emptyTodayRes.sortedMatches.map { it.id })
+
+        // Text search scans all dates within the selected league/category even if TODAY is selected.
+        val searchAcrossDates = SportsViewModel.filterMatchesPure(
+            matchesToFilter = sample,
+            category = MainCategory.EGYPTIAN,
+            subLeague = 233,
+            query = "Team A8",
+            filter = DateFilter.TODAY,
+            todayDate = baseDay,
+            targetDate = baseDay,
+            dateOfOffset = ::offsetDate,
+        )
+        assertEquals(listOf(8), searchAcrossDates.sortedMatches.map { it.id })
     }
 }

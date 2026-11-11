@@ -24,7 +24,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.EnumMap
 import java.util.Locale
-import kotlin.math.abs
 
 enum class MainCategory(val title: String) {
     EGYPTIAN("الدوري المصري"),
@@ -284,7 +283,6 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
     fun updateDate(date: DateFilter) {
         _selectedDate.value = date
         applyFilters(allMatches)
-        fetchMatchesFromApi(silent = true)
     }
 
     fun updateSearchQuery(query: String) {
@@ -343,17 +341,6 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             return !YOUTH_OR_CUP_REGEX.containsMatchIn(haystack)
         }
 
-        private fun parseDateEpochDays(dateStr: String): Long {
-            if (dateStr.length < 10) return Long.MAX_VALUE / 2
-            return try {
-                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                val timeMs = sdf.parse(dateStr.take(10))?.time ?: return Long.MAX_VALUE / 2
-                timeMs / 86_400_000L
-            } catch (e: Exception) {
-                Long.MAX_VALUE / 2
-            }
-        }
-
         internal fun filterMatchesPure(
             matchesToFilter: List<Match>,
             category: MainCategory,
@@ -409,30 +396,14 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 val endDate = dateOfOffset(filter.rangeDays)
                 byCategoryAndQuery.filter { it.date in todayDate..endDate }
             } else {
-                byCategoryAndQuery.filter { match ->
-                    match.date.isBlank() || match.date == targetDate
-                }
+                byCategoryAndQuery.filter { it.date == targetDate }
             }
 
-            val effectiveMatches = if (exactMatches.isNotEmpty() || query.isNotEmpty()) {
-                exactMatches
+            // Strictly show only the matches for the selected date/range (or all matching dates when searching).
+            val effectiveMatches = if (query.isNotEmpty()) {
+                byCategoryAndQuery
             } else {
-                val targetEpoch = parseDateEpochDays(targetDate)
-                val upcoming = byCategoryAndQuery
-                    .filter { it.date >= targetDate }
-                    .sortedWith(compareBy<Match> { it.date }.thenBy { it.time })
-                    .take(40)
-                if (upcoming.isNotEmpty()) {
-                    upcoming
-                } else {
-                    byCategoryAndQuery
-                        .sortedWith(
-                            compareBy<Match> { abs(parseDateEpochDays(it.date) - targetEpoch) }
-                                .thenByDescending { it.date }
-                                .thenBy { it.time },
-                        )
-                        .take(40)
-                }
+                exactMatches
             }
 
             val sortedMatches = effectiveMatches.sortedWith(

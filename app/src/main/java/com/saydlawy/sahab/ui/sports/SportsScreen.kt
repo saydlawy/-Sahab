@@ -425,14 +425,6 @@ private fun PhonePortraitSportsLayout(
             onShowStandings = onToggleStandingsTab,
         )
         MainCategoryBar(selectedCategory, onSelectCategory, scale = 1f, isTv = false)
-        DateFilterBar(
-            filters = availableDateFilters,
-            selected = selectedDate,
-            counts = dateFilterCounts,
-            onSelect = onSelectDate,
-            scale = 0.96f,
-            isTv = false,
-        )
         if (subLeagues.isNotEmpty()) {
             SubLeagueBar(subLeagues, selectedSubLeague, onSelectSubLeague, scale = 1f, isTv = false)
         }
@@ -614,15 +606,25 @@ private fun LargeScreenSportsLayout(
             .padding(horizontal = (24 * scale).dp, vertical = (8 * scale).dp),
         verticalArrangement = Arrangement.spacedBy((8 * scale).dp),
     ) {
-        // Row 1: Main Category Pills + Content Refresh button
+        // Row 1: Main Category Pills + Date Dropdown Pill + Content Refresh button
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy((10 * scale).dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MainCategoryBar(
-                selected = selectedCategory,
-                onSelect = onSelectCategory,
+            Box(Modifier.weight(1f)) {
+                MainCategoryBar(
+                    selected = selectedCategory,
+                    onSelect = onSelectCategory,
+                    scale = scale,
+                    isTv = isTv,
+                )
+            }
+            DatePickerPill(
+                filters = availableDateFilters,
+                selected = selectedDate,
+                counts = dateFilterCounts,
+                onSelect = onSelectDate,
                 scale = scale,
                 isTv = isTv,
             )
@@ -638,17 +640,7 @@ private fun LargeScreenSportsLayout(
             )
         }
 
-        // Row 2: Date Filters Bar
-        DateFilterBar(
-            filters = availableDateFilters,
-            selected = selectedDate,
-            counts = dateFilterCounts,
-            onSelect = onSelectDate,
-            scale = scale,
-            isTv = isTv,
-        )
-
-        // Row 3: Sub-Leagues Bar (if any)
+        // Row 2: Sub-Leagues Bar (if any)
         if (subLeagues.isNotEmpty()) {
             SubLeagueBar(
                 subLeagues = subLeagues,
@@ -934,25 +926,34 @@ private fun DatePickerPill(
     selected: DateFilter,
     counts: Map<DateFilter, Int>,
     onSelect: (DateFilter) -> Unit,
+    scale: Float = 1f,
+    isTv: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var focusedRaw by remember { mutableStateOf(false) }
+    val focused = focusedRaw && isTv
     val count = counts[selected] ?: 0
     Box {
         Row(
             modifier = Modifier
                 .heightIn(min = 42.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(SportContainerHigh)
-                .border(1.dp, SportViolet.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                .background(if (focused) SportContainerHighest else SportContainerHigh)
+                .border(
+                    width = if (focused) 2.dp else 1.dp,
+                    color = if (focused) SportCyan else SportViolet.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .onFocusChanged { focusedRaw = it.isFocused }
                 .clickable { expanded = true }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = (12 * scale).dp, vertical = (8 * scale).dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 selected.title,
                 color = Color.White,
-                fontSize = 12.5.sp,
+                fontSize = (12.5f * scale).sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
             )
@@ -960,7 +961,7 @@ private fun DatePickerPill(
                 Text(
                     "$count",
                     color = SportCyan,
-                    fontSize = 10.5.sp,
+                    fontSize = (10.5f * scale).sp,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
@@ -968,7 +969,12 @@ private fun DatePickerPill(
                         .padding(horizontal = 6.dp, vertical = 1.dp),
                 )
             }
-            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = SportPrimary, modifier = Modifier.size(18.dp))
+            Icon(
+                Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = if (focused) SportCyan else SportPrimary,
+                modifier = Modifier.size((18 * scale).dp),
+            )
         }
 
         DropdownMenu(
@@ -1240,66 +1246,6 @@ private fun MainCategoryBar(selected: MainCategory, onSelect: (MainCategory) -> 
     }
 }
 
-@Composable
-private fun DateFilterBar(
-    filters: List<DateFilter>,
-    selected: DateFilter,
-    counts: Map<DateFilter, Int>,
-    onSelect: (DateFilter) -> Unit,
-    scale: Float,
-    isTv: Boolean,
-) {
-    LazyRow(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(SportContainer)
-            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy((4 * scale).dp),
-    ) {
-        items(filters, key = { it.name }) { filter ->
-            val isSelected = filter == selected
-            var focusedRaw by remember { mutableStateOf(false) }
-            val isFocused = focusedRaw && isTv
-            val count = counts[filter] ?: 0
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(if (isSelected) SportViolet else if (isFocused) SportContainerHigh else Color.Transparent)
-                    .border(
-                        width = if (isFocused) 1.5.dp else 0.dp,
-                        color = if (isFocused) SportCyan else Color.Transparent,
-                        shape = RoundedCornerShape(9.dp),
-                    )
-                    .onFocusChanged { focusedRaw = it.isFocused }
-                    .clickable { onSelect(filter) }
-                    .padding(horizontal = (10 * scale).dp, vertical = (6 * scale).dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Text(
-                    filter.title,
-                    color = if (isSelected || isFocused) Color.White else SportTextMuted,
-                    fontSize = (11.5f * scale).sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                )
-                if (count > 0) {
-                    Text(
-                        "$count",
-                        color = SportCyan,
-                        fontSize = (10 * scale).sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(SportSurface.copy(alpha = 0.85f))
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun SubLeagueBar(
