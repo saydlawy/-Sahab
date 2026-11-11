@@ -148,14 +148,14 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 ).use { c ->
                     if (c.moveToNext()) has2026Standings = c.getInt(0) >= 18
                 }
-                var hasIntlStandings = false
+                var hasCorrectEgyptianStandings = false
                 sqLite.rawQuery(
-                    "SELECT count(DISTINCT leagueId) FROM standings WHERE leagueId IN (1, 6, 8, 403, 452)",
+                    "SELECT points FROM standings WHERE leagueId = 233 AND rank = 1 LIMIT 1",
                     null,
                 ).use { c ->
-                    if (c.moveToNext()) hasIntlStandings = c.getInt(0) >= 5
+                    if (c.moveToNext()) hasCorrectEgyptianStandings = c.getInt(0) == 24
                 }
-                leagueIdNotNull && standingsPkValid && hasNewSeedMarker && !hasYouthCupJunk && has2026Standings && hasIntlStandings
+                leagueIdNotNull && standingsPkValid && hasNewSeedMarker && !hasYouthCupJunk && has2026Standings && hasCorrectEgyptianStandings
             }
         } catch (e: Exception) {
             false
@@ -290,40 +290,10 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 return@launch
             }
 
-            // 2. تحديث من TheSportsDB في الخلفية فقط إذا لم تتوفر بيانات محلية
-            val tsdbId = AllowedLeaguesConfig.THESPORTSDB_LEAGUE_ID[leagueId]
-            if (tsdbId == null) {
-                _standingsLoading.value = false
-                _standings.value = emptyList()
-                _standingsError.value = "جدول الترتيب غير متاح لهذه البطولة حالياً"
-                return@launch
-            }
-
-            val result = withContext(Dispatchers.IO) {
-                theSportsDbApi.getStandings(tsdbId)
-            }
+            // 2. البطولة بنظام مجموعات أو بدون جدول دوري — لا ترتيب متاح
             _standingsLoading.value = false
-            when (result) {
-                is ApiResult.Success -> {
-                    if (result.data.isNotEmpty()) {
-                        _standings.value = result.data
-                        _standingsError.value = null
-                        withContext(Dispatchers.IO) {
-                            runCatching {
-                                dao.deleteStandingsByLeague(leagueId)
-                                dao.insertStandings(result.data.map { it.toEntity(leagueId) })
-                            }
-                        }
-                    } else {
-                        _standings.value = emptyList()
-                        _standingsError.value = "لا تتوفر بيانات ترتيب لهذه البطولة حالياً"
-                    }
-                }
-                is ApiResult.Error -> {
-                    _standings.value = emptyList()
-                    _standingsError.value = "تعذر تحديث جدول الترتيب: ${result.message}"
-                }
-            }
+            _standings.value = emptyList()
+            _standingsError.value = "هذه البطولة بنظام المجموعات — لا يوجد جدول ترتيب موحّد"
         }
     }
 
