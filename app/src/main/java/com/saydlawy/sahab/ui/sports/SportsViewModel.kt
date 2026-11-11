@@ -89,7 +89,13 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 }
             } catch (e: Exception) {
                 android.util.Log.e("SportsDB", "Failed to copy pre-packaged sports_db from assets", e)
+                throw RuntimeException("SportsDB seed copy failed: ${e.message}", e)
             }
+        }
+
+        val copiedSize = dbFile.length()
+        if (copiedSize < 100_000) {
+            throw RuntimeException("SportsDB seed copy produced only ${copiedSize} bytes (expected ~1.2MB)")
         }
 
         Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
@@ -228,107 +234,41 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 if (cached.isNotEmpty()) {
                     allMatches = cached
                     applyFilters(allMatches)
+                } else {
+                    _uiState.value = SportsUiState.Success(emptyMap())
                 }
             } catch (e: Exception) {
-                android.util.Log.e("SportsDB", "Error reading initial DB", e)
-            }
-
-            // جلب التحديثات الحية والمزامنة الذكية في الخلفية
-            fetchMatchesFromApi(silent = allMatches.isNotEmpty())
-
-            withContext(Dispatchers.IO) {
-                try {
-                    val openFootKey = try { BuildConfig.OPENFOOT_API_KEY } catch (e: Exception) { "" }
-                    val highlightlyKey = try { BuildConfig.HIGHLIGHTLY_API_KEY } catch (e: Exception) { "" }
-                    syncManager.runMonthlySync(openFootKey, highlightlyKey)
-
-                    val updated = dao.getAllMatches().map { it.toMatch() }
-                    _totalDbCount.value = updated.size
-                    if (updated.isNotEmpty()) {
-                        allMatches = updated
-                        withContext(Dispatchers.Main) {
-                            applyFilters(allMatches)
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("SportsSync", "Error in monthly sync", e)
-                }
+                android.util.Log.e("SportsDB", "Failed to read DB", e)
+                _uiState.value = SportsUiState.Error("DB read error: ${e.message ?: "unknown"}")
             }
         }
-        startSmartPolling()
     }
-
     fun fetchMatchesFromApi(silent: Boolean = false) {
         viewModelScope.launch {
             if (!silent) _isRefreshing.value = true
-            if (!silent && allMatches.isEmpty()) {
-                _uiState.value = SportsUiState.Loading
-            }
-
-            val merged = withContext(Dispatchers.IO) {
-                val targetDate = getFormattedDate(_selectedDate.value.offsetDays)
-                val apiFootballDeferred = async {
-                    if (_selectedDate.value == DateFilter.TODAY) {
-                        // Today = full day schedule (fixtures?date=today) + live enrich (fixtures?live=all)
-                        val today = getFormattedDate(0)
-                        val liveDeferred = async { sportsApi.getLiveMatches() }
-                        val fixturesDeferred = async { sportsApi.getFixturesByDate(today) }
-                        val liveRes = liveDeferred.await()
-                        val fixRes = fixturesDeferred.await()
-                        when {
-                            fixRes is ApiResult.Success && liveRes is ApiResult.Success ->
-                                ApiResult.Success(
-                                    (fixRes.data + liveRes.data).distinctBy { it.id }
-                                )
-                            fixRes is ApiResult.Success -> fixRes
-                            liveRes is ApiResult.Success -> liveRes
-                            else -> fixRes
-                        }
-                    } else {
-                        sportsApi.getFixturesByDate(targetDate)
-                    }
-                }
-                val morphTvDeferred = async { morphTvApi.getMatches() }
-
-                val apiResult = apiFootballDeferred.await()
-                val morphResult = morphTvDeferred.await()
-
-                val combinedMatches = mutableListOf<Match>()
-                if (apiResult is ApiResult.Success) {
-                    combinedMatches.addAll(apiResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" && isSeniorFixture(it) })
-                }
-                if (morphResult is ApiResult.Success) {
-                    combinedMatches.addAll(morphResult.data.filter { it.league.id in AllowedLeaguesConfig.ALLOWED_LEAGUES && it.date >= "2026-01-01" && isSeniorFixture(it) })
-                }
-
-                if (combinedMatches.isNotEmpty()) {
-                    val distinctNew = combinedMatches.distinctBy {
-                        "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
-                    }
-                    runCatching { dao.insertMatches(distinctNew.map { it.toEntity() }) }
-                }
-
-                runCatching {
+            try {
+                val merged = withContext(Dispatchers.IO) {
                     dao.getAllMatches()
                         .map { it.toMatch() }
                         .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
                         .distinctBy {
                             "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
                         }
-                }.getOrDefault(allMatches)
-            }
-
-            _isRefreshing.value = false
-            _totalDbCount.value = merged.size
-            if (merged.isNotEmpty()) {
-                allMatches = merged
-                applyFilters(allMatches)
-            } else if (allMatches.isEmpty()) {
-                _uiState.value = SportsUiState.Success(emptyMap())
+                }
+                _isRefreshing.value = false
+                _totalDbCount.value = merged.size
+                if (merged.isNotEmpty()) {
+                    allMatches = merged
+                    applyFilters(allMatches)
+                } else if (allMatches.isEmpty()) {
+                    _uiState.value = SportsUiState.Success(emptyMap())
+                }
+            } catch (e: Exception) {
+                _isRefreshing.value = false
+                _uiState.value = SportsUiState.Error("DB read error: ${e.message ?: "unknown"}")
             }
         }
     }
-
     fun fetchStandings(explicitLeagueId: Int? = null) {
         val leagueId = explicitLeagueId
             ?: _selectedSubLeague.value
