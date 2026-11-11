@@ -1,6 +1,5 @@
 package com.saydlawy.sahab.data
 
-import android.util.Base64
 import com.saydlawy.sahab.util.Ar
 import java.net.URLEncoder
 import kotlinx.coroutines.CompletableDeferred
@@ -14,6 +13,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
+import okio.ByteString.Companion.decodeBase64
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import java.util.Locale
@@ -562,9 +562,9 @@ class Repository(
     private fun decodeText(raw: String): String {
         if (raw.isBlank()) return ""
         return try {
-            val decoded = String(Base64.decode(raw, Base64.DEFAULT), Charsets.UTF_8).trim()
+            val decoded = raw.decodeBase64()?.utf8()?.trim().orEmpty()
             if (decoded.isBlank() || decoded.contains('�')) raw else decoded
-        } catch (e: IllegalArgumentException) {
+        } catch (e: Exception) {
             raw
         }
     }
