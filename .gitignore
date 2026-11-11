@@ -22,3 +22,7 @@ app/release.keystore
 .kotlin/
 __pycache__/
 *.pyc
+
+# Local DB backups
+sports_db.sqlite.bak_*
+*.bak_*

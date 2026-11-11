@@ -121,12 +121,19 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
-                var hasPre2026OrYouth = false
+                var hasNewSeedMarker = false
                 sqLite.rawQuery(
-                    "SELECT count(*) FROM matches WHERE date < '2026-01-01' OR time = '00:00' OR trim(time) = '' OR leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
+                    "SELECT count(*) FROM matches WHERE leagueId = 32",
                     null,
                 ).use { c ->
-                    if (c.moveToNext()) hasPre2026OrYouth = c.getInt(0) > 0
+                    if (c.moveToNext()) hasNewSeedMarker = c.getInt(0) > 0
+                }
+                var hasYouthCupJunk = false
+                sqLite.rawQuery(
+                    "SELECT count(*) FROM matches WHERE leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
+                    null,
+                ).use { c ->
+                    if (c.moveToNext()) hasYouthCupJunk = c.getInt(0) > 0
                 }
                 var has2026Standings = false
                 sqLite.rawQuery(
@@ -142,7 +149,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 ).use { c ->
                     if (c.moveToNext()) hasIntlStandings = c.getInt(0) >= 5
                 }
-                leagueIdNotNull && standingsPkValid && !hasPre2026OrYouth && has2026Standings && hasIntlStandings
+                leagueIdNotNull && standingsPkValid && hasNewSeedMarker && !hasYouthCupJunk && has2026Standings && hasIntlStandings
             }
         } catch (e: Exception) {
             false
@@ -429,6 +436,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 _subLeagues.value = listOf(
                     null to "الكل",
                     6 to "أمم أفريقيا",
+                    32 to "تصفيات أمم أفريقيا",
                     403 to "أمم أوروبا",
                     8 to "كأس آسيا",
                     1 to "كأس العالم",
@@ -501,7 +509,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             MainCategory.EGYPTIAN -> setOf(233)
             MainCategory.SAUDI -> setOf(307)
             MainCategory.CLUBS_INTL -> setOf(12, 17, 20, 2, 3)
-            MainCategory.NATIONAL_TEAMS -> setOf(6, 403, 8, 1, 452)
+            MainCategory.NATIONAL_TEAMS -> setOf(6, 32, 403, 8, 1, 452)
             MainCategory.EUROPEAN -> setOf(39, 140, 135, 78, 61, 203)
         }
 

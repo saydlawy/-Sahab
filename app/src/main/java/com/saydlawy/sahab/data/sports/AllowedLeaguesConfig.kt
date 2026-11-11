@@ -13,7 +13,7 @@ object AllowedLeaguesConfig {
     val ALLOWED_LEAGUES: Set<Int> = linkedSetOf(
         233, 307, // الدوريات المحلية
         12, 17, 20, 2, 3, // الدولية للأندية
-        6, 403, 8, 1, 452, // الدولية للمنتخبات
+        6, 403, 8, 1, 452, 32, // الدولية للمنتخبات (32 = تصفيات أمم أفريقيا)
         39, 140, 135, 78, 61, 203 // الأوروبية الكبرى
     )
 
@@ -57,6 +57,7 @@ object AllowedLeaguesConfig {
             8 -> "كأس آسيا"
             1 -> "كأس العالم"
             452 -> "كأس العرب"
+            32 -> "تصفيات كأس الأمم الأفريقية"
             39 -> "الدوري الإنجليزي الممتاز"
             140 -> "الدوري الإسباني"
             135 -> "الدوري الإيطالي"
@@ -82,6 +83,8 @@ object AllowedLeaguesConfig {
             name.contains("كأس آسيا") || name.contains("Asian Cup", ignoreCase = true) -> 8
             name.contains("كأس العالم") || (name.contains("World Cup", ignoreCase = true) && !name.contains("Club", ignoreCase = true)) -> 1
             name.contains("كأس العرب") || name.contains("Arab Cup", ignoreCase = true) -> 452
+            name.contains("تصفيات") && (name.contains("أفريق") || name.contains("African")) -> 32
+            name.contains("African qualifiers", ignoreCase = true) || name.contains("AFCON qualifiers", ignoreCase = true) -> 32
             name.contains("الإنجليزي") || name.contains("English Premier", ignoreCase = true) || name.equals("Premier League", ignoreCase = true) -> 39
             name.contains("الإسباني") || name.contains("La Liga", ignoreCase = true) || name.contains("LaLiga", ignoreCase = true) -> 140
             name.contains("الإيطالي") || name.contains("Serie A", ignoreCase = true) -> 135
