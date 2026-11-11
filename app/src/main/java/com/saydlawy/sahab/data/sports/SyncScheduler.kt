@@ -8,16 +8,19 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 object SyncScheduler {
     const val PREFS_NAME = "sahab_sync_prefs"
     const val KEY_LAST_SYNC_MS = "last_sync_ms"
+    const val KEY_SYNC_CURSOR = "sync_cursor"
+    const val BATCH_SIZE = 3
     private const val KEY_INITIAL_SCHEDULED = "initial_scheduled"
     private const val UNIQUE_MONTHLY_WORK = "monthly_sync"
     private const val UNIQUE_MANUAL_WORK = "manual_sync"
-    const val MIN_INTERVAL_MS = 25L * 86_400_000L
+
+    /** Minimum interval between automatic batch syncs (25 hours). */
+    const val MIN_INTERVAL_MS = 25L * 3_600_000L
 
     fun scheduleInitialRunIfNeeded(context: Context) {
         val app = context.applicationContext
@@ -28,13 +31,17 @@ object SyncScheduler {
         }
     }
 
+    /**
+     * Schedules the next automatic batch sync, 25 hours from now.
+     * The batch syncs BATCH_SIZE leagues per run, rotating through the full
+     * list via the persisted cursor in prefs.
+     */
     fun scheduleMonthlySync(context: Context) {
-        val delayMs = millisUntilNextMonthMidnight()
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
         val request = OneTimeWorkRequestBuilder<MonthlySyncWorker>()
-            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+            .setInitialDelay(MIN_INTERVAL_MS, TimeUnit.MILLISECONDS)
             .setConstraints(constraints)
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
@@ -44,16 +51,22 @@ object SyncScheduler {
         )
     }
 
-    fun enqueueManualSyncNow(context: Context): OneTimeWorkRequest {
+    /**
+     * Enqueues an immediate sync. When [leagueId] is provided, only that league
+     * is synced (manual single-league mode). Otherwise the worker uses batch mode.
+     */
+    fun enqueueManualSyncNow(context: Context, leagueId: Int? = null): OneTimeWorkRequest {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
-        val input = Data.Builder()
+        val inputBuilder = Data.Builder()
             .putBoolean(MonthlySyncWorker.KEY_FORCE, true)
-            .build()
+        if (leagueId != null) {
+            inputBuilder.putInt(MonthlySyncWorker.KEY_LEAGUE_ID, leagueId)
+        }
         val request = OneTimeWorkRequestBuilder<MonthlySyncWorker>()
             .setConstraints(constraints)
-            .setInputData(input)
+            .setInputData(inputBuilder.build())
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             UNIQUE_MANUAL_WORK,
@@ -61,17 +74,5 @@ object SyncScheduler {
             request,
         )
         return request
-    }
-
-    private fun millisUntilNextMonthMidnight(now: Calendar = Calendar.getInstance()): Long {
-        val target = (now.clone() as Calendar).apply {
-            add(Calendar.MONTH, 1)
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        return (target.timeInMillis - now.timeInMillis).coerceAtLeast(TimeUnit.HOURS.toMillis(1))
     }
 }

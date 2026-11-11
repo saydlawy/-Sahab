@@ -25,6 +25,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.EnumMap
 import java.util.Locale
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.widget.Toast
+import androidx.work.WorkInfo
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class MainCategory(val title: String) {
     EGYPTIAN("الدوري المصري"),
@@ -261,24 +267,43 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshManually() {
         if (_isRefreshing.value) return
-        _isRefreshing.value = true
         val app = getApplication<Application>()
-        val request = SyncScheduler.enqueueManualSyncNow(app)
+        if (!hasInternet(app)) {
+            Toast.makeText(app, "لا يوجد اتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+            return
+        }
+        _isRefreshing.value = true
+        val activeLeagueId = _selectedSubLeague.value
+            ?: defaultLeagueForCategory(_selectedCategory.value)
+        val request = SyncScheduler.enqueueManualSyncNow(app, activeLeagueId)
         viewModelScope.launch {
-            try {
-                try {
+            val info = try {
+                withTimeoutOrNull(120_000L) {
                     WorkManager.getInstance(app)
                         .getWorkInfoByIdFlow(request.id)
-                        .firstOrNull { info -> info != null && info.state.isFinished }
-                } catch (_: Exception) {
-                    // Reload local Room data even if WorkManager observation fails
+                        .firstOrNull { it != null && it.state.isFinished }
                 }
+            } catch (_: Exception) {
+                null
+            }
+            if (info?.state == WorkInfo.State.FAILED) {
+                Toast.makeText(app, "فشل التحديث، تحقق من اتصالك", Toast.LENGTH_SHORT).show()
+            }
+            try {
                 fetchMatchesFromApi(silent = true)
                 fetchStandings()
             } finally {
                 _isRefreshing.value = false
             }
         }
+    }
+
+    private fun hasInternet(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     fun updateDate(date: DateFilter) {
