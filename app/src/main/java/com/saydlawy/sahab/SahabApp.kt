@@ -20,8 +20,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.Cache
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Response
 import java.io.File
+import java.io.IOException
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
@@ -33,9 +37,11 @@ class AppContainer(context: Context) {
         .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 50L * 1024L * 1024L))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
+        .addInterceptor(CleartextGuardInterceptor())
         .addInterceptor { chain ->
             chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
         }
+        .addInterceptor(RetryInterceptor())
         .build()
 
     val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache)
@@ -75,8 +81,56 @@ class AppContainer(context: Context) {
         appScope.launch { prefs.recordPlayback(recent) }
     }
 
+    private class CleartextGuardInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val req = chain.request()
+            if (req.url.scheme.equals("http", ignoreCase = true)) {
+                val host = req.url.host.lowercase(Locale.US)
+                if (STRICT_HTTPS_DOMAINS.any { host == it || host.endsWith(".$it") }) {
+                    throw IOException("HTTPS required for $host")
+                }
+            }
+            return chain.proceed(req)
+        }
+    }
+
+    private class RetryInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val req = chain.request()
+            val path = req.url.encodedPath
+            // Never retry long-lived media streams (live/movie/series) in OkHttp; ExoPlayer handles its own recovery.
+            if (path.contains("/live/") || path.contains("/movie/") || path.contains("/series/")) {
+                return chain.proceed(req)
+            }
+            var attempt = 0
+            while (true) {
+                var response: Response? = null
+                try {
+                    response = chain.proceed(req)
+                    if (response.code !in 500..599 || attempt >= RETRY_BACKOFFS_MS.size) {
+                        return response
+                    }
+                    response.close()
+                } catch (ioe: IOException) {
+                    response?.close()
+                    if (attempt >= RETRY_BACKOFFS_MS.size) throw ioe
+                }
+                val delayMs = RETRY_BACKOFFS_MS[attempt]
+                attempt++
+                try {
+                    Thread.sleep(delayMs)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw IOException("Retry interrupted")
+                }
+            }
+        }
+    }
+
     private companion object {
         const val USER_AGENT = "Sahab/1.0 (Android)"
+        val RETRY_BACKOFFS_MS = longArrayOf(500L, 1500L)
+        val STRICT_HTTPS_DOMAINS = listOf("themoviedb.org", "tmdb.org", "goal-api.com", "github.com", "githubusercontent.com")
     }
 }
 

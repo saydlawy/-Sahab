@@ -292,6 +292,14 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                         }
                     }
 
+                    val trimmedServer = state.server.trim()
+                    val isInsecureHttp = trimmedServer.isNotEmpty() &&
+                        !trimmedServer.startsWith("https://", ignoreCase = true)
+                    if (isInsecureHttp) {
+                        Spacer(Modifier.height(14.dp))
+                        HttpSecurityWarningBanner()
+                    }
+
                     val error = state.error
                     if (error != null) {
                         Spacer(Modifier.height(16.dp))
@@ -455,6 +463,29 @@ private fun LoginFooter(
                 Text(Ar.lightMode, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
             }
         }
+    }
+}
+
+@Composable
+private fun HttpSecurityWarningBanner() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Palette.Gold.copy(alpha = 0.14f))
+            .border(1.dp, Palette.Gold.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Ic.Warning, contentDescription = null, tint = Palette.Gold, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "تنبيه: الاتصال عبر HTTP غير مشفّر. يُفضّل استخدام https:// إذا كان مزود الخدمة يدعمه.",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = Palette.Text,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

@@ -206,6 +206,9 @@ object Ic {
     val FastForward by lazy {
         icon("FastForward", "M4,18l8.5,-6L4,6v12zM13,6v12l8.5,-6L13,6z")
     }
+    val Warning by lazy {
+        icon("Warning", "M1,21h22L12,2 1,21zm12,-3h-2v-2h2v2zm0,-4h-2v-4h2v4z")
+    }
 
     private fun icon(name: String, path: String, autoMirror: Boolean = false): ImageVector {
         val builder = ImageVector.Builder(

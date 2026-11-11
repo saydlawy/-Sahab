@@ -8,6 +8,8 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "matches")
 data class MatchEntity(
@@ -78,6 +80,14 @@ interface MatchDao {
 @Database(entities = [MatchEntity::class, StandingEntity::class], version = 1, exportSchema = false)
 abstract class SportsDatabase : RoomDatabase() {
     abstract fun matchDao(): MatchDao
+}
+
+object SportsMigrations {
+    val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Preserve local matches & standings across future v1 -> v2 schema upgrades
+        }
+    }
 }
 
 // دوال التحويل بين Match و MatchEntity

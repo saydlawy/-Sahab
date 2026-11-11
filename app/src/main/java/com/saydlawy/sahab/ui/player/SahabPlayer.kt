@@ -47,12 +47,23 @@ object SahabPlayer {
         simpleCache?.let { return it }
         return runCatching {
             val appContext = context.applicationContext
-            val dir = File(appContext.cacheDir, "sahab_media_cache").apply { mkdirs() }
+            val dir = File(appContext.cacheDir, MEDIA_CACHE_DIR).apply { mkdirs() }
             val evictor = LeastRecentlyUsedCacheEvictor(MEDIA_CACHE_BYTES)
             val dbProvider = StandaloneDatabaseProvider(appContext)
             SimpleCache(dir, evictor, dbProvider).also { simpleCache = it }
         }.getOrNull()
     }
+
+    @Synchronized
+    fun clearMediaCache(context: Context) {
+        runCatching { simpleCache?.release() }
+        simpleCache = null
+        runCatching {
+            File(context.applicationContext.cacheDir, MEDIA_CACHE_DIR).deleteRecursively()
+        }
+    }
+
+    private const val MEDIA_CACHE_DIR = "sahab_media_cache"
 
     fun create(
         context: Context,

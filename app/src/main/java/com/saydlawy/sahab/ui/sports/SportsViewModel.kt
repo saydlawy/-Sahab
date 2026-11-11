@@ -10,6 +10,7 @@ import com.saydlawy.sahab.data.sports.League
 import com.saydlawy.sahab.data.sports.Match
 import com.saydlawy.sahab.data.sports.MatchStatus
 import com.saydlawy.sahab.data.sports.SportsDatabase
+import com.saydlawy.sahab.data.sports.SportsMigrations
 import com.saydlawy.sahab.data.sports.Standing
 import com.saydlawy.sahab.data.sports.toMatch
 import com.saydlawy.sahab.data.sports.toStanding
@@ -63,7 +64,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         val app = getApplication<Application>()
         val dbFile = app.getDatabasePath("sports_db")
 
-        if (!dbFile.exists() || !isDatabaseSchemaCompatible(dbFile)) {
+        if (needsSeedCopy(dbFile)) {
             try {
                 dbFile.parentFile?.mkdirs()
                 File(dbFile.path + "-wal").delete()
@@ -86,67 +87,75 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(SportsMigrations.MIGRATION_1_2)
             .build()
     }
 
-    private fun isDatabaseSchemaCompatible(dbFile: File): Boolean {
-        if (!dbFile.exists()) return false
+    private fun needsSeedCopy(dbFile: File): Boolean {
+        if (!dbFile.exists()) return true
         return try {
             SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqLite ->
-                var leagueIdNotNull = false
-                sqLite.rawQuery("PRAGMA table_info(matches)", null).use { cursor ->
-                    val nameIdx = cursor.getColumnIndex("name")
-                    val notNullIdx = cursor.getColumnIndex("notnull")
-                    while (cursor.moveToNext()) {
-                        if (nameIdx >= 0 && notNullIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
-                            leagueIdNotNull = cursor.getInt(notNullIdx) == 1
-                        }
-                    }
-                }
-                var standingsPkValid = false
-                sqLite.rawQuery("PRAGMA table_info(standings)", null).use { cursor ->
-                    val nameIdx = cursor.getColumnIndex("name")
-                    val pkIdx = cursor.getColumnIndex("pk")
-                    while (cursor.moveToNext()) {
-                        if (nameIdx >= 0 && pkIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
-                            standingsPkValid = cursor.getInt(pkIdx) > 0
-                        }
-                    }
-                }
-                var hasNewSeedMarker = false
-                sqLite.rawQuery(
-                    "SELECT count(*) FROM matches WHERE leagueId = 32",
-                    null,
-                ).use { c ->
-                    if (c.moveToNext()) hasNewSeedMarker = c.getInt(0) > 0
-                }
-                var hasYouthCupJunk = false
-                sqLite.rawQuery(
-                    "SELECT count(*) FROM matches WHERE leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
-                    null,
-                ).use { c ->
-                    if (c.moveToNext()) hasYouthCupJunk = c.getInt(0) > 0
-                }
-                var has2026Standings = false
-                sqLite.rawQuery(
-                    "SELECT count(*) FROM standings WHERE leagueId = 307 AND played < 34",
-                    null,
-                ).use { c ->
-                    if (c.moveToNext()) has2026Standings = c.getInt(0) >= 18
-                }
-                var hasCorrectEgyptianStandings = false
-                sqLite.rawQuery(
-                    "SELECT points FROM standings WHERE leagueId = 233 AND rank = 1 LIMIT 1",
-                    null,
-                ).use { c ->
-                    if (c.moveToNext()) hasCorrectEgyptianStandings = c.getInt(0) == 24
-                }
-                leagueIdNotNull && standingsPkValid && hasNewSeedMarker && !hasYouthCupJunk && has2026Standings && hasCorrectEgyptianStandings
+                isSchemaOutdated(sqLite) || isSeedDataStale(sqLite)
             }
         } catch (e: Exception) {
-            false
+            true
         }
+    }
+
+    private fun isSchemaOutdated(sqLite: SQLiteDatabase): Boolean {
+        var leagueIdNotNull = false
+        sqLite.rawQuery("PRAGMA table_info(matches)", null).use { cursor ->
+            val nameIdx = cursor.getColumnIndex("name")
+            val notNullIdx = cursor.getColumnIndex("notnull")
+            while (cursor.moveToNext()) {
+                if (nameIdx >= 0 && notNullIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
+                    leagueIdNotNull = cursor.getInt(notNullIdx) == 1
+                }
+            }
+        }
+        var standingsPkValid = false
+        sqLite.rawQuery("PRAGMA table_info(standings)", null).use { cursor ->
+            val nameIdx = cursor.getColumnIndex("name")
+            val pkIdx = cursor.getColumnIndex("pk")
+            while (cursor.moveToNext()) {
+                if (nameIdx >= 0 && pkIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
+                    standingsPkValid = cursor.getInt(pkIdx) > 0
+                }
+            }
+        }
+        return !leagueIdNotNull || !standingsPkValid
+    }
+
+    private fun isSeedDataStale(sqLite: SQLiteDatabase): Boolean {
+        var hasNewSeedMarker = false
+        sqLite.rawQuery(
+            "SELECT count(*) FROM matches WHERE leagueId = 32",
+            null,
+        ).use { c ->
+            if (c.moveToNext()) hasNewSeedMarker = c.getInt(0) > 0
+        }
+        var hasYouthCupJunk = false
+        sqLite.rawQuery(
+            "SELECT count(*) FROM matches WHERE leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
+            null,
+        ).use { c ->
+            if (c.moveToNext()) hasYouthCupJunk = c.getInt(0) > 0
+        }
+        var has2026Standings = false
+        sqLite.rawQuery(
+            "SELECT count(*) FROM standings WHERE leagueId = 307 AND played < 34",
+            null,
+        ).use { c ->
+            if (c.moveToNext()) has2026Standings = c.getInt(0) >= 18
+        }
+        var hasCorrectEgyptianStandings = false
+        sqLite.rawQuery(
+            "SELECT points FROM standings WHERE leagueId = 233 AND rank = 1 LIMIT 1",
+            null,
+        ).use { c ->
+            if (c.moveToNext()) hasCorrectEgyptianStandings = c.getInt(0) == 24
+        }
+        return !hasNewSeedMarker || hasYouthCupJunk || !has2026Standings || !hasCorrectEgyptianStandings
     }
 
     private val dao by lazy { db.matchDao() }

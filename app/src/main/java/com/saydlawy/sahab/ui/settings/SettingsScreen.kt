@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.ui.settings
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.Tag
+import com.saydlawy.sahab.ui.player.SahabPlayer
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.appVersion
@@ -186,7 +188,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                             onClick = {
                                 confirmLogout = false
                                 scope.launch {
-                                    logout(container)
+                                    logout(container, context)
                                     onLoggedOut()
                                 }
                             },
@@ -317,11 +319,12 @@ private fun SystemControlsColumn(
     }
 }
 
-private suspend fun logout(container: AppContainer) {
+private suspend fun logout(container: AppContainer, context: Context) {
     container.playback = null
     container.repo.clearCache(clearDisk = true)
     container.repo.setAccount(null)
     container.prefs.clearAccount()
+    SahabPlayer.clearMediaCache(context)
 }
 
 private fun hostOf(server: String): String = server.substringAfter("://").trimEnd('/')

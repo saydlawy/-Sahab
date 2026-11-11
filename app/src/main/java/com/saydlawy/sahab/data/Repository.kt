@@ -3,6 +3,7 @@ package com.saydlawy.sahab.data
 import android.net.Uri
 import android.util.Base64
 import com.saydlawy.sahab.util.Ar
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -33,6 +34,7 @@ class Repository(
         private set
 
     private val cache = ConcurrentHashMap<String, Any>()
+    private val inFlight = ConcurrentHashMap<String, CompletableDeferred<Any>>()
     private val epgCache = ConcurrentHashMap<String, Pair<Long, List<Program>>>()
     private val epgGate = Semaphore(4)
 
@@ -47,6 +49,7 @@ class Repository(
 
     fun clearCache(clearDisk: Boolean = false) {
         cache.clear()
+        inFlight.clear()
         epgCache.clear()
         if (clearDisk) {
             disk?.clearCatalog()
@@ -138,14 +141,32 @@ class Repository(
     ): T {
         (cache[key] as? T)?.let { return it }
         val dKey = diskKey(key)
-        val fromDisk = disk?.get(dKey, serializer, ttlMs)
-        if (fromDisk != null) {
-            cache[key] = fromDisk
-            return fromDisk
+        val mine = CompletableDeferred<Any>()
+        val existing = inFlight.putIfAbsent(dKey, mine)
+        if (existing != null) {
+            return existing.await() as T
         }
-        return load().also { loaded ->
+        return try {
+            (cache[key] as? T)?.let { cached ->
+                mine.complete(cached)
+                return cached
+            }
+            val fromDisk = disk?.get(dKey, serializer, ttlMs)
+            if (fromDisk != null) {
+                cache[key] = fromDisk
+                mine.complete(fromDisk)
+                return fromDisk
+            }
+            val loaded = load()
             cache[key] = loaded
             disk?.put(dKey, serializer, loaded)
+            mine.complete(loaded)
+            loaded
+        } catch (t: Throwable) {
+            mine.completeExceptionally(t)
+            throw t
+        } finally {
+            inFlight.remove(dKey, mine)
         }
     }
 
@@ -328,12 +349,17 @@ class Repository(
                 return valid
             }
         }
-        val json = request("get_simple_data_table", mapOf("stream_id" to streamId))
-        val nowSec = System.currentTimeMillis() / 1000
-        val list = parsePrograms(json).filter { it.end > nowSec - 2 * 3600 }.take(80)
-        epgCache[key] = System.currentTimeMillis() to list
-        disk?.put(dKey, ListSerializer(Program.serializer()), list)
-        return list
+        return epgGate.withPermit {
+            epgCache[key]?.let { (time, list) ->
+                if (System.currentTimeMillis() - time < EPG_TTL_MS) return@withPermit list
+            }
+            val json = request("get_simple_data_table", mapOf("stream_id" to streamId))
+            val nowSec = System.currentTimeMillis() / 1000
+            val list = parsePrograms(json).filter { it.end > nowSec - 2 * 3600 }.take(80)
+            epgCache[key] = System.currentTimeMillis() to list
+            disk?.put(dKey, ListSerializer(Program.serializer()), list)
+            list
+        }
     }
 
     // Parsing
