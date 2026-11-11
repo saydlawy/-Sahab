@@ -34,10 +34,10 @@ def ht(c,t): return c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AN
 assert os.path.exists(SEED)
 src=sqlite3.connect(f'file:{SEED}?mode=ro',uri=True); dst=sqlite3.connect(OUT)
 dst.executescript('''DROP TABLE IF EXISTS matches; DROP TABLE IF EXISTS standings;
-CREATE TABLE matches(id INTEGER PRIMARY KEY,leagueId INTEGER NOT NULL,leagueName TEXT NOT NULL,leagueCountry TEXT NOT NULL,
+CREATE TABLE matches(id INTEGER NOT NULL,leagueId INTEGER NOT NULL,leagueName TEXT NOT NULL,leagueCountry TEXT NOT NULL,
 homeTeamId INTEGER NOT NULL,homeTeamName TEXT NOT NULL,homeTeamLogo TEXT NOT NULL,awayTeamId INTEGER NOT NULL,
 awayTeamName TEXT NOT NULL,awayTeamLogo TEXT NOT NULL,homeScore INTEGER,awayScore INTEGER,status TEXT NOT NULL,
-minute TEXT,date TEXT NOT NULL,time TEXT NOT NULL,stadium TEXT NOT NULL,channel TEXT NOT NULL,commentator TEXT NOT NULL,savedAt INTEGER NOT NULL);
+minute TEXT,date TEXT NOT NULL,time TEXT NOT NULL,stadium TEXT NOT NULL,channel TEXT NOT NULL,commentator TEXT NOT NULL,savedAt INTEGER NOT NULL,PRIMARY KEY(id));
 CREATE TABLE standings(leagueId INTEGER NOT NULL,rank INTEGER NOT NULL,teamName TEXT NOT NULL,played INTEGER NOT NULL,
 win INTEGER NOT NULL,draw INTEGER NOT NULL,loss INTEGER NOT NULL,goalsFor INTEGER NOT NULL,goalsAgainst INTEGER NOT NULL,
 goalDifference INTEGER NOT NULL,points INTEGER NOT NULL,PRIMARY KEY(leagueId,rank));''')
