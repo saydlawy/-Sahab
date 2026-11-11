@@ -14,7 +14,6 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
 class TmdbApi(
@@ -24,7 +23,21 @@ class TmdbApi(
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val memoryCache = ConcurrentHashMap<String, TmdbCacheEnvelope>()
+    private val memoryCacheLock = Any()
+    private val memoryCache = object : LinkedHashMap<String, TmdbCacheEnvelope>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TmdbCacheEnvelope>?): Boolean =
+            size > MAX_MEMORY_ENTRIES
+    }
+
+    private fun getCachedMemory(key: String): TmdbCacheEnvelope? = synchronized(memoryCacheLock) {
+        memoryCache[key]
+    }
+
+    private fun putCachedMemory(key: String, value: TmdbCacheEnvelope) {
+        synchronized(memoryCacheLock) {
+            memoryCache[key] = value
+        }
+    }
 
     suspend fun enrichMovie(name: String, year: String): TmdbMovie? {
         if (apiKey.isBlank() || name.isBlank()) return null
@@ -34,7 +47,7 @@ class TmdbApi(
         val cacheKey = "tmdb_v1:${cleanedName.lowercase(Locale.ROOT)}:$cleanYear"
 
         // 1. Memory cache check (0ms)
-        memoryCache[cacheKey]?.let { return it.movie }
+        getCachedMemory(cacheKey)?.let { return it.movie }
 
         // 2. Persistent disk cache check (saves free TMDB API quota across app restarts)
         if (diskCache != null) {
@@ -48,7 +61,7 @@ class TmdbApi(
                 // If it was a negative cache entry (not found), check shorter TTL (7 days).
                 val ageOk = cached.found || (System.currentTimeMillis() - cached.savedAt) < DiskCache.TTL_TMDB_MISS_MS
                 if (ageOk) {
-                    memoryCache[cacheKey] = cached
+                    putCachedMemory(cacheKey, cached)
                     return cached.movie
                 }
             }
@@ -62,7 +75,7 @@ class TmdbApi(
             savedAt = System.currentTimeMillis(),
             movie = details,
         )
-        memoryCache[cacheKey] = envelope
+        putCachedMemory(cacheKey, envelope)
         diskCache?.put(
             key = cacheKey,
             serializer = TmdbCacheEnvelope.serializer(),
@@ -74,11 +87,11 @@ class TmdbApi(
 
     /** Strips common IPTV tags ("AR:", "[4K]", "(2024)", "1080p", etc.) for cleaner TMDB matching. */
     private fun cleanQueryTitle(raw: String): String =
-        raw.replace(Regex("^[A-Za-z]{2,4}\\s*[:|\\-]\\s*"), "")
-            .replace(Regex("\\[[^]]*]"), " ")
-            .replace(Regex("\\((19|20)\\d{2}\\)"), " ")
-            .replace(Regex("\\b(4K|UHD|FHD|HD|1080p|720p|BluRay|WEB-DL|WEBRip|x264|x265|HEVC)\\b", RegexOption.IGNORE_CASE), " ")
-            .replace(Regex("\\s+"), " ")
+        raw.replace(PREFIX_TAG_REGEX, "")
+            .replace(BRACKET_TAG_REGEX, " ")
+            .replace(YEAR_PAREN_REGEX, " ")
+            .replace(QUALITY_TAG_REGEX, " ")
+            .replace(WHITESPACE_REGEX, " ")
             .trim()
 
     private val trimmedKey = apiKey.trim()
@@ -143,6 +156,15 @@ class TmdbApi(
                 }
             }
         })
+    }
+
+    private companion object {
+        const val MAX_MEMORY_ENTRIES = 200
+        val PREFIX_TAG_REGEX = Regex("^[A-Za-z]{2,4}\\s*[:|\\-]\\s*")
+        val BRACKET_TAG_REGEX = Regex("\\[[^]]*]")
+        val YEAR_PAREN_REGEX = Regex("\\((19|20)\\d{2}\\)")
+        val QUALITY_TAG_REGEX = Regex("\\b(4K|UHD|FHD|HD|1080p|720p|BluRay|WEB-DL|WEBRip|x264|x265|HEVC)\\b", RegexOption.IGNORE_CASE)
+        val WHITESPACE_REGEX = Regex("\\s+")
     }
 }
 

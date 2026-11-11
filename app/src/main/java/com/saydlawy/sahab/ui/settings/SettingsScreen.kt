@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,6 +45,7 @@ import com.saydlawy.sahab.data.UserInfo
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
+import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassButton
@@ -59,7 +59,9 @@ import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.appVersion
 import com.saydlawy.sahab.util.formatDate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
@@ -67,6 +69,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
     val scope = rememberCoroutineScope()
     val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
     var confirmLogout by remember { mutableStateOf(false) }
+    var loggingOut by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var refreshed by remember { mutableStateOf(false) }
     var refreshError by remember { mutableStateOf<String?>(null) }
@@ -96,14 +99,15 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         SahabTopBar(current = Routes.SETTINGS, onBack = onBack)
 
-        BoxWithConstraints(
+        val displayMode = LocalDisplayMode.current
+        val maxWidth = LocalWindowInfo.current.widthDp
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             contentAlignment = Alignment.TopCenter,
         ) {
-            val displayMode = LocalDisplayMode.current
             val wide = displayMode != DisplayMode.PHONE_PORTRAIT && maxWidth >= 660.dp
 
             Column(
@@ -184,12 +188,15 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                     Spacer(Modifier.height(20.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         GlassButton(
-                            text = Ar.logout,
+                            text = if (loggingOut) "..." else Ar.logout,
                             onClick = {
-                                confirmLogout = false
-                                scope.launch {
-                                    logout(container, context)
-                                    onLoggedOut()
+                                if (!loggingOut) {
+                                    loggingOut = true
+                                    confirmLogout = false
+                                    scope.launch {
+                                        logout(container, context)
+                                        onLoggedOut()
+                                    }
                                 }
                             },
                             primary = true,
@@ -321,10 +328,12 @@ private fun SystemControlsColumn(
 
 private suspend fun logout(container: AppContainer, context: Context) {
     container.playback = null
-    container.repo.clearCache(clearDisk = true)
-    container.repo.setAccount(null)
-    container.prefs.clearAccount()
-    SahabPlayer.clearMediaCache(context)
+    withContext(Dispatchers.IO) {
+        container.repo.clearCache(clearDisk = true)
+        container.repo.setAccount(null)
+        container.prefs.clearAccount()
+        SahabPlayer.clearMediaCache(context)
+    }
 }
 
 private fun hostOf(server: String): String = server.substringAfter("://").trimEnd('/')

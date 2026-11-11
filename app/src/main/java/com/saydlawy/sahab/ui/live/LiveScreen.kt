@@ -15,7 +15,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -47,6 +46,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +56,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -77,6 +78,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.saydlawy.sahab.AppContainer
@@ -128,8 +130,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-private const val STADIUM_MATCH_PREVIEW_URL =
-    "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=1000&q=80"
+private val IdleChannelRowFill: Brush = SolidColor(Palette.Glass)
+private val PreviewShadeBrush: Brush = Brush.verticalGradient(
+    listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Black.copy(alpha = 0.65f)),
+)
+private val PreviewPlaceholderBrush: Brush = Brush.radialGradient(
+    listOf(Palette.Royal.copy(alpha = 0.32f), Palette.DeepBlue, Color.Black),
+)
 
 private const val FAV_CAT_ID = "__FAVORITES__"
 private const val ALL_CAT_ID = "__ALL__"
@@ -162,9 +169,11 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
     private var searchPool: List<Channel>? = null
     private var indexedPool: List<Pair<Channel, String>>? = null
 
-    private fun updateSearchPool(channels: List<Channel>) {
+    private suspend fun updateSearchPool(channels: List<Channel>) {
         searchPool = channels
-        indexedPool = channels.map { it to it.name.normalizeForSearch() }
+        indexedPool = withContext(Dispatchers.Default) {
+            channels.map { it to it.name.normalizeForSearch() }
+        }
     }
 
     init {
@@ -308,7 +317,9 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 val indexed = indexedPool ?: run {
                     val pool = searchPool ?: repo.liveChannels(null).also { updateSearchPool(it) }
-                    indexedPool ?: pool.map { it to it.name.normalizeForSearch() }
+                    indexedPool ?: withContext(Dispatchers.Default) {
+                        pool.map { it to it.name.normalizeForSearch() }
+                    }
                 }
                 val results = withContext(Dispatchers.Default) {
                     indexed.asSequence()
@@ -351,10 +362,31 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
         }
     }
 
+    val playScope = rememberCoroutineScope()
+    var openingPlayer by remember { mutableStateOf(false) }
+
+    val channelIdSet = remember(channels) {
+        HashSet<String>(channels.size).apply { channels.forEach { add(it.id) } }
+    }
+
     val playAt: (Int) -> Unit = { index ->
-        if (channels.isNotEmpty() && index in channels.indices) {
-            val items = channels.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
-            onPlay(PlayRequest(items, index))
+        if (!openingPlayer && channels.isNotEmpty() && index in channels.indices) {
+            openingPlayer = true
+            val snapshot = channels
+            playScope.launch {
+                try {
+                    val items = if (snapshot.size > 300) {
+                        withContext(Dispatchers.Default) {
+                            snapshot.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
+                        }
+                    } else {
+                        snapshot.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
+                    }
+                    onPlay(PlayRequest(items, index))
+                } finally {
+                    openingPlayer = false
+                }
+            }
         }
     }
     val playChannel: (Channel) -> Unit = { ch ->
@@ -363,7 +395,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
         else onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)), 0))
     }
 
-    val activePreview = previewChannel?.takeIf { p -> channels.any { it.id == p.id } }
+    val activePreview = previewChannel?.takeIf { it.id in channelIdSet }
 
     val handleChannelActivate: (Int) -> Unit = { idx ->
         val ch = channels.getOrNull(idx)
@@ -374,7 +406,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
         val displayMode = LocalDisplayMode.current
         when (displayMode) {
             DisplayMode.TABLET_OR_TV -> {
@@ -806,13 +838,31 @@ private fun ChannelRow(
     onToggleFavorite: () -> Unit,
 ) {
     val repo = LocalContainer.current.repo
-    val now by produceState<Program?>(initialValue = null, channel.id) {
-        value = if (channel.epgId.isBlank()) null else try {
+    val cachedPrograms = remember(channel.id) {
+        if (channel.epgId.isBlank()) null else repo.peekShortEpg(channel.id, 2)
+    }
+    val initialProgram = remember(cachedPrograms) {
+        val t = System.currentTimeMillis() / 1000
+        cachedPrograms?.firstOrNull { t in it.start until it.end }
+    }
+    val now by produceState<Program?>(initialValue = initialProgram, channel.id) {
+        if (channel.epgId.isBlank()) {
+            value = null
+            return@produceState
+        }
+        val memHit = repo.peekShortEpg(channel.id, 2)
+        if (memHit != null) {
+            val t = System.currentTimeMillis() / 1000
+            value = memHit.firstOrNull { t in it.start until it.end }
+            return@produceState
+        }
+        delay(300) // Wait for scroll to settle before hitting disk/network EPG
+        value = try {
             val t = System.currentTimeMillis() / 1000
             repo.shortEpg(channel.id, 2).firstOrNull { t in it.start until it.end }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -824,7 +874,7 @@ private fun ChannelRow(
         isPreviewed -> Palette.Glow.copy(alpha = 0.7f)
         else -> Palette.GlassBorder
     }
-    val bg: Brush = if (active) Palette.ActiveFill else Brush.verticalGradient(listOf(Palette.Glass, Palette.Glass))
+    val bg: Brush = if (active) Palette.ActiveFill else IdleChannelRowFill
     val borderWidth = if (active) appDp(2) else appDp(1)
 
     Row(
@@ -939,15 +989,8 @@ private fun PreviewPanel(
     val repo = container.repo
     val context = LocalContext.current
 
-    val previewExo = remember {
-        SahabPlayer.create(
-            context = context,
-            client = container.client,
-            isLive = true,
-            isPreview = true,
-            accountHash = container.accountHash,
-        )
-    }
+    var previewExo by remember { mutableStateOf<ExoPlayer?>(null) }
+    var isScreenActive by remember { mutableStateOf(true) }
 
     var isPlaying by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(false) }
@@ -956,8 +999,23 @@ private fun PreviewPanel(
     var formatAttempt by remember { mutableIntStateOf(0) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            previewExo?.release()
+            previewExo = null
+        }
+    }
+
     DisposableEffect(previewExo) {
-        previewExo.volume = if (muted) 0f else 1f
+        val exo = previewExo
+        if (exo == null) {
+            isPlaying = false
+            buffering = false
+            videoReady = false
+            tracks = Tracks.EMPTY
+            return@DisposableEffect onDispose { }
+        }
+        exo.volume = if (muted) 0f else 1f
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
@@ -981,15 +1039,20 @@ private fun PreviewPanel(
                 }
             }
         }
-        previewExo.addListener(listener)
+        exo.addListener(listener)
         onDispose {
-            previewExo.removeListener(listener)
-            previewExo.release()
+            exo.removeListener(listener)
         }
     }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        isScreenActive = true
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        previewExo.pause()
+        isScreenActive = false
+        previewExo?.release()
+        previewExo = null
     }
 
     LaunchedEffect(channel?.id) {
@@ -998,11 +1061,15 @@ private fun PreviewPanel(
         tracks = Tracks.EMPTY
     }
 
-    LaunchedEffect(channel?.id, formatAttempt) {
+    LaunchedEffect(channel?.id, formatAttempt, isScreenActive) {
         val ch = channel
-        if (ch == null) {
-            previewExo.stop()
-            previewExo.clearMediaItems()
+        if (ch == null || !isScreenActive) {
+            previewExo?.stop()
+            previewExo?.clearMediaItems()
+            if (ch == null) {
+                previewExo?.release()
+                previewExo = null
+            }
             videoReady = false
             return@LaunchedEffect
         }
@@ -1010,16 +1077,24 @@ private fun PreviewPanel(
             repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon), formatAttempt)
         }.getOrNull() ?: return@LaunchedEffect
 
-        previewExo.volume = if (muted) 0f else 1f
-        previewExo.setMediaItem(MediaItem.fromUri(url))
-        previewExo.prepare()
-        previewExo.playWhenReady = true
+        val exo = previewExo ?: SahabPlayer.create(
+            context = context,
+            client = container.client,
+            isLive = true,
+            isPreview = true,
+            accountHash = container.accountHash,
+        ).also { previewExo = it }
+
+        exo.volume = if (muted) 0f else 1f
+        exo.setMediaItem(MediaItem.fromUri(url))
+        exo.prepare()
+        exo.playWhenReady = true
     }
 
     val openFullScreen: () -> Unit = {
-        // Release active stream connection before opening full-screen player (respects max_connections = 1)
-        previewExo.stop()
-        previewExo.clearMediaItems()
+        // Fully release preview player before opening full-screen player (prevents dual MediaCodec/RAM usage)
+        previewExo?.release()
+        previewExo = null
         onPlay()
     }
 
@@ -1062,26 +1137,36 @@ private fun PreviewPanel(
                             player = previewExo
                         }
                     },
+                    update = { view ->
+                        if (view.player !== previewExo) {
+                            view.player = previewExo
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
 
                 if (!videoReady) {
-                    RemoteImage(
-                        url = STADIUM_MATCH_PREVIEW_URL,
-                        fallbackText = channel?.name ?: "Live TV",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(PreviewPlaceholderBrush),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (channel != null && channel.icon.isNotBlank()) {
+                            RemoteImage(
+                                url = channel.icon,
+                                fallbackText = channel.name,
+                                modifier = Modifier.size(appDp(56)).clip(RoundedCornerShape(appDp(12))),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
                 }
 
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Black.copy(alpha = 0.65f)),
-                            ),
-                        ),
+                        .background(PreviewShadeBrush),
                 )
 
                 if (channel == null) {
@@ -1168,7 +1253,9 @@ private fun PreviewPanel(
                         icon = if (isPlaying) Ic.Pause else Ic.Play,
                         description = if (isPlaying) Ar.pause else Ar.play,
                         onClick = {
-                            if (previewExo.isPlaying) previewExo.pause() else previewExo.play()
+                            previewExo?.let { exo ->
+                                if (exo.isPlaying) exo.pause() else exo.play()
+                            }
                         },
                     )
                     PlayerControlButton(
@@ -1176,7 +1263,7 @@ private fun PreviewPanel(
                         description = if (muted) Ar.unmute else Ar.mute,
                         onClick = {
                             muted = !muted
-                            previewExo.volume = if (muted) 0f else 1f
+                            previewExo?.volume = if (muted) 0f else 1f
                         },
                     )
                     PlayerControlButton(

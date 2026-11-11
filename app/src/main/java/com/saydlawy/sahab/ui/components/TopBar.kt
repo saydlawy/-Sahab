@@ -7,7 +7,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalTabNavigator
+import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
@@ -98,9 +98,9 @@ fun BrandMark(subtitle: String?, logoSize: Dp = 48.dp, titleSize: Int = 22) {
     }
 }
 
-/** Ticking "now" epoch millis value, refreshed every few seconds (API 23+ compatible). */
+/** Ticking "now" epoch millis value, refreshed every 30s (minutes display without constant recomposition). */
 @Composable
-fun rememberNow(periodMs: Long = 5_000L): Long {
+fun rememberNow(periodMs: Long = 30_000L): Long {
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(periodMs) {
         while (true) {
@@ -200,7 +200,8 @@ fun SahabTopBar(
 ) {
     val onTab = LocalTabNavigator.current
     val displayMode = LocalDisplayMode.current
-    BoxWithConstraints(modifier.fillMaxWidth()) {
+    val maxWidth = LocalWindowInfo.current.widthDp
+    Box(modifier.fillMaxWidth()) {
         val roomy = maxWidth >= 1180.dp && displayMode == DisplayMode.TABLET_OR_TV
         when (displayMode) {
             DisplayMode.TABLET_OR_TV -> {

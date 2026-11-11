@@ -64,6 +64,11 @@ object SahabPlayer {
     }
 
     private const val MEDIA_CACHE_DIR = "sahab_media_cache"
+    private val CACHE_KEY_CREDENTIAL_REGEX = Regex("/(live|movie|series)/[^/]+/[^/]+/")
+
+    fun warmUpMediaCache(context: Context) {
+        getMediaCache(context)
+    }
 
     fun create(
         context: Context,
@@ -93,7 +98,7 @@ object SahabPlayer {
                     val rawKey = dataSpec.key ?: dataSpec.uri.toString()
                     // Isolate cache per account: /kind/<accountHash>/<id>.<ext>
                     // (hash derived from server+user; never stores credentials in cache keys)
-                    rawKey.replace(Regex("/(live|movie|series)/[^/]+/[^/]+/"), "/$1/$accountHash/")
+                    rawKey.replace(CACHE_KEY_CREDENTIAL_REGEX, "/$1/$accountHash/")
                 }
                 CacheDataSource.Factory()
                     .setCache(cache)

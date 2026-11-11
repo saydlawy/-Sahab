@@ -45,14 +45,57 @@ fun String.normalizeForSearch(): String {
     return out.toString()
 }
 
+private val dateFormatCache: ThreadLocal<MutableMap<String, java.text.SimpleDateFormat>> =
+    ThreadLocal.withInitial { HashMap() }
+
+private fun cachedDateFormat(
+    pattern: String,
+    locale: Locale = Locale.US,
+    timeZone: java.util.TimeZone = java.util.TimeZone.getDefault(),
+): java.text.SimpleDateFormat {
+    val key = "$pattern|${locale.toLanguageTag()}|${timeZone.id}"
+    val map = dateFormatCache.get()!!
+    return map.getOrPut(key) {
+        java.text.SimpleDateFormat(pattern, locale).apply { this.timeZone = timeZone }
+    }
+}
+
 fun formatClock(epochSeconds: Long): String =
-    java.text.SimpleDateFormat("HH:mm", Locale.US).format(Date(epochSeconds * 1000))
+    cachedDateFormat("HH:mm", Locale.US).format(Date(epochSeconds * 1000))
 
 fun formatDate(epochSeconds: Long): String =
-    java.text.SimpleDateFormat("yyyy/MM/dd", Locale.US).format(Date(epochSeconds * 1000))
+    cachedDateFormat("yyyy/MM/dd", Locale.US).format(Date(epochSeconds * 1000))
 
 fun formatNowMillis(epochMillis: Long, pattern: String = "HH:mm", locale: Locale = Locale.US): String =
-    java.text.SimpleDateFormat(pattern, locale).format(Date(epochMillis))
+    cachedDateFormat(pattern, locale).format(Date(epochMillis))
+
+fun formatDayOffsetYmd(offsetDays: Int): String {
+    val calendar = java.util.Calendar.getInstance()
+    calendar.add(java.util.Calendar.DAY_OF_YEAR, offsetDays)
+    return cachedDateFormat("yyyy-MM-dd", Locale.US).format(calendar.time)
+}
+
+fun formatUtcClockToLocal(rawTime: String, dateStr: String = ""): String {
+    val clean = rawTime.trim()
+    if (clean.isBlank() || clean == "null" || clean == "00:00" || clean.startsWith("00:00:")) {
+        return ""
+    }
+    val hm = clean.take(5)
+    return try {
+        val utc = java.util.TimeZone.getTimeZone("UTC")
+        val effectiveDate = dateStr.trim().take(10).ifBlank {
+            cachedDateFormat("yyyy-MM-dd", Locale.US, utc).format(Date())
+        }
+        val parsed = cachedDateFormat("yyyy-MM-dd HH:mm", Locale.US, utc).parse("$effectiveDate $hm")
+        if (parsed != null) {
+            cachedDateFormat("HH:mm", Locale.US, java.util.TimeZone.getDefault()).format(parsed)
+        } else {
+            hm.lowercase(Locale.US)
+        }
+    } catch (_: Exception) {
+        hm.lowercase(Locale.US)
+    }
+}
 
 fun formatDuration(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)

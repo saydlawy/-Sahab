@@ -45,7 +45,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,9 +58,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -67,13 +71,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
 
 private val IdleBorder = Palette.GlassBorder
 private val PrimaryBorder = Palette.Glow.copy(alpha = 0.40f)
+private val IdleGlassFill: Brush = SolidColor(Palette.Glass)
+private val PhoneSelectedGlassFill: Brush = Brush.verticalGradient(
+    listOf(Palette.Royal.copy(alpha = 0.28f), Palette.Royal.copy(alpha = 0.20f)),
+)
+private val PosterBottomShade: Brush = Brush.verticalGradient(
+    listOf(Color.Transparent, Color.Transparent, Palette.DeepBlue.copy(alpha = 0.75f)),
+)
+private val HD_REGEX = Regex("\\bHD\\b")
 
 /** Asks for keyboard/remote focus once, on televisions only. */
 @Composable
@@ -126,8 +139,8 @@ fun GlassCard(
     val background: Brush = when {
         fill != null -> fill
         focused -> Palette.ActiveFill
-        selected -> if (isTv) Palette.ActiveFill else Brush.verticalGradient(listOf(Palette.Royal.copy(alpha = 0.28f), Palette.Royal.copy(alpha = 0.20f)))
-        else -> Brush.verticalGradient(listOf(Palette.Glass, Palette.Glass))
+        selected -> if (isTv) Palette.ActiveFill else PhoneSelectedGlassFill
+        else -> IdleGlassFill
     }
     val borderColor = when {
         focused -> Palette.Glow
@@ -398,13 +411,24 @@ fun RemoteImage(
 ) {
     Box(modifier.background(Color.White.copy(alpha = 0.05f))) {
         if (url.isNotBlank()) {
-            SubcomposeAsyncImage(
-                model = url,
+            val context = LocalContext.current
+            var showFallback by remember(url) { mutableStateOf(true) }
+            if (showFallback) {
+                FallbackLetter(fallbackText)
+            }
+            val request = remember(context, url) {
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = request,
                 contentDescription = null,
                 contentScale = contentScale,
+                onSuccess = { showFallback = false },
+                onError = { showFallback = true },
                 modifier = Modifier.fillMaxSize(),
-                loading = { FallbackLetter(fallbackText) },
-                error = { FallbackLetter(fallbackText) },
             )
         } else {
             FallbackLetter(fallbackText)
@@ -545,11 +569,7 @@ fun PosterCard(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Transparent, Palette.DeepBlue.copy(alpha = 0.75f)),
-                            ),
-                        ),
+                        .background(PosterBottomShade),
                 )
                 if (badge.isNotBlank()) {
                     Row(
@@ -615,7 +635,7 @@ fun qualityOf(name: String): String? {
     return when {
         "4K" in u || "UHD" in u -> "4K"
         "FHD" in u || "1080" in u -> "FHD"
-        Regex("\\bHD\\b").containsMatchIn(u) -> "HD"
+        HD_REGEX.containsMatchIn(u) -> "HD"
         else -> null
     }
 }

@@ -127,6 +127,7 @@ import com.saydlawy.sahab.util.findActivity
 import com.saydlawy.sahab.util.formatDuration
 import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
 
 // Design tokens from ExoPlayer/DESIGN.md & media-player/DESIGN.md
@@ -155,6 +156,7 @@ private val PlaybackSpeeds = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
 
 private const val SEEK_STEP_MS = 10_000L
 private const val CONTROLS_HIDE_MS = 2_000L
+private val TimelineProgressBrush = Brush.horizontalGradient(listOf(OsdPrimaryContainer, OsdPrimary, OsdCyan))
 
 @Composable
 fun PlayerScreen(container: AppContainer, onBack: () -> Unit) {
@@ -184,9 +186,6 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     val buffering = ui.buffering
     val reconnecting = ui.reconnecting
     val error = ui.error
-    val position = ui.position
-    val bufferedPosition = ui.bufferedPosition
-    val duration = ui.duration
     val playbackSpeed = ui.playbackSpeed
     val resizeIndex = ui.resizeIndex
     val epg = ui.epg
@@ -203,8 +202,10 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     var showQuickChannelsDrawer by remember { mutableStateOf(false) }
     var showEpisodesDrawer by remember { mutableStateOf(false) }
     var ended by remember { mutableStateOf(false) }
+    var stoppedByLifecycle by remember { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
+    val drawerFocus = remember { FocusRequester() }
 
     LaunchedEffect(item.groupId, item.kind) {
         vm.loadSeriesIfNeeded(item)
@@ -314,7 +315,24 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { exo.pause() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        saveNow()
+        if (exo.playWhenReady || exo.isPlaying) {
+            stoppedByLifecycle = true
+            exo.pause()
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        if (stoppedByLifecycle) {
+            stoppedByLifecycle = false
+            if (isLive) {
+                exo.seekToDefaultPosition()
+                exo.prepare()
+            }
+            exo.play()
+        }
+    }
 
     DisposableEffect(exo) {
         // Lock player software volume at 1.0f (unity gain) & disable looping permanently
@@ -389,7 +407,10 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
             ticks++
             if (ticks >= 20) {
                 ticks = 0
-                if (exo.isPlaying) saveNow()
+                if (exo.isPlaying) {
+                    val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                    vm.saveProgressIfVod(exo.currentPosition, total)
+                }
             }
         }
     }
@@ -413,8 +434,11 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    LaunchedEffect(controlsVisible, requestPlayFocusTick) {
-        if (controlsVisible && (requestPlayFocusTick > 0 || !isPlaying) && displayMode != DisplayMode.PHONE_PORTRAIT) {
+    LaunchedEffect(controlsVisible, requestPlayFocusTick, showEpisodesDrawer, showQuickChannelsDrawer) {
+        if (showEpisodesDrawer || (showQuickChannelsDrawer && isLive)) {
+            delay(60)
+            runCatching { drawerFocus.requestFocus() }
+        } else if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) {
             delay(50)
             runCatching { playFocus.requestFocus() }
         } else if (!controlsVisible && !showEpisodesDrawer && !showQuickChannelsDrawer) {
@@ -542,7 +566,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    val nowSec = System.currentTimeMillis() / 1000
+    val nowSec = if (isLive && epg.isNotEmpty()) rememberNow(30_000L) / 1000L else 0L
     val currentProgram = if (isLive) epg.firstOrNull { nowSec in it.start until it.end } else null
     val nextProgram = if (isLive) epg.firstOrNull { it.start >= (currentProgram?.end ?: nowSec) } else null
 
@@ -571,9 +595,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                     buffering = buffering,
                     reconnecting = reconnecting,
                     error = error,
-                    position = position,
-                    bufferedPosition = bufferedPosition,
-                    duration = duration,
+                    progressFlow = vm.progress,
                     playbackSpeed = playbackSpeed,
                     tracks = tracks,
                     textOff = textOff,
@@ -686,9 +708,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                             playlistCount = if (isLive) playlist.size else (seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size),
                             currentProgram = currentProgram,
                             isPlaying = isPlaying,
-                            position = position,
-                            bufferedPosition = bufferedPosition,
-                            duration = duration,
+                            progressFlow = vm.progress,
                             playbackSpeed = playbackSpeed,
                             showDrawer = if (isLive) showQuickChannelsDrawer else showEpisodesDrawer,
                             playFocus = playFocus,
@@ -732,6 +752,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                 currentIndex = index,
                                 currentProgram = currentProgram,
                                 compact = displayMode == DisplayMode.PHONE_LANDSCAPE,
+                                drawerFocus = drawerFocus,
                                 onSelectChannel = { idx ->
                                     goTo(idx)
                                     showQuickChannelsDrawer = false
@@ -754,9 +775,9 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                 playlist = playlist,
                                 currentIndex = index,
                                 seriesDetails = seriesDetails,
-                                position = position,
-                                duration = duration,
+                                progressFlow = vm.progress,
                                 compact = displayMode == DisplayMode.PHONE_LANDSCAPE,
+                                drawerFocus = drawerFocus,
                                 onSelectPlaylistIndex = { idx ->
                                     goTo(idx)
                                     showEpisodesDrawer = false
@@ -827,9 +848,7 @@ private fun PhonePortraitPlayerScreen(
     buffering: Boolean,
     reconnecting: Boolean,
     error: String?,
-    position: Long,
-    bufferedPosition: Long,
-    duration: Long,
+    progressFlow: StateFlow<PlaybackProgress>,
     playbackSpeed: Float,
     tracks: Tracks,
     textOff: Boolean,
@@ -989,34 +1008,16 @@ private fun PhonePortraitPlayerScreen(
                         }
                     }
 
-                    // Bottom Scrubber inside video
-                    Column(
+                    // Bottom Scrubber inside video (isolated progress recomposition)
+                    PhonePortraitTimelineSection(
+                        progressFlow = progressFlow,
+                        isLive = isLive,
+                        onSeekTo = onSeekTo,
+                        onSeekBy = onSeekBy,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0.85f
-                        val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0.95f
-                        GradientTimelineBar(
-                            progress = progressFraction,
-                            buffered = bufferedFraction,
-                            showChapters = !isLive,
-                            onSeekToFraction = if (!isLive && duration > 0L) {
-                                { frac -> onSeekTo((duration * frac).toLong()) }
-                            } else null,
-                            onSeekBy = onSeekBy,
-                        )
-                        if (!isLive) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(formatDuration(position), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                Text(formatDuration(duration), fontSize = 11.sp, color = OsdOnSurfaceVariant)
-                            }
-                        }
-                    }
+                    )
                 }
             }
 
@@ -1281,6 +1282,9 @@ private fun PhonePortraitPlayerScreen(
                             val isNext = currentEpObj != null &&
                                 ep.season == currentEpObj.season &&
                                 ep.number == currentEpObj.number + 1
+                            val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
+                            val curPos = progState?.position ?: 0L
+                            val curDur = progState?.duration ?: 0L
                             EpisodeDrawerCard(
                                 number = ep.number,
                                 title = ep.title,
@@ -1290,23 +1294,27 @@ private fun PhonePortraitPlayerScreen(
                                 isCurrent = isCurrent,
                                 isWatched = isWatched,
                                 isNext = isNext,
-                                progressFraction = if (isCurrent && duration > 0L) (position.toFloat() / duration).coerceIn(0.05f, 1f) else 0.45f,
-                                remainingMinutes = if (isCurrent && duration > position) ((duration - position) / 60_000L).toInt().coerceAtLeast(1) else 25,
+                                progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.45f,
+                                remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 25,
                                 onClick = { onSelectEpisode(ep) },
                             )
                         }
                     } else {
                         itemsIndexed(playlist, key = { i, p -> "${p.id}_$i" }) { idx, p ->
+                            val isCurrent = idx == currentIndex
+                            val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
+                            val curPos = progState?.position ?: 0L
+                            val curDur = progState?.duration ?: 0L
                             EpisodeDrawerCard(
                                 number = idx + 1,
                                 title = p.subtitle.ifBlank { p.title },
                                 plot = p.title,
                                 imageUrl = p.icon,
-                                durationText = if (idx == currentIndex && duration > 0L) formatDuration(duration) else "FHD",
-                                isCurrent = idx == currentIndex,
+                                durationText = if (isCurrent && curDur > 0L) formatDuration(curDur) else "FHD",
+                                isCurrent = isCurrent,
                                 isWatched = idx < currentIndex,
                                 isNext = idx == currentIndex + 1,
-                                progressFraction = if (idx == currentIndex && duration > 0L) (position.toFloat() / duration).coerceIn(0.05f, 1f) else 0.5f,
+                                progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.5f,
                                 remainingMinutes = 25,
                                 onClick = { onSelectPlaylistIndex(idx) },
                             )
@@ -1323,15 +1331,52 @@ private fun PhonePortraitPlayerScreen(
 // ============================================================================
 
 @Composable
+private fun PhonePortraitTimelineSection(
+    progressFlow: StateFlow<PlaybackProgress>,
+    isLive: Boolean,
+    onSeekTo: (Long) -> Unit,
+    onSeekBy: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val prog by progressFlow.collectAsStateWithLifecycle()
+    val position = prog.position
+    val bufferedPosition = prog.bufferedPosition
+    val duration = prog.duration
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0.85f
+        val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0.95f
+        GradientTimelineBar(
+            progress = progressFraction,
+            buffered = bufferedFraction,
+            showChapters = !isLive,
+            onSeekToFraction = if (!isLive && duration > 0L) {
+                { frac -> onSeekTo((duration * frac).toLong()) }
+            } else null,
+            onSeekBy = onSeekBy,
+        )
+        if (!isLive) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(formatDuration(position), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(formatDuration(duration), fontSize = 11.sp, color = OsdOnSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
 private fun UnifiedFullscreenPlayerOsd(
     item: PlayItem,
     isLive: Boolean,
     playlistCount: Int,
     currentProgram: Program?,
     isPlaying: Boolean,
-    position: Long,
-    bufferedPosition: Long,
-    duration: Long,
+    progressFlow: StateFlow<PlaybackProgress>,
     playbackSpeed: Float,
     showDrawer: Boolean,
     playFocus: FocusRequester,
@@ -1436,84 +1481,13 @@ private fun UnifiedFullscreenPlayerOsd(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val progressFraction = if (isLive) {
-                if (currentProgram != null && currentProgram.end > currentProgram.start) {
-                    val now = System.currentTimeMillis() / 1000
-                    ((now - currentProgram.start).toFloat() / (currentProgram.end - currentProgram.start)).coerceIn(0.08f, 0.96f)
-                } else {
-                    0.85f
-                }
-            } else if (duration > 0L) {
-                (position.toFloat() / duration).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-            val bufferedFraction = if (duration > 0L) {
-                (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f)
-            } else {
-                (progressFraction + 0.08f).coerceAtMost(1f)
-            }
-
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                GradientTimelineBar(
-                    progress = progressFraction,
-                    buffered = bufferedFraction,
-                    showChapters = !isLive,
-                    onSeekToFraction = if (!isLive && duration > 0L) {
-                        { frac -> onSeekTo((duration * frac).toLong()) }
-                    } else null,
-                    onSeekBy = onSeekBy,
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        Text(
-                            formatDuration(position.coerceAtLeast(0L)),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                        )
-                        if (!isLive && duration > 0L) {
-                            Text("/", fontSize = 11.5.sp, color = OsdOutline)
-                            Text(
-                                formatDuration(duration),
-                                fontSize = 11.5.sp,
-                                color = OsdOnSurfaceVariant,
-                            )
-                        }
-                    }
-
-                    if (isLive) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            Box(Modifier.size(6.dp).clip(CircleShape).background(OsdCyan))
-                            Text(
-                                "مباشر",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OsdCyan,
-                            )
-                        }
-                    } else {
-                        val rem = (duration - position).coerceAtLeast(0L)
-                        Text(
-                            "-${formatDuration(rem)}",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = OsdTertiary,
-                        )
-                    }
-                }
-            }
+            FullscreenTimelineSection(
+                progressFlow = progressFlow,
+                isLive = isLive,
+                currentProgram = currentProgram,
+                onSeekTo = onSeekTo,
+                onSeekBy = onSeekBy,
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1623,11 +1597,105 @@ private fun UnifiedFullscreenPlayerOsd(
 }
 
 @Composable
+private fun FullscreenTimelineSection(
+    progressFlow: StateFlow<PlaybackProgress>,
+    isLive: Boolean,
+    currentProgram: Program?,
+    onSeekTo: (Long) -> Unit,
+    onSeekBy: (Long) -> Unit,
+) {
+    val prog by progressFlow.collectAsStateWithLifecycle()
+    val position = prog.position
+    val bufferedPosition = prog.bufferedPosition
+    val duration = prog.duration
+    val nowSec = if (isLive && currentProgram != null) rememberNow(30_000L) / 1000L else 0L
+
+    val progressFraction = if (isLive) {
+        if (currentProgram != null && currentProgram.end > currentProgram.start) {
+            ((nowSec - currentProgram.start).toFloat() / (currentProgram.end - currentProgram.start)).coerceIn(0.08f, 0.96f)
+        } else {
+            0.85f
+        }
+    } else if (duration > 0L) {
+        (position.toFloat() / duration).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val bufferedFraction = if (duration > 0L) {
+        (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f)
+    } else {
+        (progressFraction + 0.08f).coerceAtMost(1f)
+    }
+
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        GradientTimelineBar(
+            progress = progressFraction,
+            buffered = bufferedFraction,
+            showChapters = !isLive,
+            onSeekToFraction = if (!isLive && duration > 0L) {
+                { frac -> onSeekTo((duration * frac).toLong()) }
+            } else null,
+            onSeekBy = onSeekBy,
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    formatDuration(position.coerceAtLeast(0L)),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+                if (!isLive && duration > 0L) {
+                    Text("/", fontSize = 11.5.sp, color = OsdOutline)
+                    Text(
+                        formatDuration(duration),
+                        fontSize = 11.5.sp,
+                        color = OsdOnSurfaceVariant,
+                    )
+                }
+            }
+
+            if (isLive) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(OsdCyan))
+                    Text(
+                        "مباشر",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OsdCyan,
+                    )
+                }
+            } else {
+                val rem = (duration - position).coerceAtLeast(0L)
+                Text(
+                    "-${formatDuration(rem)}",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = OsdTertiary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun LiveChannelsDrawer(
     playlist: List<PlayItem>,
     currentIndex: Int,
     currentProgram: Program?,
     compact: Boolean = false,
+    drawerFocus: FocusRequester,
     onSelectChannel: (Int) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -1671,7 +1739,8 @@ private fun LiveChannelsDrawer(
             state = channelListState,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .focusRequester(drawerFocus),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
@@ -1743,9 +1812,9 @@ private fun VodEpisodesDrawer(
     playlist: List<PlayItem>,
     currentIndex: Int,
     seriesDetails: SeriesDetails?,
-    position: Long,
-    duration: Long,
+    progressFlow: StateFlow<PlaybackProgress>,
     compact: Boolean = false,
+    drawerFocus: FocusRequester,
     onSelectPlaylistIndex: (Int) -> Unit,
     onSelectEpisode: (Episode) -> Unit,
     onClose: () -> Unit,
@@ -1852,7 +1921,8 @@ private fun VodEpisodesDrawer(
             state = episodeListState,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .focusRequester(drawerFocus),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (seasonEpisodes.isNotEmpty()) {
@@ -1864,6 +1934,9 @@ private fun VodEpisodesDrawer(
                     val isNext = currentEpisodeObj != null &&
                         ep.season == currentEpisodeObj.season &&
                         ep.number == currentEpisodeObj.number + 1
+                    val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
+                    val curPos = progState?.position ?: 0L
+                    val curDur = progState?.duration ?: 0L
 
                     EpisodeDrawerCard(
                         number = ep.number,
@@ -1874,8 +1947,8 @@ private fun VodEpisodesDrawer(
                         isCurrent = isCurrent,
                         isWatched = isWatched,
                         isNext = isNext,
-                        progressFraction = if (isCurrent && duration > 0L) (position.toFloat() / duration).coerceIn(0.05f, 1f) else 0.45f,
-                        remainingMinutes = if (isCurrent && duration > position) ((duration - position) / 60_000L).toInt().coerceAtLeast(1) else 28,
+                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.45f,
+                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 28,
                         onClick = { onSelectEpisode(ep) },
                     )
                 }
@@ -1884,18 +1957,21 @@ private fun VodEpisodesDrawer(
                     val isCurrent = idx == currentIndex
                     val isWatched = idx < currentIndex
                     val isNext = idx == currentIndex + 1
+                    val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
+                    val curPos = progState?.position ?: 0L
+                    val curDur = progState?.duration ?: 0L
 
                     EpisodeDrawerCard(
                         number = idx + 1,
                         title = p.subtitle.ifBlank { p.title },
                         plot = p.title,
                         imageUrl = p.icon,
-                        durationText = if (isCurrent && duration > 0L) formatDuration(duration) else "HD",
+                        durationText = if (isCurrent && curDur > 0L) formatDuration(curDur) else "HD",
                         isCurrent = isCurrent,
                         isWatched = isWatched,
                         isNext = isNext,
-                        progressFraction = if (isCurrent && duration > 0L) (position.toFloat() / duration).coerceIn(0.05f, 1f) else 0.45f,
-                        remainingMinutes = if (isCurrent && duration > position) ((duration - position) / 60_000L).toInt().coerceAtLeast(1) else 25,
+                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.45f,
+                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 25,
                         onClick = { onSelectPlaylistIndex(idx) },
                     )
                 }
@@ -2143,9 +2219,7 @@ private fun GradientTimelineBar(
 
             val activeWidth = (size.width * shown).coerceAtLeast(trackHeight)
             drawRoundRect(
-                brush = Brush.horizontalGradient(
-                    listOf(OsdPrimaryContainer, OsdPrimary, OsdCyan),
-                ),
+                brush = TimelineProgressBrush,
                 topLeft = Offset(0f, top),
                 size = Size(activeWidth, trackHeight),
                 cornerRadius = radius,

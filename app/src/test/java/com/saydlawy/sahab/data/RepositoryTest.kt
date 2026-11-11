@@ -66,4 +66,17 @@ class RepositoryTest {
         assertEquals(first, second)
         assertEquals(1, server.requestCount)
     }
+
+    @Test
+    fun shortEpg_cachesInMemoryForPeekShortEpg() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"epg_listings":[{"title":"أخبار","description":"","start_timestamp":"1700000000","stop_timestamp":"1700003600"}]}""",
+            ),
+        )
+        assertEquals(null, repo.peekShortEpg("55", 2))
+        val loaded = repo.shortEpg("55", 2)
+        assertEquals(1, loaded.size)
+        assertEquals(loaded, repo.peekShortEpg("55", 2))
+    }
 }

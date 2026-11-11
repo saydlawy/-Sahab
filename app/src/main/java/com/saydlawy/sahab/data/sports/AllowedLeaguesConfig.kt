@@ -69,9 +69,10 @@ object AllowedLeaguesConfig {
         }
     }
 
-    fun getLeagueSortPriority(leagueId: Int): Int {
-        val index = ALLOWED_LEAGUES.indexOf(leagueId)
-        return if (index != -1) index else Int.MAX_VALUE
-    }
+    private val LEAGUE_PRIORITY: Map<Int, Int> = ALLOWED_LEAGUES
+        .withIndex()
+        .associate { (idx, id) -> id to idx }
+
+    fun getLeagueSortPriority(leagueId: Int): Int = LEAGUE_PRIORITY[leagueId] ?: Int.MAX_VALUE
 }
 

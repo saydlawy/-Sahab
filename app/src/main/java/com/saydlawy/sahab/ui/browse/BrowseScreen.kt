@@ -11,7 +11,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -72,6 +71,7 @@ import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.Chip
@@ -139,9 +139,11 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
     private var searchPool: List<Poster>? = null
     private var indexedPool: List<Pair<Poster, String>>? = null
 
-    private fun updateSearchPool(list: List<Poster>) {
+    private suspend fun updateSearchPool(list: List<Poster>) {
         searchPool = list
-        indexedPool = list.map { it to it.name.normalizeForSearch() }
+        indexedPool = withContext(Dispatchers.Default) {
+            list.map { it to it.name.normalizeForSearch() }
+        }
     }
 
     init {
@@ -298,7 +300,9 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
             try {
                 val indexed = indexedPool ?: run {
                     val pool = searchPool ?: fetchItems(null).also { updateSearchPool(it) }
-                    indexedPool ?: pool.map { it to it.name.normalizeForSearch() }
+                    indexedPool ?: withContext(Dispatchers.Default) {
+                        pool.map { it to it.name.normalizeForSearch() }
+                    }
                 }
                 val results = withContext(Dispatchers.Default) {
                     indexed.asSequence()
@@ -393,13 +397,18 @@ fun BrowseScreen(
     }
 
     val gridState = rememberLazyGridState()
+    val displayMode = LocalDisplayMode.current
+    val maxWidth = LocalWindowInfo.current.widthDp
+    val itemIds = remember(items) {
+        HashSet<String>(items.size).apply { items.forEach { add(it.id) } }
+    }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val displayMode = LocalDisplayMode.current
+    Box(Modifier.fillMaxSize()) {
         val showPreview = displayMode == DisplayMode.TABLET_OR_TV && maxWidth >= 1040.dp
         val showTopBar by remember(displayMode) {
             derivedStateOf {
                 displayMode == DisplayMode.TABLET_OR_TV ||
+                    !gridState.canScrollBackward ||
                     (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset < 28)
             }
         }
@@ -473,7 +482,7 @@ fun BrowseScreen(
 
                     // Column 3 (Left in RTL): Live Preview Panel
                     if (showPreview) {
-                        val active = previewPoster?.takeIf { p -> items.any { it.id == p.id } } ?: items.firstOrNull()
+                        val active = previewPoster?.takeIf { it.id in itemIds } ?: items.firstOrNull()
                         TitlePreviewPanel(
                             series = series,
                             poster = active,

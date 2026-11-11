@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,6 +48,7 @@ import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.BrandLogo
 import com.saydlawy.sahab.ui.components.BrandMark
@@ -154,12 +154,14 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
     val isTv = LocalIsTv.current
     val version = appVersion(context).ifBlank { "1.0" }
 
-    BoxWithConstraints(
+    val displayMode = LocalDisplayMode.current
+    val maxWidth = LocalWindowInfo.current.widthDp
+
+    Box(
         Modifier
             .fillMaxSize()
             .imePadding(),
     ) {
-        val displayMode = LocalDisplayMode.current
         val wide = displayMode == DisplayMode.TABLET_OR_TV && maxWidth >= 820.dp
         val hPad = if (wide) 36.dp else 18.dp
 

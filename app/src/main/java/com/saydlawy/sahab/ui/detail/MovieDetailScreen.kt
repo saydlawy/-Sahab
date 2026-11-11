@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -146,13 +145,14 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                     val durationMs = resume?.durationMs ?: 0L
                     val item = PlayItem(Kind.MOVIE, details.id, details.name, icon = details.image, ext = details.ext)
 
-                    BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val displayMode = LocalDisplayMode.current
-                        val hPad = when (displayMode) {
-                            DisplayMode.TABLET_OR_TV -> 36.dp
-                            DisplayMode.PHONE_LANDSCAPE -> 20.dp
-                            DisplayMode.PHONE_PORTRAIT -> 16.dp
-                        }
+                    val displayMode = LocalDisplayMode.current
+                    val hPad = when (displayMode) {
+                        DisplayMode.TABLET_OR_TV -> 36.dp
+                        DisplayMode.PHONE_LANDSCAPE -> 20.dp
+                        DisplayMode.PHONE_PORTRAIT -> 16.dp
+                    }
+
+                    Box(Modifier.fillMaxSize()) {
 
                         Column(
                             modifier = Modifier

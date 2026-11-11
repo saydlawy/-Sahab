@@ -13,15 +13,16 @@ import com.saydlawy.sahab.data.sports.Standing
 import com.saydlawy.sahab.data.sports.SyncScheduler
 import com.saydlawy.sahab.data.sports.toMatch
 import com.saydlawy.sahab.data.sports.toStanding
+import com.saydlawy.sahab.util.formatDayOffsetYmd
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.EnumMap
 import java.util.Locale
 
@@ -105,6 +106,8 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     @Volatile
     private var allMatches: List<Match> = emptyList()
+    private var filterJob: Job? = null
+    private var searchDebounceJob: Job? = null
 
     init {
         configureSubLeaguesFor(MainCategory.EGYPTIAN)
@@ -113,7 +116,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 val cached = withContext(Dispatchers.IO) {
-                    dao.getAllMatches().map { it.toMatch() }
+                    cleanAndDeduplicate(dao.getAllMatches().map { it.toMatch() })
                 }
                 _totalDbCount.value = cached.size
                 if (cached.isNotEmpty()) {
@@ -133,12 +136,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             if (!silent) _isRefreshing.value = true
             try {
                 val merged = withContext(Dispatchers.IO) {
-                    dao.getAllMatches()
-                        .map { it.toMatch() }
-                        .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
-                        .distinctBy {
-                            "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
-                        }
+                    cleanAndDeduplicate(dao.getAllMatches().map { it.toMatch() })
                 }
                 _isRefreshing.value = false
                 _totalDbCount.value = merged.size
@@ -243,8 +241,11 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateCategory(category: MainCategory) {
         configureSubLeaguesFor(category)
-        applyFilters(allMatches)
-        fetchMatchesFromApi(silent = true)
+        if (allMatches.isEmpty()) {
+            fetchMatchesFromApi(silent = true)
+        } else {
+            applyFilters(allMatches)
+        }
         fetchStandings()
     }
 
@@ -287,7 +288,15 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
-        applyFilters(allMatches)
+        searchDebounceJob?.cancel()
+        if (query.isBlank()) {
+            applyFilters(allMatches)
+            return
+        }
+        searchDebounceJob = viewModelScope.launch {
+            delay(200)
+            applyFilters(allMatches)
+        }
     }
 
     fun selectMatch(match: Match?) {
@@ -295,34 +304,40 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun applyFilters(matchesToFilter: List<Match>) {
+        filterJob?.cancel()
         if (matchesToFilter.isEmpty()) {
             _uiState.value = SportsUiState.Success(emptyMap())
             return
         }
 
-        val result = filterMatchesPure(
-            matchesToFilter = matchesToFilter,
-            category = _selectedCategory.value,
-            subLeague = _selectedSubLeague.value,
-            query = _searchQuery.value.trim(),
-            filter = _selectedDate.value,
-            todayDate = getFormattedDate(0),
-            targetDate = getFormattedDate(_selectedDate.value.offsetDays),
-            dateOfOffset = { offset -> getFormattedDate(offset) },
-        )
-        _dateFilterCounts.value = result.counts
-        if (_selectedMatch.value == null || !result.sortedMatches.contains(_selectedMatch.value)) {
-            _selectedMatch.value = result.sortedMatches.firstOrNull()
+        val category = _selectedCategory.value
+        val subLeague = _selectedSubLeague.value
+        val query = _searchQuery.value.trim()
+        val filter = _selectedDate.value
+
+        filterJob = viewModelScope.launch(Dispatchers.Default) {
+            val result = filterMatchesPure(
+                matchesToFilter = matchesToFilter,
+                category = category,
+                subLeague = subLeague,
+                query = query,
+                filter = filter,
+                todayDate = getFormattedDate(0),
+                targetDate = getFormattedDate(filter.offsetDays),
+                dateOfOffset = { offset -> getFormattedDate(offset) },
+                alreadyClean = true,
+            )
+            withContext(Dispatchers.Main) {
+                _dateFilterCounts.value = result.counts
+                if (_selectedMatch.value == null || !result.sortedMatches.contains(_selectedMatch.value)) {
+                    _selectedMatch.value = result.sortedMatches.firstOrNull()
+                }
+                _uiState.value = SportsUiState.Success(result.groupedMatches)
+            }
         }
-        _uiState.value = SportsUiState.Success(result.groupedMatches)
     }
 
-    private fun getFormattedDate(offsetDays: Int): String {
-        val calendar = Calendar.getInstance()
-        calendar.add(Calendar.DAY_OF_YEAR, offsetDays)
-        val format = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        return format.format(calendar.time)
-    }
+    private fun getFormattedDate(offsetDays: Int): String = formatDayOffsetYmd(offsetDays)
 
     internal data class FilteredMatchesResult(
         val counts: Map<DateFilter, Int>,
@@ -341,6 +356,13 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             return !YOUTH_OR_CUP_REGEX.containsMatchIn(haystack)
         }
 
+        private fun cleanAndDeduplicate(matches: List<Match>): List<Match> =
+            matches
+                .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
+                .distinctBy {
+                    "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
+                }
+
         internal fun filterMatchesPure(
             matchesToFilter: List<Match>,
             category: MainCategory,
@@ -350,6 +372,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             todayDate: String,
             targetDate: String,
             dateOfOffset: (Int) -> String,
+            alreadyClean: Boolean = false,
         ): FilteredMatchesResult {
             val categoryLeagueIds = when (category) {
                 MainCategory.EGYPTIAN -> setOf(233)
@@ -359,11 +382,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 MainCategory.EUROPEAN -> setOf(39, 140, 135, 78, 61, 203)
             }
 
-            val deduplicatedSource = matchesToFilter
-                .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
-                .distinctBy {
-                    "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
-                }
+            val deduplicatedSource = if (alreadyClean) matchesToFilter else cleanAndDeduplicate(matchesToFilter)
 
             val byCategoryAndQuery = deduplicatedSource.filter { match ->
                 val inCategory = if (subLeague != null) {

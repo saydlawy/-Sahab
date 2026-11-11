@@ -35,8 +35,22 @@ class Repository(
 
     private val cache = ConcurrentHashMap<String, Any>()
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<Any>>()
-    private val epgCache = ConcurrentHashMap<String, Pair<Long, List<Program>>>()
+    private val epgCacheLock = Any()
+    private val epgCache = object : LinkedHashMap<String, Pair<Long, List<Program>>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, List<Program>>>?): Boolean =
+            size > MAX_EPG_MEMORY_ENTRIES
+    }
     private val epgGate = Semaphore(4)
+
+    private fun getEpgMem(key: String): Pair<Long, List<Program>>? = synchronized(epgCacheLock) {
+        epgCache[key]
+    }
+
+    private fun putEpgMem(key: String, value: Pair<Long, List<Program>>) {
+        synchronized(epgCacheLock) {
+            epgCache[key] = value
+        }
+    }
 
     fun setAccount(value: Account?) {
         val changed = account != value
@@ -50,7 +64,9 @@ class Repository(
     fun clearCache(clearDisk: Boolean = false) {
         cache.clear()
         inFlight.clear()
-        epgCache.clear()
+        synchronized(epgCacheLock) {
+            epgCache.clear()
+        }
         if (clearDisk) {
             disk?.clearCatalog()
         }
@@ -316,23 +332,29 @@ class Repository(
 
     // Program guide
 
+    fun peekShortEpg(streamId: String, limit: Int = 3): List<Program>? {
+        val key = "short:$streamId:$limit"
+        val entry = getEpgMem(key) ?: return null
+        return if (System.currentTimeMillis() - entry.first < EPG_TTL_MS) entry.second else null
+    }
+
     suspend fun shortEpg(streamId: String, limit: Int = 3): List<Program> {
         val key = "short:$streamId:$limit"
-        epgCache[key]?.let { (time, list) ->
+        getEpgMem(key)?.let { (time, list) ->
             if (System.currentTimeMillis() - time < EPG_TTL_MS) return list
         }
         val dKey = diskKey("epg_$key")
         disk?.get(dKey, ListSerializer(Program.serializer()), EPG_DISK_TTL_MS)?.let { fromDisk ->
-            epgCache[key] = System.currentTimeMillis() to fromDisk
+            putEpgMem(key, System.currentTimeMillis() to fromDisk)
             return fromDisk
         }
         return epgGate.withPermit {
-            epgCache[key]?.let { (time, list) ->
+            getEpgMem(key)?.let { (time, list) ->
                 if (System.currentTimeMillis() - time < EPG_TTL_MS) return@withPermit list
             }
             val json = request("get_short_epg", mapOf("stream_id" to streamId, "limit" to limit.toString()))
             val list = parsePrograms(json)
-            epgCache[key] = System.currentTimeMillis() to list
+            putEpgMem(key, System.currentTimeMillis() to list)
             disk?.put(dKey, ListSerializer(Program.serializer()), list)
             list
         }
@@ -340,7 +362,7 @@ class Repository(
 
     suspend fun dayEpg(streamId: String): List<Program> {
         val key = "day:$streamId"
-        epgCache[key]?.let { (time, list) ->
+        getEpgMem(key)?.let { (time, list) ->
             if (System.currentTimeMillis() - time < EPG_TTL_MS) return list
         }
         val dKey = diskKey("epg_$key")
@@ -348,18 +370,18 @@ class Repository(
             val nowSec = System.currentTimeMillis() / 1000
             val valid = fromDisk.filter { it.end > nowSec - 2 * 3600 }
             if (valid.isNotEmpty()) {
-                epgCache[key] = System.currentTimeMillis() to valid
+                putEpgMem(key, System.currentTimeMillis() to valid)
                 return valid
             }
         }
         return epgGate.withPermit {
-            epgCache[key]?.let { (time, list) ->
+            getEpgMem(key)?.let { (time, list) ->
                 if (System.currentTimeMillis() - time < EPG_TTL_MS) return@withPermit list
             }
             val json = request("get_simple_data_table", mapOf("stream_id" to streamId))
             val nowSec = System.currentTimeMillis() / 1000
             val list = parsePrograms(json).filter { it.end > nowSec - 2 * 3600 }.take(80)
-            epgCache[key] = System.currentTimeMillis() to list
+            putEpgMem(key, System.currentTimeMillis() to list)
             disk?.put(dKey, ListSerializer(Program.serializer()), list)
             list
         }
@@ -393,45 +415,69 @@ class Repository(
             if (id.isBlank()) null else Category(id, o.s("category_name").ifBlank { Ar.noName })
         }.distinctBy { it.id }
 
-    private fun parseChannels(json: JsonElement): List<Channel> =
-        json.arr().orEmpty().mapNotNull { e ->
-            val o = e.obj() ?: return@mapNotNull null
+    private fun parseChannels(json: JsonElement): List<Channel> {
+        val arr = json.arr() ?: return emptyList()
+        val result = ArrayList<Channel>(arr.size)
+        val seen = HashSet<String>(arr.size)
+        for (e in arr) {
+            val o = e.obj() ?: continue
             val id = o.s("stream_id")
-            if (id.isBlank()) null
-            else Channel(id, o.s("name").ifBlank { Ar.noName }, o.s("stream_icon"), o.s("category_id"), o.s("epg_channel_id"))
-        }.distinctBy { it.id }
+            if (id.isNotBlank() && seen.add(id)) {
+                result.add(Channel(id, o.s("name").ifBlank { Ar.noName }, o.s("stream_icon"), o.s("category_id"), o.s("epg_channel_id")))
+            }
+        }
+        return result
+    }
 
-    private fun parseMovies(json: JsonElement): List<Poster> =
-        json.arr().orEmpty().mapNotNull { e ->
-            val o = e.obj() ?: return@mapNotNull null
+    private fun parseMovies(json: JsonElement): List<Poster> {
+        val arr = json.arr() ?: return emptyList()
+        val result = ArrayList<Poster>(arr.size)
+        val seen = HashSet<String>(arr.size)
+        for (e in arr) {
+            val o = e.obj() ?: continue
             val id = o.s("stream_id")
-            if (id.isBlank()) null
-            else Poster(
-                id = id,
-                name = o.s("name").ifBlank { Ar.noName },
-                image = o.s("stream_icon"),
-                rating = formatRating(o.s("rating")),
-                ext = o.s("container_extension"),
-                year = yearOf(o.s("name")),
-                categoryId = o.s("category_id"),
-            )
-        }.distinctBy { it.id }
+            if (id.isNotBlank() && seen.add(id)) {
+                val name = o.s("name")
+                result.add(
+                    Poster(
+                        id = id,
+                        name = name.ifBlank { Ar.noName },
+                        image = o.s("stream_icon"),
+                        rating = formatRating(o.s("rating")),
+                        ext = o.s("container_extension"),
+                        year = yearOf(name),
+                        categoryId = o.s("category_id"),
+                    ),
+                )
+            }
+        }
+        return result
+    }
 
-    private fun parseSeries(json: JsonElement): List<Poster> =
-        json.arr().orEmpty().mapNotNull { e ->
-            val o = e.obj() ?: return@mapNotNull null
+    private fun parseSeries(json: JsonElement): List<Poster> {
+        val arr = json.arr() ?: return emptyList()
+        val result = ArrayList<Poster>(arr.size)
+        val seen = HashSet<String>(arr.size)
+        for (e in arr) {
+            val o = e.obj() ?: continue
             val id = o.s("series_id")
-            if (id.isBlank()) null
-            else Poster(
-                id = id,
-                name = o.s("name").ifBlank { Ar.noName },
-                image = o.s("cover"),
-                rating = formatRating(o.s("rating")),
-                ext = "",
-                year = yearOf(o.s("releaseDate").ifBlank { o.s("release_date") }.ifBlank { o.s("name") }),
-                categoryId = o.s("category_id"),
-            )
-        }.distinctBy { it.id }
+            if (id.isNotBlank() && seen.add(id)) {
+                val name = o.s("name")
+                result.add(
+                    Poster(
+                        id = id,
+                        name = name.ifBlank { Ar.noName },
+                        image = o.s("cover"),
+                        rating = formatRating(o.s("rating")),
+                        ext = "",
+                        year = yearOf(o.s("releaseDate").ifBlank { o.s("release_date") }.ifBlank { name }),
+                        categoryId = o.s("category_id"),
+                    ),
+                )
+            }
+        }
+        return result
+    }
 
     private fun parseMovieDetails(id: String, json: JsonElement): MovieDetails {
         val root = json.obj()
@@ -528,12 +574,12 @@ class Repository(
         return if (value <= 0.0) "" else String.format(Locale.US, "%.1f", value)
     }
 
-    private fun yearOf(raw: String): String {
-        val match = Regex("(19|20)\\d{2}").find(raw)
-        return match?.value.orEmpty()
-    }
+    private fun yearOf(raw: String): String =
+        YEAR_REGEX.find(raw)?.value.orEmpty()
 
     private companion object {
+        const val MAX_EPG_MEMORY_ENTRIES = 256
+        val YEAR_REGEX = Regex("(19|20)\\d{2}")
         const val EPG_TTL_MS = 5 * 60_000L
         const val EPG_DISK_TTL_MS = 15 * 60_000L
         const val DAY_EPG_DISK_TTL_MS = 2 * 3600_000L

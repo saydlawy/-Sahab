@@ -35,6 +35,11 @@ class DiskCache(
     // Fixed striped lock pool prevents unbounded ConcurrentHashMap growth and lock/eviction races.
     private val lockStripes = Array(LOCK_STRIPES) { Mutex() }
 
+    private val catalogEvictionLock = Any()
+
+    @Volatile
+    private var estimatedCatalogBytes: Long = -1L
+
     private fun lockFor(key: String): Mutex =
         lockStripes[(key.hashCode() and Int.MAX_VALUE) % LOCK_STRIPES]
 
@@ -67,6 +72,7 @@ class DiskCache(
                 val dir = if (permanentNamespace) tmdbDir else catalogDir
                 if (!dir.exists()) dir.mkdirs()
                 val file = fileFor(key, permanentNamespace)
+                val previousBytes = if (!permanentNamespace && file.exists()) file.length() else 0L
                 val tmp = File(dir, "${file.name}.tmp")
                 tmp.writeText(json.encodeToString(serializer, value), Charsets.UTF_8)
                 var renamed = tmp.renameTo(file)
@@ -80,17 +86,34 @@ class DiskCache(
                 }
                 file.setLastModified(System.currentTimeMillis())
                 if (!permanentNamespace) {
-                    enforceCatalogLruLimitLocked()
+                    onCatalogPut(file.length() - previousBytes)
                 }
                 true
             }.getOrDefault(false)
         }
     }
 
+    private fun onCatalogPut(deltaBytes: Long) {
+        synchronized(catalogEvictionLock) {
+            if (estimatedCatalogBytes < 0L) {
+                val files = catalogDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") }.orEmpty()
+                estimatedCatalogBytes = files.sumOf { it.length() }
+            } else {
+                estimatedCatalogBytes = (estimatedCatalogBytes + deltaBytes).coerceAtLeast(0L)
+            }
+            if (estimatedCatalogBytes > maxCatalogBytes) {
+                enforceCatalogLruLimitLocked()
+            }
+        }
+    }
+
     private fun enforceCatalogLruLimitLocked() {
         val files = catalogDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") } ?: return
         var totalBytes = files.sumOf { it.length() }
-        if (totalBytes <= maxCatalogBytes) return
+        if (totalBytes <= maxCatalogBytes) {
+            estimatedCatalogBytes = totalBytes
+            return
+        }
         val oldestFirst = files.sortedBy { it.lastModified() }
         for (candidate in oldestFirst) {
             if (totalBytes <= maxCatalogBytes) break
@@ -99,12 +122,16 @@ class DiskCache(
                 totalBytes -= size
             }
         }
+        estimatedCatalogBytes = totalBytes.coerceAtLeast(0L)
     }
 
     /** Clears IPTV catalog/EPG cache while keeping the TMDB quota cache intact. */
     fun clearCatalog() {
         runCatching {
-            catalogDir.listFiles()?.forEach { it.delete() }
+            synchronized(catalogEvictionLock) {
+                catalogDir.listFiles()?.forEach { it.delete() }
+                estimatedCatalogBytes = 0L
+            }
         }
     }
 
@@ -114,7 +141,9 @@ class DiskCache(
     }
 
     private fun sha256(input: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+        val digest = SHA256_LOCAL.get()!!
+        digest.reset()
+        val bytes = digest.digest(input.toByteArray(Charsets.UTF_8))
         val sb = StringBuilder(bytes.size * 2)
         for (b in bytes) {
             val v = b.toInt() and 0xFF
@@ -126,6 +155,8 @@ class DiskCache(
 
     companion object {
         private const val LOCK_STRIPES = 64
+        private val SHA256_LOCAL: ThreadLocal<MessageDigest> =
+            ThreadLocal.withInitial { MessageDigest.getInstance("SHA-256") }
         const val MAX_CATALOG_BYTES = 200L * 1024L * 1024L // 200 MB LRU cap
         const val TTL_CATALOG_MS = 12 * 3600_000L       // 12 hours for categories & channel/VOD lists
         const val TTL_DETAILS_MS = 7 * 24 * 3600_000L   // 7 days for movie & series details

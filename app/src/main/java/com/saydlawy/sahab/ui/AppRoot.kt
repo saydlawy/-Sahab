@@ -73,11 +73,13 @@ fun AppRoot(container: AppContainer) {
     val onPlayer = currentRoute == Routes.PLAYER
     val onSports = currentRoute == Routes.SPORTS
 
-    val onTab: (String) -> Unit = { route ->
-        if (entry?.destination?.route != route) {
-            nav.navigate(route) {
-                popUpTo(Routes.HOME) { saveState = false }
-                launchSingleTop = true
+    val onTab: (String) -> Unit = remember(nav) {
+        { route ->
+            if (nav.currentDestination?.route != route) {
+                nav.navigate(route) {
+                    popUpTo(Routes.HOME) { saveState = false }
+                    launchSingleTop = true
+                }
             }
         }
     }

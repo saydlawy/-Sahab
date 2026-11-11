@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -16,7 +17,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import java.io.File
 import java.io.FileOutputStream
 
-@Entity(tableName = "matches")
+@Entity(
+    tableName = "matches",
+    indices = [
+        Index(value = ["leagueId"]),
+        Index(value = ["date"]),
+    ],
+)
 data class MatchEntity(
     @PrimaryKey val id: Int,
     val leagueId: Int,
@@ -82,7 +89,7 @@ interface MatchDao {
     suspend fun insertStandings(standings: List<StandingEntity>)
 }
 
-@Database(entities = [MatchEntity::class, StandingEntity::class], version = 1, exportSchema = false)
+@Database(entities = [MatchEntity::class, StandingEntity::class], version = 2, exportSchema = false)
 abstract class SportsDatabase : RoomDatabase() {
     abstract fun matchDao(): MatchDao
 
@@ -194,7 +201,8 @@ abstract class SportsDatabase : RoomDatabase() {
 object SportsMigrations {
     val MIGRATION_1_2: Migration = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            // Preserve local matches & standings across future v1 -> v2 schema upgrades
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_matches_leagueId` ON `matches` (`leagueId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_matches_date` ON `matches` (`date`)")
         }
     }
 }

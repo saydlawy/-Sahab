@@ -16,7 +16,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,13 +47,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,7 +61,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,9 +72,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -93,6 +89,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.saydlawy.sahab.data.sports.League
@@ -105,11 +102,9 @@ import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
+import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.SahabTopBar
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import com.saydlawy.sahab.util.formatUtcClockToLocal
 
 // Palette derived from sport/DESIGN.md and sport/code.html
 private val SportSurface = Color(0xFF0C0919)
@@ -124,6 +119,16 @@ private val SportLiveRed = Color(0xFFFF334B)
 private val SportGold = Color(0xFFF5A623)
 private val SportEmerald = Color(0xFF34D399)
 private val SportTextMuted = Color(0xFFA9AEC7)
+
+private val SportVioletGradient: Brush = Brush.horizontalGradient(listOf(SportViolet, SportVioletDark))
+private val SportFocusedCategoryGradient: Brush = Brush.horizontalGradient(listOf(SportContainerHighest, SportContainerHigh))
+private val SportIdleCategoryBrush: Brush = SolidColor(SportContainer)
+private val SportActiveMatchBrush: Brush = Brush.linearGradient(
+    listOf(SportViolet.copy(alpha = 0.24f), SportContainer.copy(alpha = 0.96f)),
+)
+private val SportIdleMatchBrush: Brush = SolidColor(SportContainer.copy(alpha = 0.90f))
+private val SportHighlightedPillBrush: Brush = Brush.horizontalGradient(listOf(SportViolet.copy(alpha = 0.28f), SportContainerHigh))
+private val SportIdlePillBrush: Brush = Brush.horizontalGradient(listOf(SportContainerHigh, SportContainer))
 
 @Composable
 fun SportsScreen(
@@ -141,19 +146,19 @@ fun SportsScreen(
         else -> 1f
     }
 
-    val selectedCategory by viewModel.selectedCategory.collectAsState()
-    val subLeagues by viewModel.subLeagues.collectAsState()
-    val selectedSubLeague by viewModel.selectedSubLeague.collectAsState()
-    val selectedDate by viewModel.selectedDate.collectAsState()
-    val dateFilterCounts by viewModel.dateFilterCounts.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val selectedMatch by viewModel.selectedMatch.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val standings by viewModel.standings.collectAsState()
-    val standingsLoading by viewModel.standingsLoading.collectAsState()
-    val standingsError by viewModel.standingsError.collectAsState()
-    val standingsLeagueName by viewModel.standingsLeagueName.collectAsState()
-    val uiState by viewModel.uiState.collectAsState()
+    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val subLeagues by viewModel.subLeagues.collectAsStateWithLifecycle()
+    val selectedSubLeague by viewModel.selectedSubLeague.collectAsStateWithLifecycle()
+    val selectedDate by viewModel.selectedDate.collectAsStateWithLifecycle()
+    val dateFilterCounts by viewModel.dateFilterCounts.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val selectedMatch by viewModel.selectedMatch.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val standings by viewModel.standings.collectAsStateWithLifecycle()
+    val standingsLoading by viewModel.standingsLoading.collectAsStateWithLifecycle()
+    val standingsError by viewModel.standingsError.collectAsStateWithLifecycle()
+    val standingsLeagueName by viewModel.standingsLeagueName.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     var showStandingsDialog by remember { mutableStateOf(false) }
     var showPhoneStandingsTab by remember { mutableStateOf(false) }
@@ -312,7 +317,12 @@ fun SportsScreen(
         }
     }
 
-    if (showPhoneDetailsDialog && selectedMatch != null) {
+    val dialogMatch = selectedMatch
+    if (showPhoneDetailsDialog && dialogMatch != null) {
+        val dialogCloseFocus = remember { FocusRequester() }
+        LaunchedEffect(isTv) {
+            if (isTv) runCatching { dialogCloseFocus.requestFocus() }
+        }
         Dialog(onDismissRequest = { showPhoneDetailsDialog = false }) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
@@ -339,12 +349,15 @@ fun SportsScreen(
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                         )
-                        IconButton(onClick = { showPhoneDetailsDialog = false }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color.White)
+                        IconButton(
+                            onClick = { showPhoneDetailsDialog = false },
+                            modifier = Modifier.size(36.dp).focusRequester(dialogCloseFocus),
+                        ) {
+                            Icon(Ic.Close, contentDescription = "إغلاق", tint = Color.White)
                         }
                     }
                     LiveMatchHubContent(
-                        match = selectedMatch!!,
+                        match = dialogMatch,
                         scale = 1f,
                         onOpenStandings = {
                             showPhoneDetailsDialog = false
@@ -510,7 +523,7 @@ private fun PhoneLandscapeSportsLayout(
                 onSelect = onSelectDate,
             )
             ActionPillButton(
-                icon = Icons.Default.List,
+                icon = Ic.List,
                 label = if (showStandingsTab) "المباريات" else "جدول الترتيب",
                 highlighted = showStandingsTab,
                 accentCyan = showStandingsTab,
@@ -519,7 +532,7 @@ private fun PhoneLandscapeSportsLayout(
                 onClick = onToggleStandingsTab,
             )
             ActionPillButton(
-                icon = Icons.Default.Refresh,
+                icon = Ic.Refresh,
                 label = null,
                 highlighted = false,
                 accentCyan = true,
@@ -529,7 +542,7 @@ private fun PhoneLandscapeSportsLayout(
                 onClick = onRefresh,
             )
             ActionPillButton(
-                icon = Icons.Default.Search,
+                icon = Ic.Search,
                 label = null,
                 highlighted = showSearchField || searchQuery.isNotBlank(),
                 scale = 0.94f,
@@ -629,7 +642,7 @@ private fun LargeScreenSportsLayout(
                 isTv = isTv,
             )
             ActionPillButton(
-                icon = Icons.Default.Refresh,
+                icon = Ic.Refresh,
                 label = if (isRefreshing) "جاري التحديث..." else "تحديث المحتوى",
                 highlighted = false,
                 accentCyan = true,
@@ -886,7 +899,7 @@ private fun SportsCompactPhoneToolbar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 ActionPillButton(
-                    icon = Icons.Default.List,
+                    icon = Ic.List,
                     label = if (showStandingsTab) "المباريات" else "جدول الترتيب",
                     highlighted = showStandingsTab,
                     accentCyan = showStandingsTab,
@@ -895,7 +908,7 @@ private fun SportsCompactPhoneToolbar(
                     onClick = onShowStandings,
                 )
                 ActionPillButton(
-                    icon = Icons.Default.Refresh,
+                    icon = Ic.Refresh,
                     label = if (isRefreshing) "..." else "تحديث",
                     highlighted = false,
                     accentCyan = true,
@@ -905,7 +918,7 @@ private fun SportsCompactPhoneToolbar(
                     onClick = onRefresh,
                 )
                 ActionPillButton(
-                    icon = Icons.Default.Search,
+                    icon = Ic.Search,
                     label = null,
                     highlighted = showSearchField || searchQuery.isNotBlank(),
                     scale = 1f,
@@ -970,7 +983,7 @@ private fun DatePickerPill(
                 )
             }
             Icon(
-                Icons.Default.KeyboardArrowDown,
+                Ic.ArrowDown,
                 contentDescription = null,
                 tint = if (focused) SportCyan else SportPrimary,
                 modifier = Modifier.size((18 * scale).dp),
@@ -1018,103 +1031,16 @@ private fun DatePickerPill(
 }
 
 @Composable
-private fun SportsHeaderToolbar(
-    scale: Float,
-    isTv: Boolean,
-    showSearchField: Boolean,
-    searchQuery: String,
-    isRefreshing: Boolean,
-    onToggleSearch: () -> Unit,
-    onSearchChange: (String) -> Unit,
-    onRefresh: () -> Unit,
-    onShowStandings: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy((8 * scale).dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy((10 * scale).dp),
-            ) {
-                Text(
-                    "مركز المباريات والرياضة",
-                    color = Color.White,
-                    fontSize = (18 * scale).sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                )
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(SportContainer)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(50))
-                        .padding(horizontal = (10 * scale).dp, vertical = (4 * scale).dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(SportEmerald))
-                    Text(
-                        "بيانات محدثة • 2026+",
-                        color = SportTextMuted,
-                        fontSize = (11 * scale).sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy((8 * scale).dp),
-            ) {
-                ActionPillButton(
-                    icon = Icons.Default.Search,
-                    label = "بحث",
-                    highlighted = showSearchField || searchQuery.isNotBlank(),
-                    scale = scale,
-                    isTv = isTv,
-                    onClick = onToggleSearch,
-                )
-                ActionPillButton(
-                    icon = Icons.Default.List,
-                    label = "جدول الترتيب",
-                    highlighted = true,
-                    scale = scale,
-                    isTv = isTv,
-                    onClick = onShowStandings,
-                )
-                ActionPillButton(
-                    icon = Icons.Default.Refresh,
-                    label = if (isRefreshing) "جاري التحديث..." else "جلب التحديث",
-                    highlighted = false,
-                    accentCyan = true,
-                    spinning = isRefreshing,
-                    scale = scale,
-                    isTv = isTv,
-                    onClick = onRefresh,
-                )
-            }
-        }
-
-        if (showSearchField) {
-            SportsSearchInput(searchQuery = searchQuery, onSearchChange = onSearchChange, scale = scale)
-        }
-    }
-}
-
-@Composable
 private fun SportsSearchInput(searchQuery: String, onSearchChange: (String) -> Unit, scale: Float) {
     OutlinedTextField(
         value = searchQuery,
         onValueChange = onSearchChange,
         placeholder = { Text("ابحث عن نادي أو بطولة...", color = SportTextMuted, fontSize = (13 * scale).sp) },
-        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = SportCyan) },
+        leadingIcon = { Icon(Ic.Search, contentDescription = null, tint = SportCyan) },
         trailingIcon = {
             if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = { onSearchChange("") }) {
-                    Icon(Icons.Default.Close, contentDescription = "مسح", tint = SportTextMuted)
+                    Icon(Ic.Close, contentDescription = "مسح", tint = SportTextMuted)
                 }
             }
         },
@@ -1136,7 +1062,7 @@ private fun SportsSearchInput(searchQuery: String, onSearchChange: (String) -> U
 
 @Composable
 private fun ActionPillButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String?,
     highlighted: Boolean,
     scale: Float,
@@ -1147,18 +1073,23 @@ private fun ActionPillButton(
 ) {
     var focusedRaw by remember { mutableStateOf(false) }
     val focused = focusedRaw && isTv
-    val spinTransition = rememberInfiniteTransition(label = "refreshSpin")
-    val spinAngle by spinTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
-        label = "refreshAngle",
-    )
+    val spinAngle = if (spinning) {
+        val spinTransition = rememberInfiniteTransition(label = "refreshSpin")
+        val angle by spinTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
+            label = "refreshAngle",
+        )
+        angle
+    } else {
+        0f
+    }
 
     val bg = when {
-        focused -> Brush.horizontalGradient(listOf(SportViolet, SportVioletDark))
-        highlighted -> Brush.horizontalGradient(listOf(SportViolet.copy(alpha = 0.28f), SportContainerHigh))
-        else -> Brush.horizontalGradient(listOf(SportContainerHigh, SportContainer))
+        focused -> SportVioletGradient
+        highlighted -> SportHighlightedPillBrush
+        else -> SportIdlePillBrush
     }
     val borderColor = when {
         focused -> SportCyan
@@ -1207,9 +1138,9 @@ private fun MainCategoryBar(selected: MainCategory, onSelect: (MainCategory) -> 
             var focusedRaw by remember { mutableStateOf(false) }
             val isFocused = focusedRaw && isTv
             val fill = when {
-                isSelected -> Brush.horizontalGradient(listOf(SportViolet, SportVioletDark))
-                isFocused -> Brush.horizontalGradient(listOf(SportContainerHighest, SportContainerHigh))
-                else -> Brush.horizontalGradient(listOf(SportContainer, SportContainer))
+                isSelected -> SportVioletGradient
+                isFocused -> SportFocusedCategoryGradient
+                else -> SportIdleCategoryBrush
             }
             Row(
                 modifier = Modifier
@@ -1499,13 +1430,7 @@ private fun SportMatchCard(
     val active = isSelected || isFocused
     val shape = RoundedCornerShape((16 * scale).dp)
 
-    val bg = if (active) {
-        Brush.linearGradient(
-            listOf(SportViolet.copy(alpha = 0.24f), SportContainer.copy(alpha = 0.96f)),
-        )
-    } else {
-        Brush.verticalGradient(listOf(SportContainer.copy(alpha = 0.90f), SportContainer.copy(alpha = 0.90f)))
-    }
+    val bg = if (active) SportActiveMatchBrush else SportIdleMatchBrush
     val borderColor = when {
         isFocused -> SportCyan
         isSelected -> SportViolet
@@ -1958,7 +1883,7 @@ private fun LiveMatchHubContent(
                 border = BorderStroke(1.dp, SportViolet.copy(alpha = 0.55f)),
                 modifier = Modifier.weight(1f).height((44 * scale).dp),
             ) {
-                Icon(Icons.Default.List, contentDescription = null, tint = SportPrimary, modifier = Modifier.size(16.dp))
+                Icon(Ic.List, contentDescription = null, tint = SportPrimary, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("جدول الترتيب", color = Color.White, fontSize = (12 * scale).sp, fontWeight = FontWeight.Bold)
             }
@@ -1969,7 +1894,7 @@ private fun LiveMatchHubContent(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f).height((44 * scale).dp),
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Icon(Ic.Play, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
                     if (match.status == MatchStatus.LIVE) "شاهد البث الحي" else "قنوات البث",
@@ -2033,6 +1958,10 @@ private fun StandingsDialog(
     onDismiss: () -> Unit,
 ) {
     val isTv = LocalIsTv.current
+    val closeFocus = remember { FocusRequester() }
+    LaunchedEffect(isTv) {
+        if (isTv) runCatching { closeFocus.requestFocus() }
+    }
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(22.dp),
@@ -2054,8 +1983,8 @@ private fun StandingsDialog(
                             Text(leagueName, color = SportCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color.White)
+                    IconButton(onClick = onDismiss, modifier = Modifier.focusRequester(closeFocus)) {
+                        Icon(Ic.Close, contentDescription = "إغلاق", tint = Color.White)
                     }
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(vertical = 8.dp))
@@ -2124,30 +2053,5 @@ private fun StandingsDialog(
     }
 }
 
-private fun formatMatchClock(rawTime: String, dateStr: String = ""): String {
-    val clean = rawTime.trim()
-    if (clean.isBlank() || clean == "null" || clean == "00:00" || clean.startsWith("00:00:")) {
-        return ""
-    }
-    val hm = clean.take(5)
-    return try {
-        val utcParser = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
-        val effectiveDate = dateStr.trim().take(10).ifBlank {
-            SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }.format(Date())
-        }
-        val parsed = utcParser.parse("$effectiveDate $hm")
-        if (parsed != null) {
-            SimpleDateFormat("HH:mm", Locale.US).apply {
-                timeZone = TimeZone.getDefault()
-            }.format(parsed)
-        } else {
-            hm.lowercase(Locale.US)
-        }
-    } catch (_: Exception) {
-        hm.lowercase(Locale.US)
-    }
-}
+private fun formatMatchClock(rawTime: String, dateStr: String = ""): String =
+    formatUtcClockToLocal(rawTime, dateStr)

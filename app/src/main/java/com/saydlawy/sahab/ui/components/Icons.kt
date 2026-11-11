@@ -209,6 +209,9 @@ object Ic {
     val Warning by lazy {
         icon("Warning", "M1,21h22L12,2 1,21zm12,-3h-2v-2h2v2zm0,-4h-2v-4h2v4z")
     }
+    val ArrowDown by lazy {
+        icon("ArrowDown", "M7.41,8.59L12,13.17l4.59,-4.58L18,10l-6,6 -6,-6 1.41,-1.41z")
+    }
 
     private fun icon(name: String, path: String, autoMirror: Boolean = false): ImageVector {
         val builder = ImageVector.Builder(

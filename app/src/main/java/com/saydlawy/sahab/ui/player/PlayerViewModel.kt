@@ -20,15 +20,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+data class PlaybackProgress(
+    val position: Long = 0L,
+    val bufferedPosition: Long = 0L,
+    val duration: Long = 0L,
+)
+
 data class PlayerUiState(
     val playlist: List<PlayItem>,
     val index: Int,
     val isPlaying: Boolean = false,
     val buffering: Boolean = true,
     val error: String? = null,
-    val position: Long = 0L,
-    val bufferedPosition: Long = 0L,
-    val duration: Long = 0L,
     val playbackSpeed: Float = 1.0f,
     val speedIndex: Int = 0,
     val resizeIndex: Int = 0,
@@ -41,7 +44,7 @@ data class PlayerUiState(
     val requestPlayFocusTick: Int = 0,
 ) {
     val currentItem: PlayItem
-        get() = playlist[index.coerceIn(0, playlist.lastIndex.coerceAtLeast(0))]
+        get() = playlist.getOrElse(index.coerceAtLeast(0)) { PlayItem(Kind.LIVE, "", "") }
     val isLive: Boolean
         get() = currentItem.kind == Kind.LIVE
 }
@@ -61,6 +64,9 @@ class PlayerViewModel(
     )
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
+    private val _progress = MutableStateFlow(PlaybackProgress())
+    val progress: StateFlow<PlaybackProgress> = _progress.asStateFlow()
+
     private var forceFromZeroId: String? = null
     private var usedInitialPos: Boolean = false
     private var lastLoadedSeriesGroupId: String? = null
@@ -68,6 +74,13 @@ class PlayerViewModel(
 
     fun saveProgress(positionMs: Long, durationMs: Long) {
         val current = _state.value.currentItem
+        if (current.id.isBlank()) return
+        container.saveProgress(current, positionMs, durationMs)
+    }
+
+    fun saveProgressIfVod(positionMs: Long, durationMs: Long) {
+        val current = _state.value.currentItem
+        if (current.id.isBlank() || current.kind == Kind.LIVE) return
         container.saveProgress(current, positionMs, durationMs)
     }
 
@@ -222,11 +235,11 @@ class PlayerViewModel(
     }
 
     fun onProgressUpdate(position: Long, buffered: Long, duration: Long) {
-        _state.update { it.copy(position = position, bufferedPosition = buffered, duration = duration) }
+        _progress.value = PlaybackProgress(position, buffered, duration)
     }
 
     fun onSeekPosition(position: Long) {
-        _state.update { it.copy(position = position) }
+        _progress.update { it.copy(position = position) }
     }
 
     fun onBufferingReady(isBuffering: Boolean, isReady: Boolean) {

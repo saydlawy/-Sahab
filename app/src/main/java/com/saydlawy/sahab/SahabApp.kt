@@ -16,6 +16,7 @@ import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.TmdbApi
 import com.saydlawy.sahab.data.XtreamApi
 import com.saydlawy.sahab.data.sports.SyncScheduler
+import com.saydlawy.sahab.ui.player.SahabPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -143,7 +144,10 @@ class SahabApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        SyncScheduler.scheduleInitialRunIfNeeded(this)
+        container.appScope.launch {
+            SyncScheduler.scheduleInitialRunIfNeeded(this@SahabApp)
+            SahabPlayer.warmUpMediaCache(this@SahabApp)
+        }
     }
 
     override fun newImageLoader(): ImageLoader =
@@ -161,6 +165,6 @@ class SahabApp : Application(), ImageLoaderFactory {
                     .build()
             }
             .respectCacheHeaders(false)
-            .crossfade(true)
+            .crossfade(false)
             .build()
 }
