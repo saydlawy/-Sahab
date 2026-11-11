@@ -129,6 +129,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import androidx.compose.runtime.Immutable
 
 private val IdleChannelRowFill: Brush = SolidColor(Palette.Glass)
 private val PreviewShadeBrush: Brush = Brush.verticalGradient(
@@ -141,6 +142,7 @@ private val PreviewPlaceholderBrush: Brush = Brush.radialGradient(
 private const val FAV_CAT_ID = "__FAVORITES__"
 private const val ALL_CAT_ID = "__ALL__"
 
+@Immutable
 data class LiveUiState(
     val categories: List<Category> = emptyList(),
     val selectedId: String? = ALL_CAT_ID,

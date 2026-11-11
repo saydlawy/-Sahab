@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.Immutable
 
 data class PlaybackProgress(
     val position: Long = 0L,
@@ -26,6 +27,7 @@ data class PlaybackProgress(
     val duration: Long = 0L,
 )
 
+@Immutable
 data class PlayerUiState(
     val playlist: List<PlayItem>,
     val index: Int,

@@ -781,7 +781,7 @@ private fun StandingsPane(
                     verticalArrangement = Arrangement.spacedBy((5 * scale).dp),
                     contentPadding = PaddingValues(bottom = 12.dp),
                 ) {
-                    items(standings, key = { "${it.rank}_${it.teamName}" }) { row ->
+                    items(standings, key = { it.teamName }) { row ->
                         var rowFocusedRaw by remember { mutableStateOf(false) }
                         val rowFocused = rowFocusedRaw && isTv
                         val rankColor = when (row.rank) {
@@ -2017,7 +2017,7 @@ private fun StandingsDialog(
                             Text("نقاط", color = SportCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(40.dp), textAlign = TextAlign.Center)
                         }
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            items(standings, key = { "${it.rank}_${it.teamName}" }) { row ->
+                            items(standings, key = { it.teamName }) { row ->
                                 var focusedRaw by remember { mutableStateOf(false) }
                                 val focused = focusedRaw && isTv
                                 Row(

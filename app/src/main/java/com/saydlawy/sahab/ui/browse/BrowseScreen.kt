@@ -105,11 +105,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.Immutable
 
 private const val RECENTS_CAT_ID = "__RECENTS__"
 private const val FAV_CAT_ID = "__FAVORITES__"
 private const val ALL_CAT_ID = "__ALL__"
 
+@Immutable
 data class BrowseUiState(
     val categories: List<Category> = emptyList(),
     val selectedId: String? = null,
