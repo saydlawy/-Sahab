@@ -1,8 +1,8 @@
 package com.saydlawy.sahab.data
 
-import android.net.Uri
 import android.util.Base64
 import com.saydlawy.sahab.util.Ar
+import java.net.URLEncoder
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -119,8 +119,8 @@ class Repository(
 
     fun streamUrl(item: PlayItem, formatAttempt: Int = 0): String {
         val a = requireAccount()
-        val user = Uri.encode(a.user)
-        val pass = Uri.encode(a.pass)
+        val user = encodeSegment(a.user)
+        val pass = encodeSegment(a.pass)
         return when (item.kind) {
             Kind.LIVE -> {
                 val exts = liveExtensions()
@@ -131,6 +131,9 @@ class Repository(
             else -> "${a.server}/series/$user/$pass/${item.id}.${item.ext.ifBlank { "mp4" }}"
         }
     }
+
+    private fun encodeSegment(value: String): String =
+        URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
     @Suppress("UNCHECKED_CAST")
     private suspend fun <T : Any> cachedPersistent(

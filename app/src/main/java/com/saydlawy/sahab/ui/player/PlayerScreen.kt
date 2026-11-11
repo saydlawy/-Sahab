@@ -49,13 +49,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -115,6 +113,7 @@ import com.saydlawy.sahab.data.SeriesDetails
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.EpgDialog
 import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassCard
@@ -127,7 +126,6 @@ import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.findActivity
 import com.saydlawy.sahab.util.formatDuration
 import com.saydlawy.sahab.util.formatNowMillis
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -175,131 +173,82 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     val view = LocalView.current
     val isTv = LocalIsTv.current
     val displayMode = LocalDisplayMode.current
-    val repo = container.repo
+    val vm: PlayerViewModel = appViewModel { PlayerViewModel(it, request) }
+    val ui by vm.state.collectAsStateWithLifecycle()
 
-    var playlist by remember { mutableStateOf(request.items) }
-    val lastIndex = playlist.lastIndex
-
-    var index by remember { mutableIntStateOf(request.startIndex.coerceIn(0, lastIndex.coerceAtLeast(0))) }
-    val item = playlist[index.coerceIn(0, lastIndex.coerceAtLeast(0))]
-    val currentItem by rememberUpdatedState(item)
-    val isLive = item.kind == Kind.LIVE
+    val playlist = ui.playlist
+    val index = ui.index
+    val item = ui.currentItem
+    val isLive = ui.isLive
+    val isPlaying = ui.isPlaying
+    val buffering = ui.buffering
+    val reconnecting = ui.reconnecting
+    val error = ui.error
+    val position = ui.position
+    val bufferedPosition = ui.bufferedPosition
+    val duration = ui.duration
+    val playbackSpeed = ui.playbackSpeed
+    val resizeIndex = ui.resizeIndex
+    val epg = ui.epg
+    val seriesDetails = ui.seriesDetails
+    val requestPlayFocusTick = ui.requestPlayFocusTick
 
     val exo = remember { SahabPlayer.create(context, container.client, isLive = isLive, isPreview = false, accountHash = container.accountHash) }
 
-    var isPlaying by remember { mutableStateOf(false) }
-    var buffering by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var position by remember { mutableLongStateOf(0L) }
-    var bufferedPosition by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(0L) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
     var controlsVisible by remember { mutableStateOf(true) }
     var interactions by remember { mutableIntStateOf(0) }
-    var resizeIndex by remember { mutableIntStateOf(0) }
-    var speedIndex by remember { mutableIntStateOf(0) }
-    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
     var showTracks by remember { mutableStateOf(false) }
     var showGuide by remember { mutableStateOf(false) }
     var showQuickChannelsDrawer by remember { mutableStateOf(false) }
     var showEpisodesDrawer by remember { mutableStateOf(false) }
-    var retryKey by remember { mutableIntStateOf(0) }
-    var formatAttempt by remember { mutableIntStateOf(0) }
-    var autoReconnectCount by remember { mutableIntStateOf(0) }
-    var reconnecting by remember { mutableStateOf(false) }
     var ended by remember { mutableStateOf(false) }
-    var forceFromZeroId by remember { mutableStateOf<String?>(null) }
-    var usedInitialPos by remember { mutableStateOf(false) }
-    var requestPlayFocusTick by remember { mutableIntStateOf(0) }
-    var epg by remember { mutableStateOf<List<Program>>(emptyList()) }
-    var seriesDetails by remember { mutableStateOf<SeriesDetails?>(null) }
     val rootFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
 
     LaunchedEffect(item.groupId, item.kind) {
-        if (item.kind == Kind.EPISODE && item.groupId.isNotBlank()) {
-            val loaded = runCatching { repo.seriesDetails(item.groupId) }.getOrNull()
-            seriesDetails = loaded
-            // Expand single-item resume playlist to full series queue without interrupting active playback
-            if (loaded != null && loaded.episodes.isNotEmpty() && playlist.size <= 1) {
-                val expanded = loaded.episodes.map { e ->
-                    PlayItem(
-                        kind = Kind.EPISODE,
-                        id = e.id,
-                        title = loaded.name.ifBlank { item.title },
-                        subtitle = "${Ar.seasonEpisode(e.season, e.number)}: ${e.title}",
-                        icon = e.image.ifBlank { loaded.cover.ifBlank { item.icon } },
-                        ext = e.ext,
-                        groupId = loaded.id.ifBlank { item.groupId },
-                    )
-                }
-                val matchIdx = expanded.indexOfFirst { it.id == currentItem.id }
-                if (matchIdx >= 0) {
-                    playlist = expanded
-                    index = matchIdx
-                }
-            }
-        }
+        vm.loadSeriesIfNeeded(item)
     }
 
     val saveNow: () -> Unit = {
-        val saved = currentItem
         val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-        container.saveProgress(saved, exo.currentPosition, total)
+        vm.saveProgress(exo.currentPosition, total)
     }
 
     val goTo: (Int) -> Unit = { target ->
-        if (target in 0..playlist.lastIndex && target != index) {
-            saveNow()
-            formatAttempt = 0
-            autoReconnectCount = 0
-            reconnecting = false
-            error = null
+        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+        if (vm.goTo(target, exo.currentPosition, total)) {
             ended = false
-            index = target
             controlsVisible = true
             interactions++
         }
     }
 
     val playEpisodeFromDrawer: (Episode) -> Unit = { ep ->
-        val existingIdx = playlist.indexOfFirst { it.id == ep.id }
-        if (existingIdx >= 0) {
-            goTo(existingIdx)
-        } else {
-            val allEps = seriesDetails?.episodes.orEmpty()
-            if (allEps.isNotEmpty()) {
-                val sName = seriesDetails?.name ?: item.title
-                val sCover = seriesDetails?.cover ?: item.icon
-                val sId = seriesDetails?.id ?: item.groupId
-                val newItems = allEps.map { e ->
-                    PlayItem(
-                        kind = Kind.EPISODE,
-                        id = e.id,
-                        title = sName,
-                        subtitle = "${Ar.seasonEpisode(e.season, e.number)}: ${e.title}",
-                        icon = e.image.ifBlank { sCover },
-                        ext = e.ext,
-                        groupId = sId,
-                    )
-                }
-                val newIdx = newItems.indexOfFirst { it.id == ep.id }.coerceAtLeast(0)
-                saveNow()
-                playlist = newItems
-                formatAttempt = 0
-                autoReconnectCount = 0
-                reconnecting = false
-                error = null
-                ended = false
-                index = newIdx
-                controlsVisible = true
-                interactions++
-            }
+        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+        if (vm.playEpisodeFromDrawer(ep, exo.currentPosition, total)) {
+            ended = false
+            controlsVisible = true
+            interactions++
         }
     }
 
-    val zapNext: () -> Unit = { if (playlist.size > 1) goTo(if (index >= playlist.lastIndex) 0 else index + 1) }
-    val zapPrevious: () -> Unit = { if (playlist.size > 1) goTo(if (index <= 0) playlist.lastIndex else index - 1) }
+    val zapNext: () -> Unit = {
+        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+        if (vm.zapNext(exo.currentPosition, total)) {
+            ended = false
+            controlsVisible = true
+            interactions++
+        }
+    }
+    val zapPrevious: () -> Unit = {
+        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+        if (vm.zapPrevious(exo.currentPosition, total)) {
+            ended = false
+            controlsVisible = true
+            interactions++
+        }
+    }
     val togglePlay: () -> Unit = {
         if (exo.playbackState == Player.STATE_ENDED) {
             // Only restart on explicit manual user play press — never auto-repeat
@@ -315,13 +264,11 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     val seekBy: (Long) -> Unit = { delta ->
         val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: Long.MAX_VALUE
         exo.seekTo((exo.currentPosition + delta).coerceIn(0L, total))
-        position = exo.currentPosition
+        vm.onSeekPosition(exo.currentPosition)
         interactions++
     }
     val cycleSpeed: () -> Unit = {
-        speedIndex = (speedIndex + 1) % PlaybackSpeeds.size
-        val nextSpeed = PlaybackSpeeds[speedIndex]
-        playbackSpeed = nextSpeed
+        val nextSpeed = vm.cycleSpeed(PlaybackSpeeds)
         exo.setPlaybackSpeed(nextSpeed)
         interactions++
     }
@@ -375,45 +322,16 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         exo.repeatMode = Player.REPEAT_MODE_OFF
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
+                vm.onIsPlayingChanged(playing)
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                buffering = state == Player.STATE_BUFFERING
-                if (state == Player.STATE_READY) {
-                    error = null
-                    reconnecting = false
-                    autoReconnectCount = 0
-                }
+                vm.onBufferingReady(state == Player.STATE_BUFFERING, state == Player.STATE_READY)
                 if (state == Player.STATE_ENDED) ended = true
             }
 
             override fun onPlayerError(e: PlaybackException) {
-                val live = currentItem.kind == Kind.LIVE
-                when {
-                    autoReconnectCount < 2 -> {
-                        reconnecting = true
-                        autoReconnectCount += 1
-                    }
-                    live && formatAttempt + 1 < repo.liveExtensions().size -> {
-                        autoReconnectCount = 0
-                        reconnecting = true
-                        formatAttempt += 1
-                    }
-                    else -> {
-                        reconnecting = false
-                        val causeMsg = e.cause?.message ?: e.message ?: ""
-                        val errorCodeName = e.errorCodeName
-                        val codeMatch = Regex("""\b(401|403|404|458|500|502|503)\b""").find(causeMsg)?.value
-                        val hint = when (codeMatch) {
-                            "401", "403", "458" -> "تم تجاوز الحد الأقصى للأجهزة المتصلة أو انتهى الاشتراك ($codeMatch)"
-                            "404" -> "القناة أو المحتوى غير متوفر حالياً على السيرفر (404)"
-                            "500", "502", "503" -> "خلل في خادم البث ($codeMatch)"
-                            else -> if (errorCodeName.isNotBlank()) "فشل تشغيل البث ($errorCodeName)" else Ar.errPlayback
-                        }
-                        error = hint
-                    }
-                }
+                vm.onPlayerError(e.errorCodeName, e.cause?.message ?: e.message ?: "")
             }
 
             override fun onTracksChanged(newTracks: Tracks) {
@@ -424,34 +342,22 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         onDispose { exo.removeListener(listener) }
     }
 
-    LaunchedEffect(currentItem.id, retryKey, formatAttempt, autoReconnectCount) {
-        val activeItem = currentItem
-        error = null
-        buffering = true
-        if (autoReconnectCount > 0) {
+    LaunchedEffect(item.id, ui.retryKey, ui.formatAttempt, ui.autoReconnectCount) {
+        val activeItem = item
+        vm.onPrepareStarted()
+        if (ui.autoReconnectCount > 0) {
             delay(1_100)
         }
         val url = try {
-            repo.streamUrl(activeItem, formatAttempt)
+            vm.streamUrl(activeItem, ui.formatAttempt)
         } catch (e: Exception) {
-            reconnecting = false
-            error = Ar.errPlayback
+            vm.onUrlError()
             return@LaunchedEffect
         }
-        val resume = when {
-            activeItem.kind == Kind.LIVE || request.fromStart || forceFromZeroId == activeItem.id -> 0L
-            autoReconnectCount > 0 && exo.currentPosition > 0L -> exo.currentPosition
-            request.initialPositionMs > 0L && !usedInitialPos &&
-                activeItem.id == request.items.getOrNull(request.startIndex)?.id -> {
-                usedInitialPos = true
-                request.initialPositionMs
-            }
-            else -> container.prefs.positionOf(activeItem.kind, activeItem.id)
-        }
-        if (forceFromZeroId == activeItem.id) forceFromZeroId = null
+        val resume = vm.resolveResumePositionMs(activeItem, exo.currentPosition)
         exo.volume = 1.0f
         exo.repeatMode = Player.REPEAT_MODE_OFF
-        exo.setMediaItem(MediaItem.fromUri(url), resume.coerceAtLeast(0L))
+        exo.setMediaItem(MediaItem.fromUri(url), resume)
         exo.prepare()
         exo.playWhenReady = true
     }
@@ -459,28 +365,13 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     LaunchedEffect(ended) {
         if (ended) {
             ended = false
-            if (!isLive) {
-                val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
-                if (total > 0L) container.saveProgress(currentItem, total, total)
-                val nextInPlaylist = if (index < playlist.lastIndex) playlist[index + 1] else null
-                if (nextInPlaylist != null) {
-                    forceFromZeroId = nextInPlaylist.id
-                    goTo(index + 1)
-                } else {
-                    val allEps = seriesDetails?.episodes.orEmpty()
-                    val curEpIdx = allEps.indexOfFirst { it.id == currentItem.id }
-                    val nextEp = if (curEpIdx >= 0 && curEpIdx + 1 < allEps.size) allEps[curEpIdx + 1] else null
-                    if (nextEp != null) {
-                        forceFromZeroId = nextEp.id
-                        playEpisodeFromDrawer(nextEp)
-                    } else {
-                        // Last episode or movie ended: NEVER auto-repeat/loop same item
-                        exo.playWhenReady = false
-                        exo.pause()
-                        controlsVisible = true
-                        requestPlayFocusTick++
-                    }
-                }
+            val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+            vm.onPlaybackEnded(total) {
+                // Last episode or movie ended: NEVER auto-repeat/loop same item
+                exo.playWhenReady = false
+                exo.pause()
+                controlsVisible = true
+                vm.bumpPlayFocusTick()
             }
         }
     }
@@ -489,9 +380,10 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         var ticks = 0
         while (true) {
             if (controlsVisible || showEpisodesDrawer || displayMode == DisplayMode.PHONE_PORTRAIT) {
-                position = exo.currentPosition.coerceAtLeast(0L)
-                bufferedPosition = exo.bufferedPosition.coerceAtLeast(position)
-                duration = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+                val cur = exo.currentPosition.coerceAtLeast(0L)
+                val buf = exo.bufferedPosition.coerceAtLeast(cur)
+                val dur = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+                vm.onProgressUpdate(cur, buf, dur)
             }
             delay(500)
             ticks++
@@ -503,19 +395,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
     }
 
     LaunchedEffect(item.id, isLive) {
-        epg = emptyList()
-        if (isLive) {
-            while (true) {
-                epg = try {
-                    repo.shortEpg(item.id, 4)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    emptyList()
-                }
-                delay(60_000)
-            }
-        }
+        vm.startEpgLoop(item.id, isLive)
     }
 
     LaunchedEffect(
@@ -573,7 +453,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
             Key.MediaPlayPause -> {
                 togglePlay()
                 controlsVisible = true
-                requestPlayFocusTick++
+                vm.bumpPlayFocusTick()
                 true
             }
             Key.MediaPlay -> {
@@ -583,7 +463,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
             Key.MediaPause -> {
                 exo.pause()
                 controlsVisible = true
-                requestPlayFocusTick++
+                vm.bumpPlayFocusTick()
                 true
             }
             Key.MediaFastForward -> {
@@ -632,7 +512,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                                 exo.play()
                             }
                             controlsVisible = true
-                            requestPlayFocusTick++
+                            vm.bumpPlayFocusTick()
                         }
                         Key.DirectionUp -> {
                             if (isLive) zapNext() else if (playlist.size > 1 || seriesDetails != null) {
@@ -712,7 +592,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                     onSeekBy = seekBy,
                     onSeekTo = { target ->
                         exo.seekTo(target.coerceAtLeast(0L))
-                        position = target
+                        vm.onSeekPosition(target)
                         interactions++
                     },
                     onPrev = zapPrevious,
@@ -721,17 +601,13 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                     onSelectEpisode = playEpisodeFromDrawer,
                     onCycleSpeed = cycleSpeed,
                     onCycleResize = {
-                        resizeIndex = (resizeIndex + 1) % ResizeModes.size
+                        vm.cycleResize(ResizeModes.size)
                         interactions++
                     },
                     onOpenTracks = { showTracks = true },
                     onOpenGuide = { showGuide = true },
                     onEnterLandscape = toggleOrientation,
-                    onRetry = {
-                        autoReconnectCount = 0
-                        formatAttempt = 0
-                        retryKey++
-                    },
+                    onRetry = { vm.retry() },
                 )
             }
 
@@ -821,14 +697,14 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                             onSeekBy = seekBy,
                             onSeekTo = { target ->
                                 exo.seekTo(target.coerceAtLeast(0L))
-                                position = target
+                                vm.onSeekPosition(target)
                                 interactions++
                             },
                             onPrev = zapPrevious,
                             onNext = zapNext,
                             onCycleSpeed = cycleSpeed,
                             onCycleResize = {
-                                resizeIndex = (resizeIndex + 1) % ResizeModes.size
+                                vm.cycleResize(ResizeModes.size)
                                 interactions++
                             },
                             onOpenTracks = {
@@ -914,11 +790,7 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 GlassButton(
                                     Ar.retry,
-                                    {
-                                        autoReconnectCount = 0
-                                        formatAttempt = 0
-                                        retryKey++
-                                    },
+                                    { vm.retry() },
                                     primary = true,
                                     autoFocus = true,
                                 )
@@ -2499,7 +2371,10 @@ private fun TracksDialog(tracks: Tracks, exo: ExoPlayer, onDismiss: () -> Unit) 
                             },
                         )
                     }
-                    items(video.flatMap { group -> (0 until group.length).map { group to it } }) { (group, i) ->
+                    itemsIndexed(
+                        video.flatMap { group -> (0 until group.length).map { group to it } },
+                        key = { idx, (group, i) -> "v_${group.mediaTrackGroup.hashCode()}_${i}_$idx" },
+                    ) { _, (group, i) ->
                         TrackRow(
                             label = SahabPlayer.videoQualityLabel(group.getTrackFormat(i)),
                             selected = hasVideoOverride && group.isTrackSelected(i),
@@ -2514,7 +2389,10 @@ private fun TracksDialog(tracks: Tracks, exo: ExoPlayer, onDismiss: () -> Unit) 
                 }
                 if (audio.isNotEmpty()) {
                     item { Text(Ar.audio, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = OsdCyan) }
-                    items(audio.flatMap { group -> (0 until group.length).map { group to it } }) { (group, i) ->
+                    itemsIndexed(
+                        audio.flatMap { group -> (0 until group.length).map { group to it } },
+                        key = { idx, (group, i) -> "a_${group.mediaTrackGroup.hashCode()}_${i}_$idx" },
+                    ) { _, (group, i) ->
                         TrackRow(
                             label = trackLabel(group.getTrackFormat(i), i),
                             selected = group.isTrackSelected(i),
@@ -2541,7 +2419,10 @@ private fun TracksDialog(tracks: Tracks, exo: ExoPlayer, onDismiss: () -> Unit) 
                             },
                         )
                     }
-                    items(text.flatMap { group -> (0 until group.length).map { group to it } }) { (group, i) ->
+                    itemsIndexed(
+                        text.flatMap { group -> (0 until group.length).map { group to it } },
+                        key = { idx, (group, i) -> "t_${group.mediaTrackGroup.hashCode()}_${i}_$idx" },
+                    ) { _, (group, i) ->
                         TrackRow(
                             label = trackLabel(group.getTrackFormat(i), i),
                             selected = !textOff && group.isTrackSelected(i),

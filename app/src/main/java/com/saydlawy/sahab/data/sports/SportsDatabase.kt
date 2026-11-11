@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.data.sports
 
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -7,9 +9,12 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import java.io.File
+import java.io.FileOutputStream
 
 @Entity(tableName = "matches")
 data class MatchEntity(
@@ -80,6 +85,110 @@ interface MatchDao {
 @Database(entities = [MatchEntity::class, StandingEntity::class], version = 1, exportSchema = false)
 abstract class SportsDatabase : RoomDatabase() {
     abstract fun matchDao(): MatchDao
+
+    companion object {
+        @Volatile
+        private var INSTANCE: SportsDatabase? = null
+
+        fun getInstance(context: Context): SportsDatabase {
+            INSTANCE?.let { return it }
+            return synchronized(this) {
+                INSTANCE?.let { return it }
+                val app = context.applicationContext
+                val dbFile = app.getDatabasePath("sports_db")
+                if (needsSeedCopy(dbFile)) {
+                    try {
+                        dbFile.parentFile?.mkdirs()
+                        File(dbFile.path + "-wal").delete()
+                        File(dbFile.path + "-shm").delete()
+                        app.assets.open("databases/sports_db").use { input ->
+                            FileOutputStream(dbFile).use { output ->
+                                input.copyTo(output)
+                                output.flush()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("SportsDB", "Failed to copy pre-packaged sports_db from assets", e)
+                        throw RuntimeException("SportsDB seed copy failed: ${e.message}", e)
+                    }
+                }
+
+                val copiedSize = dbFile.length()
+                if (copiedSize < 100_000) {
+                    throw RuntimeException("SportsDB seed copy produced only ${copiedSize} bytes (expected ~1.2MB)")
+                }
+
+                Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
+                    .addMigrations(SportsMigrations.MIGRATION_1_2)
+                    .build()
+                    .also { INSTANCE = it }
+            }
+        }
+
+        private fun needsSeedCopy(dbFile: File): Boolean {
+            if (!dbFile.exists()) return true
+            return try {
+                SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqLite ->
+                    isSchemaOutdated(sqLite) || isSeedDataStale(sqLite)
+                }
+            } catch (e: Exception) {
+                true
+            }
+        }
+
+        private fun isSchemaOutdated(sqLite: SQLiteDatabase): Boolean {
+            var leagueIdNotNull = false
+            sqLite.rawQuery("PRAGMA table_info(matches)", null).use { cursor ->
+                val nameIdx = cursor.getColumnIndex("name")
+                val notNullIdx = cursor.getColumnIndex("notnull")
+                while (cursor.moveToNext()) {
+                    if (nameIdx >= 0 && notNullIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
+                        leagueIdNotNull = cursor.getInt(notNullIdx) == 1
+                    }
+                }
+            }
+            var standingsPkValid = false
+            sqLite.rawQuery("PRAGMA table_info(standings)", null).use { cursor ->
+                val nameIdx = cursor.getColumnIndex("name")
+                val pkIdx = cursor.getColumnIndex("pk")
+                while (cursor.moveToNext()) {
+                    if (nameIdx >= 0 && pkIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
+                        standingsPkValid = cursor.getInt(pkIdx) > 0
+                    }
+                }
+            }
+            return !leagueIdNotNull || !standingsPkValid
+        }
+
+        private fun isSeedDataStale(sqLite: SQLiteDatabase): Boolean {
+            var hasNewSeedMarker = false
+            sqLite.rawQuery("SELECT count(*) FROM matches WHERE leagueId = 32", null).use { c ->
+                if (c.moveToNext()) hasNewSeedMarker = c.getInt(0) > 0
+            }
+            var hasYouthCupJunk = false
+            sqLite.rawQuery(
+                "SELECT count(*) FROM matches WHERE leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
+                null,
+            ).use { c ->
+                if (c.moveToNext()) hasYouthCupJunk = c.getInt(0) > 0
+            }
+            var has2026Standings = false
+            sqLite.rawQuery(
+                "SELECT count(*) FROM standings WHERE leagueId = 307 AND played < 34",
+                null,
+            ).use { c ->
+                if (c.moveToNext()) has2026Standings = c.getInt(0) >= 18
+            }
+            var hasCorrectEgyptianStandings = false
+            sqLite.rawQuery(
+                "SELECT points FROM standings WHERE leagueId = 233 AND rank = 1 LIMIT 1",
+                null,
+            ).use { c ->
+                if (c.moveToNext()) hasCorrectEgyptianStandings = c.getInt(0) == 24
+            }
+            return !hasNewSeedMarker || hasYouthCupJunk || !has2026Standings || !hasCorrectEgyptianStandings
+        }
+    }
 }
 
 object SportsMigrations {

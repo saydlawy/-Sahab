@@ -1,27 +1,25 @@
 package com.saydlawy.sahab.ui.sports
 
 import android.app.Application
-import android.database.sqlite.SQLiteDatabase
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.Room
+import androidx.work.WorkManager
 import com.saydlawy.sahab.data.sports.AllowedLeaguesConfig
 import com.saydlawy.sahab.data.sports.League
 import com.saydlawy.sahab.data.sports.Match
 import com.saydlawy.sahab.data.sports.MatchStatus
 import com.saydlawy.sahab.data.sports.SportsDatabase
-import com.saydlawy.sahab.data.sports.SportsMigrations
 import com.saydlawy.sahab.data.sports.Standing
+import com.saydlawy.sahab.data.sports.SyncScheduler
 import com.saydlawy.sahab.data.sports.toMatch
 import com.saydlawy.sahab.data.sports.toStanding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.EnumMap
@@ -60,103 +58,7 @@ sealed class SportsUiState {
 
 class SportsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val db by lazy {
-        val app = getApplication<Application>()
-        val dbFile = app.getDatabasePath("sports_db")
-
-        if (needsSeedCopy(dbFile)) {
-            try {
-                dbFile.parentFile?.mkdirs()
-                File(dbFile.path + "-wal").delete()
-                File(dbFile.path + "-shm").delete()
-                app.assets.open("databases/sports_db").use { input ->
-                    FileOutputStream(dbFile).use { output ->
-                        input.copyTo(output)
-                        output.flush()
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("SportsDB", "Failed to copy pre-packaged sports_db from assets", e)
-                throw RuntimeException("SportsDB seed copy failed: ${e.message}", e)
-            }
-        }
-
-        val copiedSize = dbFile.length()
-        if (copiedSize < 100_000) {
-            throw RuntimeException("SportsDB seed copy produced only ${copiedSize} bytes (expected ~1.2MB)")
-        }
-
-        Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
-            .addMigrations(SportsMigrations.MIGRATION_1_2)
-            .build()
-    }
-
-    private fun needsSeedCopy(dbFile: File): Boolean {
-        if (!dbFile.exists()) return true
-        return try {
-            SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqLite ->
-                isSchemaOutdated(sqLite) || isSeedDataStale(sqLite)
-            }
-        } catch (e: Exception) {
-            true
-        }
-    }
-
-    private fun isSchemaOutdated(sqLite: SQLiteDatabase): Boolean {
-        var leagueIdNotNull = false
-        sqLite.rawQuery("PRAGMA table_info(matches)", null).use { cursor ->
-            val nameIdx = cursor.getColumnIndex("name")
-            val notNullIdx = cursor.getColumnIndex("notnull")
-            while (cursor.moveToNext()) {
-                if (nameIdx >= 0 && notNullIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
-                    leagueIdNotNull = cursor.getInt(notNullIdx) == 1
-                }
-            }
-        }
-        var standingsPkValid = false
-        sqLite.rawQuery("PRAGMA table_info(standings)", null).use { cursor ->
-            val nameIdx = cursor.getColumnIndex("name")
-            val pkIdx = cursor.getColumnIndex("pk")
-            while (cursor.moveToNext()) {
-                if (nameIdx >= 0 && pkIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
-                    standingsPkValid = cursor.getInt(pkIdx) > 0
-                }
-            }
-        }
-        return !leagueIdNotNull || !standingsPkValid
-    }
-
-    private fun isSeedDataStale(sqLite: SQLiteDatabase): Boolean {
-        var hasNewSeedMarker = false
-        sqLite.rawQuery(
-            "SELECT count(*) FROM matches WHERE leagueId = 32",
-            null,
-        ).use { c ->
-            if (c.moveToNext()) hasNewSeedMarker = c.getInt(0) > 0
-        }
-        var hasYouthCupJunk = false
-        sqLite.rawQuery(
-            "SELECT count(*) FROM matches WHERE leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
-            null,
-        ).use { c ->
-            if (c.moveToNext()) hasYouthCupJunk = c.getInt(0) > 0
-        }
-        var has2026Standings = false
-        sqLite.rawQuery(
-            "SELECT count(*) FROM standings WHERE leagueId = 307 AND played < 34",
-            null,
-        ).use { c ->
-            if (c.moveToNext()) has2026Standings = c.getInt(0) >= 18
-        }
-        var hasCorrectEgyptianStandings = false
-        sqLite.rawQuery(
-            "SELECT points FROM standings WHERE leagueId = 233 AND rank = 1 LIMIT 1",
-            null,
-        ).use { c ->
-            if (c.moveToNext()) hasCorrectEgyptianStandings = c.getInt(0) == 24
-        }
-        return !hasNewSeedMarker || hasYouthCupJunk || !has2026Standings || !hasCorrectEgyptianStandings
-    }
+    private val db by lazy { SportsDatabase.getInstance(getApplication()) }
 
     private val dao by lazy { db.matchDao() }
 
@@ -354,8 +256,29 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshActiveFilter() {
-        fetchMatchesFromApi(silent = false)
-        fetchStandings()
+        refreshManually()
+    }
+
+    fun refreshManually() {
+        if (_isRefreshing.value) return
+        _isRefreshing.value = true
+        val app = getApplication<Application>()
+        val request = SyncScheduler.enqueueManualSyncNow(app)
+        viewModelScope.launch {
+            try {
+                try {
+                    WorkManager.getInstance(app)
+                        .getWorkInfoByIdFlow(request.id)
+                        .firstOrNull { info -> info != null && info.state.isFinished }
+                } catch (_: Exception) {
+                    // Reload local Room data even if WorkManager observation fails
+                }
+                fetchMatchesFromApi(silent = true)
+                fetchStandings()
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
     }
 
     fun updateDate(date: DateFilter) {
@@ -379,121 +302,21 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        val category = _selectedCategory.value
-        val subLeague = _selectedSubLeague.value
-        val query = _searchQuery.value.trim()
-        val filter = _selectedDate.value
-        val todayDate = getFormattedDate(0)
-        val targetDate = getFormattedDate(filter.offsetDays)
-
-        val categoryLeagueIds = when (category) {
-            MainCategory.EGYPTIAN -> setOf(233)
-            MainCategory.SAUDI -> setOf(307)
-            MainCategory.CLUBS_INTL -> setOf(12, 17, 20, 2, 3)
-            MainCategory.NATIONAL_TEAMS -> setOf(6, 32, 403, 8, 1, 452)
-            MainCategory.EUROPEAN -> setOf(39, 140, 135, 78, 61, 203)
-        }
-
-        val deduplicatedSource = matchesToFilter
-            .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
-            .distinctBy {
-                "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
-            }
-
-        val byCategoryAndQuery = deduplicatedSource.filter { match ->
-            val inCategory = if (subLeague != null) {
-                match.league.id == subLeague
-            } else {
-                match.league.id in categoryLeagueIds
-            }
-            val matchesSearch = if (query.isEmpty()) {
-                true
-            } else {
-                match.homeTeam.name.contains(query, ignoreCase = true) ||
-                    match.awayTeam.name.contains(query, ignoreCase = true) ||
-                    match.league.name.contains(query, ignoreCase = true)
-            }
-            inCategory && matchesSearch
-        }
-
-        // Compute match counts per DateFilter based on actual local DB availability
-        val counts = EnumMap<DateFilter, Int>(DateFilter::class.java)
-        DateFilter.values().forEach { df ->
-            counts[df] = if (df.isRange) {
-                val endDate = getFormattedDate(df.rangeDays)
-                byCategoryAndQuery.count { it.date in todayDate..endDate }
-            } else {
-                val d = getFormattedDate(df.offsetDays)
-                byCategoryAndQuery.count { it.date == d }
-            }
-        }
-        _dateFilterCounts.value = counts
-
-        // Match exact date or date range (Today / Yesterday / Tomorrow / 7..90 days)
-        val exactMatches = if (filter.isRange) {
-            val endDate = getFormattedDate(filter.rangeDays)
-            byCategoryAndQuery.filter { it.date in todayDate..endDate }
-        } else {
-            byCategoryAndQuery.filter { match ->
-                match.date.isBlank() || match.date == targetDate
-            }
-        }
-
-        // Fallback to nearest upcoming matches if no fixtures exist for that exact date/range
-        val effectiveMatches = if (exactMatches.isNotEmpty() || query.isNotEmpty()) {
-            exactMatches
-        } else {
-            val targetEpoch = parseDateEpochDays(targetDate)
-            val upcoming = byCategoryAndQuery
-                .filter { it.date >= targetDate }
-                .sortedWith(compareBy<Match> { it.date }.thenBy { it.time })
-                .take(40)
-            if (upcoming.isNotEmpty()) {
-                upcoming
-            } else {
-                byCategoryAndQuery
-                    .sortedWith(
-                        compareBy<Match> { abs(parseDateEpochDays(it.date) - targetEpoch) }
-                            .thenByDescending { it.date }
-                            .thenBy { it.time }
-                    )
-                    .take(40)
-            }
-        }
-
-        val sortedMatches = effectiveMatches.sortedWith(
-            compareBy<Match> { AllowedLeaguesConfig.getLeagueSortPriority(it.league.id) }
-                .thenBy {
-                    when (it.status) {
-                        MatchStatus.LIVE -> 0
-                        MatchStatus.UPCOMING -> 1
-                        MatchStatus.FINISHED -> 2
-                        MatchStatus.POSTPONED -> 3
-                        MatchStatus.CANCELLED -> 4
-                    }
-                }
-                .thenBy { it.date }
-                .thenBy { it.time }
+        val result = filterMatchesPure(
+            matchesToFilter = matchesToFilter,
+            category = _selectedCategory.value,
+            subLeague = _selectedSubLeague.value,
+            query = _searchQuery.value.trim(),
+            filter = _selectedDate.value,
+            todayDate = getFormattedDate(0),
+            targetDate = getFormattedDate(_selectedDate.value.offsetDays),
+            dateOfOffset = { offset -> getFormattedDate(offset) },
         )
-
-        if (_selectedMatch.value == null || !sortedMatches.contains(_selectedMatch.value)) {
-            _selectedMatch.value = sortedMatches.firstOrNull()
+        _dateFilterCounts.value = result.counts
+        if (_selectedMatch.value == null || !result.sortedMatches.contains(_selectedMatch.value)) {
+            _selectedMatch.value = result.sortedMatches.firstOrNull()
         }
-
-        val grouped = sortedMatches.groupBy { it.league }
-        _uiState.value = SportsUiState.Success(grouped)
-    }
-
-    private fun isSeniorFixture(match: Match): Boolean {
-        val haystack = "${match.league.name} ${match.homeTeam.name} ${match.awayTeam.name}"
-        return !YOUTH_OR_CUP_REGEX.containsMatchIn(haystack)
-    }
-
-    private companion object {
-        val YOUTH_OR_CUP_REGEX = Regex(
-            """\b(U18|U19|U20|U21|U23|EFL Trophy|Premier League 2|Reserves)\b""",
-            RegexOption.IGNORE_CASE,
-        )
+        _uiState.value = SportsUiState.Success(result.groupedMatches)
     }
 
     private fun getFormattedDate(offsetDays: Int): String {
@@ -503,14 +326,135 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
         return format.format(calendar.time)
     }
 
-    private fun parseDateEpochDays(dateStr: String): Long {
-        if (dateStr.length < 10) return Long.MAX_VALUE / 2
-        return try {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            val timeMs = sdf.parse(dateStr.take(10))?.time ?: return Long.MAX_VALUE / 2
-            timeMs / 86_400_000L
-        } catch (e: Exception) {
-            Long.MAX_VALUE / 2
+    internal data class FilteredMatchesResult(
+        val counts: Map<DateFilter, Int>,
+        val sortedMatches: List<Match>,
+        val groupedMatches: Map<League, List<Match>>,
+    )
+
+    companion object {
+        private val YOUTH_OR_CUP_REGEX = Regex(
+            """\b(U18|U19|U20|U21|U23|EFL Trophy|Premier League 2|Reserves)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        private fun isSeniorFixture(match: Match): Boolean {
+            val haystack = "${match.league.name} ${match.homeTeam.name} ${match.awayTeam.name}"
+            return !YOUTH_OR_CUP_REGEX.containsMatchIn(haystack)
+        }
+
+        private fun parseDateEpochDays(dateStr: String): Long {
+            if (dateStr.length < 10) return Long.MAX_VALUE / 2
+            return try {
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                val timeMs = sdf.parse(dateStr.take(10))?.time ?: return Long.MAX_VALUE / 2
+                timeMs / 86_400_000L
+            } catch (e: Exception) {
+                Long.MAX_VALUE / 2
+            }
+        }
+
+        internal fun filterMatchesPure(
+            matchesToFilter: List<Match>,
+            category: MainCategory,
+            subLeague: Int?,
+            query: String,
+            filter: DateFilter,
+            todayDate: String,
+            targetDate: String,
+            dateOfOffset: (Int) -> String,
+        ): FilteredMatchesResult {
+            val categoryLeagueIds = when (category) {
+                MainCategory.EGYPTIAN -> setOf(233)
+                MainCategory.SAUDI -> setOf(307)
+                MainCategory.CLUBS_INTL -> setOf(12, 17, 20, 2, 3)
+                MainCategory.NATIONAL_TEAMS -> setOf(6, 32, 403, 8, 1, 452)
+                MainCategory.EUROPEAN -> setOf(39, 140, 135, 78, 61, 203)
+            }
+
+            val deduplicatedSource = matchesToFilter
+                .filter { (it.date.isBlank() || it.date >= "2026-01-01") && isSeniorFixture(it) }
+                .distinctBy {
+                    "${it.date}_${it.homeTeam.name.trim().lowercase(Locale.ROOT)}_${it.awayTeam.name.trim().lowercase(Locale.ROOT)}"
+                }
+
+            val byCategoryAndQuery = deduplicatedSource.filter { match ->
+                val inCategory = if (subLeague != null) {
+                    match.league.id == subLeague
+                } else {
+                    match.league.id in categoryLeagueIds
+                }
+                val matchesSearch = if (query.isEmpty()) {
+                    true
+                } else {
+                    match.homeTeam.name.contains(query, ignoreCase = true) ||
+                        match.awayTeam.name.contains(query, ignoreCase = true) ||
+                        match.league.name.contains(query, ignoreCase = true)
+                }
+                inCategory && matchesSearch
+            }
+
+            val counts = EnumMap<DateFilter, Int>(DateFilter::class.java)
+            DateFilter.values().forEach { df ->
+                counts[df] = if (df.isRange) {
+                    val endDate = dateOfOffset(df.rangeDays)
+                    byCategoryAndQuery.count { it.date in todayDate..endDate }
+                } else {
+                    val d = dateOfOffset(df.offsetDays)
+                    byCategoryAndQuery.count { it.date == d }
+                }
+            }
+
+            val exactMatches = if (filter.isRange) {
+                val endDate = dateOfOffset(filter.rangeDays)
+                byCategoryAndQuery.filter { it.date in todayDate..endDate }
+            } else {
+                byCategoryAndQuery.filter { match ->
+                    match.date.isBlank() || match.date == targetDate
+                }
+            }
+
+            val effectiveMatches = if (exactMatches.isNotEmpty() || query.isNotEmpty()) {
+                exactMatches
+            } else {
+                val targetEpoch = parseDateEpochDays(targetDate)
+                val upcoming = byCategoryAndQuery
+                    .filter { it.date >= targetDate }
+                    .sortedWith(compareBy<Match> { it.date }.thenBy { it.time })
+                    .take(40)
+                if (upcoming.isNotEmpty()) {
+                    upcoming
+                } else {
+                    byCategoryAndQuery
+                        .sortedWith(
+                            compareBy<Match> { abs(parseDateEpochDays(it.date) - targetEpoch) }
+                                .thenByDescending { it.date }
+                                .thenBy { it.time },
+                        )
+                        .take(40)
+                }
+            }
+
+            val sortedMatches = effectiveMatches.sortedWith(
+                compareBy<Match> { AllowedLeaguesConfig.getLeagueSortPriority(it.league.id) }
+                    .thenBy {
+                        when (it.status) {
+                            MatchStatus.LIVE -> 0
+                            MatchStatus.UPCOMING -> 1
+                            MatchStatus.FINISHED -> 2
+                            MatchStatus.POSTPONED -> 3
+                            MatchStatus.CANCELLED -> 4
+                        }
+                    }
+                    .thenBy { it.date }
+                    .thenBy { it.time },
+            )
+
+            return FilteredMatchesResult(
+                counts = counts,
+                sortedMatches = sortedMatches,
+                groupedMatches = sortedMatches.groupBy { it.league },
+            )
         }
     }
 }

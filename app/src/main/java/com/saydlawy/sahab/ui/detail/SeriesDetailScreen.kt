@@ -281,7 +281,7 @@ private fun SeriesContent(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(vertical = 6.dp),
                     ) {
-                        items(seasons.size) { index ->
+                        items(seasons.size, key = { index -> seasons[index] }) { index ->
                             Chip(
                                 text = Ar.season(seasons[index]),
                                 selected = index == selectedSeasonIndex,

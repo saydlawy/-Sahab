@@ -481,7 +481,7 @@ fun SkeletonGrid(
         verticalArrangement = Arrangement.spacedBy(18.dp),
         userScrollEnabled = false,
     ) {
-        items(itemCount) {
+        items(itemCount, key = { it }) {
             Column {
                 Box(
                     Modifier

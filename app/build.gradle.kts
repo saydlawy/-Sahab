@@ -17,12 +17,7 @@ if (localPropertiesFile.exists()) {
 }
 // Read from environment variable first (GitHub Actions), fallback to local.properties
 val tmdbApiKey: String = System.getenv("TMDB_API_KEY") ?: localProperties.getProperty("TMDB_API_KEY") ?: ""
-val apiFootballKey: String = System.getenv("API_FOOTBALL_KEY") ?: localProperties.getProperty("API_FOOTBALL_KEY") ?: ""
-    val openFootApiKey: String = System.getenv("OPENFOOT_API_KEY") ?: localProperties.getProperty("OPENFOOT_API_KEY") ?: ""
-    val highlightlyApiKey: String = System.getenv("HIGHLIGHTLY_API_KEY") ?: localProperties.getProperty("HIGHLIGHTLY_API_KEY") ?: ""
-val footballDataOrgKey: String = System.getenv("FOOTBALL_DATA_ORG_KEY") ?: localProperties.getProperty("FOOTBALL_DATA_ORG_KEY") ?: ""
-val theSportsDbKey: String = System.getenv("THESPORTSDB_KEY") ?: localProperties.getProperty("THESPORTSDB_KEY") ?: "3"
-val bzzoiroToken: String = System.getenv("BZZOIRO_API_TOKEN") ?: localProperties.getProperty("BZZOIRO_API_TOKEN") ?: ""
+val goalApiKey: String = System.getenv("GOAL_API_KEY") ?: localProperties.getProperty("GOAL_API_KEY") ?: ""
 
 val runNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
@@ -37,12 +32,7 @@ android {
         versionCode = runNumber
         versionName = "1.0.$runNumber"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
-        buildConfigField("String", "API_FOOTBALL_KEY", "\"$apiFootballKey\"")
-        buildConfigField("String", "OPENFOOT_API_KEY", "\"$openFootApiKey\"")
-        buildConfigField("String", "HIGHLIGHTLY_API_KEY", "\"$highlightlyApiKey\"")
-        buildConfigField("String", "FOOTBALL_DATA_ORG_KEY", "\"$footballDataOrgKey\"")
-        buildConfigField("String", "THESPORTSDB_KEY", "\"$theSportsDbKey\"")
-        buildConfigField("String", "BZZOIRO_API_TOKEN", "\"$bzzoiroToken\"")
+        buildConfigField("String", "GOAL_API_KEY", "\"$goalApiKey\"")
     }
 
     val keystoreFile = rootProject.file("release-keystore.jks")
@@ -61,8 +51,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -113,6 +107,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
@@ -129,4 +124,8 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
 }

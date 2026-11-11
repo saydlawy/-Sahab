@@ -27,12 +27,15 @@ import java.io.File
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "sahab")
 
 class Prefs @JvmOverloads constructor(
-    context: Context,
+    context: Context?,
     private val secureStoreOverride: SharedPreferences? = null,
+    dataStoreOverride: DataStore<Preferences>? = null,
 ) {
 
-    private val appContext = context.applicationContext
-    private val store = appContext.dataStore
+    private val appContext = context?.applicationContext
+    private val store: DataStore<Preferences> = dataStoreOverride
+        ?: appContext?.dataStore
+        ?: error("Context or dataStoreOverride is required")
     private val json = Json { ignoreUnknownKeys = true }
     private val favSerializer = ListSerializer(FavItem.serializer())
     private val recentSerializer = ListSerializer(RecentItem.serializer())
@@ -62,7 +65,10 @@ class Prefs @JvmOverloads constructor(
             val created = runCatching { createEncryptedPrefs() }.getOrElse {
                 // Recover from corrupted Android Keystore entry after backup restore
                 runCatching {
-                    File(appContext.filesDir.parentFile, "shared_prefs/$SECURE_PREFS_NAME.xml").delete()
+                    val parent = appContext?.filesDir?.parentFile
+                    if (parent != null) {
+                        File(parent, "shared_prefs/$SECURE_PREFS_NAME.xml").delete()
+                    }
                 }
                 createEncryptedPrefs()
             }
@@ -72,11 +78,12 @@ class Prefs @JvmOverloads constructor(
     }
 
     private fun createEncryptedPrefs(): SharedPreferences {
+        val ctx = appContext ?: error("Context is required for EncryptedSharedPreferences")
         val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
         return EncryptedSharedPreferences.create(
             SECURE_PREFS_NAME,
             masterKeyAlias,
-            appContext,
+            ctx,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )

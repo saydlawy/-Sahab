@@ -1196,7 +1196,7 @@ private fun ActionPillButton(
 @Composable
 private fun MainCategoryBar(selected: MainCategory, onSelect: (MainCategory) -> Unit, scale: Float, isTv: Boolean) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)) {
-        items(MainCategory.values()) { category ->
+        items(MainCategory.values(), key = { it.name }) { category ->
             val isSelected = category == selected
             var focusedRaw by remember { mutableStateOf(false) }
             val isFocused = focusedRaw && isTv
@@ -1257,7 +1257,7 @@ private fun DateFilterBar(
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy((4 * scale).dp),
     ) {
-        items(filters) { filter ->
+        items(filters, key = { it.name }) { filter ->
             val isSelected = filter == selected
             var focusedRaw by remember { mutableStateOf(false) }
             val isFocused = focusedRaw && isTv
@@ -1321,7 +1321,7 @@ private fun SubLeagueBar(
                 fontWeight = FontWeight.Bold,
             )
         }
-        items(subLeagues) { (id, name) ->
+        items(subLeagues, key = { it.first ?: -1 }) { (id, name) ->
             val isSelected = id == selectedId
             var focusedRaw by remember { mutableStateOf(false) }
             val isFocused = focusedRaw && isTv

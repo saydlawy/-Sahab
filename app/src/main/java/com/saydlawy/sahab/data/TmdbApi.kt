@@ -81,11 +81,16 @@ class TmdbApi(
             .replace(Regex("\\s+"), " ")
             .trim()
 
+    private val trimmedKey = apiKey.trim()
+    private val isBearerV4Token = trimmedKey.startsWith("eyJ")
+
     private suspend fun searchMovie(name: String, year: String): Int? {
         val urlBuilder = "https://api.themoviedb.org/3/search/movie".toHttpUrl().newBuilder()
             .addQueryParameter("query", name)
-            .addQueryParameter("api_key", apiKey)
             .addQueryParameter("language", "ar")
+        if (!isBearerV4Token) {
+            urlBuilder.addQueryParameter("api_key", trimmedKey)
+        }
         if (year.length == 4) {
             urlBuilder.addQueryParameter("year", year)
         }
@@ -100,8 +105,13 @@ class TmdbApi(
     }
 
     private suspend fun getMovieDetails(id: Int): TmdbMovie? {
-        val url = "https://api.themoviedb.org/3/movie/$id?api_key=$apiKey&language=ar&append_to_response=credits".toHttpUrl()
-        val text = execute(url.toString()) ?: return null
+        val urlBuilder = "https://api.themoviedb.org/3/movie/$id".toHttpUrl().newBuilder()
+            .addQueryParameter("language", "ar")
+            .addQueryParameter("append_to_response", "credits")
+        if (!isBearerV4Token) {
+            urlBuilder.addQueryParameter("api_key", trimmedKey)
+        }
+        val text = execute(urlBuilder.build().toString()) ?: return null
         return withContext(Dispatchers.Default) {
             try {
                 json.decodeFromString<TmdbMovie>(text)
@@ -112,8 +122,11 @@ class TmdbApi(
     }
 
     private suspend fun execute(url: String): String? = suspendCancellableCoroutine { cont ->
-        val request = Request.Builder().url(url).build()
-        val call = client.newCall(request)
+        val reqBuilder = Request.Builder().url(url)
+        if (isBearerV4Token) {
+            reqBuilder.addHeader("Authorization", "Bearer $trimmedKey")
+        }
+        val call = client.newCall(reqBuilder.build())
         cont.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
