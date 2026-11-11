@@ -6,11 +6,6 @@ import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -151,7 +146,6 @@ private val OsdOnSurface = Color(0xFFE7DEFA)
 private val OsdOnSurfaceVariant = Color(0xFFCFC2D7)
 private val OsdOutline = Color(0xFF988CA0)
 private val OsdOutlineVariant = Color(0xFF4C4354)
-private val OsdError = Color(0xFFFFB4AB)
 
 private val ResizeModes = intArrayOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT,

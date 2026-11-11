@@ -5,39 +5,26 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
-import com.saydlawy.sahab.BuildConfig
 import com.saydlawy.sahab.data.sports.AllowedLeaguesConfig
-import com.saydlawy.sahab.data.sports.ApiResult
 import com.saydlawy.sahab.data.sports.League
 import com.saydlawy.sahab.data.sports.Match
 import com.saydlawy.sahab.data.sports.MatchStatus
-import com.saydlawy.sahab.data.sports.MorphTvApi
-import com.saydlawy.sahab.data.sports.SportsApi
 import com.saydlawy.sahab.data.sports.SportsDatabase
-import com.saydlawy.sahab.data.sports.SportsSyncManager
 import com.saydlawy.sahab.data.sports.Standing
-import com.saydlawy.sahab.data.sports.TheSportsDbApi
-import com.saydlawy.sahab.data.sports.toEntity
 import com.saydlawy.sahab.data.sports.toMatch
 import com.saydlawy.sahab.data.sports.toStanding
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.EnumMap
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 enum class MainCategory(val title: String) {
@@ -164,17 +151,6 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     private val dao by lazy { db.matchDao() }
 
-    private val okHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .build()
-    }
-    private val syncManager by lazy { SportsSyncManager(dao, okHttpClient) }
-    private val sportsApi by lazy { SportsApi(okHttpClient) }
-    private val morphTvApi by lazy { MorphTvApi(okHttpClient) }
-    private val theSportsDbApi by lazy { TheSportsDbApi(okHttpClient) }
-
     private val _selectedCategory = MutableStateFlow(MainCategory.EGYPTIAN)
     val selectedCategory: StateFlow<MainCategory> = _selectedCategory.asStateFlow()
 
@@ -219,7 +195,6 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     @Volatile
     private var allMatches: List<Match> = emptyList()
-    private var pollingJob: Job? = null
 
     init {
         configureSubLeaguesFor(MainCategory.EGYPTIAN)
@@ -304,19 +279,6 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             MainCategory.CLUBS_INTL -> 2
             MainCategory.NATIONAL_TEAMS -> 1
             MainCategory.EUROPEAN -> 39
-        }
-    }
-
-    private fun startSmartPolling() {
-        pollingJob?.cancel()
-        pollingJob = viewModelScope.launch {
-            while (isActive) {
-                delay(60_000)
-                val hasLiveMatches = allMatches.any { it.status == MatchStatus.LIVE }
-                if (hasLiveMatches && _selectedDate.value == DateFilter.TODAY) {
-                    fetchMatchesFromApi(silent = true)
-                }
-            }
         }
     }
 

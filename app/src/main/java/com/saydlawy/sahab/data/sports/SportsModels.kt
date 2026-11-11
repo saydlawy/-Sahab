@@ -17,15 +17,17 @@ enum class MatchStatus {
     LIVE, UPCOMING, FINISHED, POSTPONED, CANCELLED
 }
 
-data class MatchStats(
-    val homePossession: Int,
-    val awayPossession: Int,
-    val homeShots: Int,
-    val awayShots: Int,
-    val homeShotsOnTarget: Int,
-    val awayShotsOnTarget: Int,
-    val homeCorners: Int,
-    val awayCorners: Int
+data class Standing(
+    val rank: Int,
+    val teamName: String,
+    val played: Int,
+    val win: Int,
+    val draw: Int,
+    val loss: Int,
+    val goalsFor: Int,
+    val goalsAgainst: Int,
+    val goalDifference: Int,
+    val points: Int
 )
 
 data class Match(
@@ -44,7 +46,6 @@ data class Match(
     val commentator: String,
     val homeEvents: List<String> = emptyList(),
     val awayEvents: List<String> = emptyList(),
-    val stats: MatchStats? = null
 )
 
 sealed class ApiResult<out T> {

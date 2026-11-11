@@ -97,7 +97,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.saydlawy.sahab.data.sports.League
 import com.saydlawy.sahab.data.sports.Match
-import com.saydlawy.sahab.data.sports.MatchStats
 import com.saydlawy.sahab.data.sports.MatchStatus
 import com.saydlawy.sahab.data.sports.Standing
 import com.saydlawy.sahab.data.sports.Team
@@ -1964,10 +1963,6 @@ private fun LiveMatchHubContent(
             }
         }
 
-        match.stats?.let { stats ->
-            MatchStatsBlock(stats = stats, scale = scale)
-        }
-
         if (match.homeEvents.isNotEmpty() || match.awayEvents.isNotEmpty()) {
             Column(
                 modifier = Modifier
@@ -2037,42 +2032,6 @@ private fun LiveMatchHubContent(
                     fontWeight = FontWeight.ExtraBold,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun MatchStatsBlock(stats: MatchStats, scale: Float) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(SportSurface.copy(alpha = 0.65f))
-            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(14.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("إحصائيات المباراة", color = SportCyan, fontSize = (12 * scale).sp, fontWeight = FontWeight.Bold)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${stats.homePossession}%", color = SportPrimary, fontSize = (11.5f * scale).sp, fontWeight = FontWeight.Bold)
-            Text("الاستحواذ", color = SportTextMuted, fontSize = (11 * scale).sp)
-            Text("${stats.awayPossession}%", color = SportCyan, fontSize = (11.5f * scale).sp, fontWeight = FontWeight.Bold)
-        }
-        val homeRatio = (stats.homePossession.coerceIn(1, 99) / 100f)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(50))
-                .background(SportContainerHighest),
-        ) {
-            Box(Modifier.weight(homeRatio).fillMaxHeight().background(SportViolet))
-            Box(Modifier.weight((1f - homeRatio).coerceAtLeast(0.01f)).fillMaxHeight().background(SportCyan))
-        }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("${stats.homeShotsOnTarget} / ${stats.homeShots}", color = Color.White, fontSize = (11 * scale).sp)
-            Text("التسديدات (على المرمى)", color = SportTextMuted, fontSize = (11 * scale).sp)
-            Text("${stats.awayShotsOnTarget} / ${stats.awayShots}", color = Color.White, fontSize = (11 * scale).sp)
         }
     }
 }
