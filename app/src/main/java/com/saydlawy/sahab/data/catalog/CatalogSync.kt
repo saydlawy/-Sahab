@@ -173,7 +173,6 @@ class CatalogSync(
                         loaded += batch.size
                     }
                 }
-                }
             } catch (e: java.io.FileNotFoundException) {
                 android.util.Log.e("SahabSeed", "catalog_seed.json.gz NOT FOUND in assets — skipping seed load, falling back to lazy enrichment", e)
                 return@withContext SeedStats(wasSkipped = true, durationMs = System.currentTimeMillis() - start)
