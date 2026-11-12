@@ -18,11 +18,13 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.flow.first
 
 class Repository(
     private val api: XtreamApi,
     private val tmdb: TmdbApi,
     private val disk: DiskCache? = null,
+    private val prefs: Prefs? = null,
 ) {
 
     @Volatile
@@ -32,6 +34,12 @@ class Repository(
     @Volatile
     var userInfo: UserInfo? = null
         private set
+
+    @Volatile
+    private var forceRefresh: Boolean = false
+
+    private val _syncing = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val syncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _syncing
 
     private val cache = ConcurrentHashMap<String, Any>()
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<Any>>()
@@ -119,13 +127,51 @@ class Repository(
         )
     }
 
-    /** Clears Xtream caches and forces a fresh reload of subscription info, channels, movies, and series. */
-    suspend fun refreshSubscription() = supervisorScope {
-        requireAccount()
-        clearCache(clearDisk = true)
-        runCatching { refreshUserInfo() }
-        prewarmCatalog()
+    sealed class SyncResult {
+        object Skipped : SyncResult()
+        object AlreadyRunning : SyncResult()
+        object Success : SyncResult()
+        data class Failure(val reason: String) : SyncResult()
     }
+
+    /**
+     * Syncs catalog if [force]=true OR 24h passed since last sync.
+     * Bypasses cached data during fetch via forceRefresh (no cache wipe = no data loss on failure).
+     */
+    suspend fun syncCatalog(force: Boolean = false): SyncResult {
+        if (_syncing.value) return SyncResult.AlreadyRunning
+        val lastSync = if (prefs == null) 0L else prefs.lastSyncTime.first()
+        val now = System.currentTimeMillis()
+        if (!force && lastSync > 0L && (now - lastSync) < SYNC_TTL_MS) {
+            return SyncResult.Skipped
+        }
+        _syncing.value = true
+        forceRefresh = true
+        return try {
+            requireAccount()
+            runCatching { refreshUserInfo() }
+            supervisorScope {
+                awaitAll(
+                    async(Dispatchers.IO) { runCatching { liveCategories() } },
+                    async(Dispatchers.IO) { runCatching { movieCategories() } },
+                    async(Dispatchers.IO) { runCatching { seriesCategories() } },
+                    async(Dispatchers.IO) { runCatching { liveChannels(null) } },
+                    async(Dispatchers.IO) { runCatching { movies(null) } },
+                    async(Dispatchers.IO) { runCatching { seriesList(null) } },
+                )
+            }
+            prefs?.setLastSyncTime(System.currentTimeMillis())
+            SyncResult.Success
+        } catch (e: Exception) {
+            SyncResult.Failure(e.message ?: "unknown")
+        } finally {
+            forceRefresh = false
+            _syncing.value = false
+        }
+    }
+
+    /** Legacy alias — always forces. Returns SyncResult for caller feedback. */
+    suspend fun refreshSubscription(): SyncResult = syncCatalog(force = true)
 
     fun liveExtensions(): List<String> {
         val allowed = userInfo?.formats.orEmpty()
@@ -158,7 +204,9 @@ class Repository(
         ttlMs: Long,
         load: suspend () -> T,
     ): T {
-        (cache[key] as? T)?.let { return it }
+        if (!forceRefresh) {
+            (cache[key] as? T)?.let { return it }
+        }
         val dKey = diskKey(key)
         val mine = CompletableDeferred<Any>()
         val existing = inFlight.putIfAbsent(dKey, mine)
@@ -166,15 +214,17 @@ class Repository(
             return existing.await() as T
         }
         return try {
-            (cache[key] as? T)?.let { cached ->
-                mine.complete(cached)
-                return cached
-            }
-            val fromDisk = disk?.get(dKey, serializer, ttlMs)
-            if (fromDisk != null) {
-                cache[key] = fromDisk
-                mine.complete(fromDisk)
-                return fromDisk
+            if (!forceRefresh) {
+                (cache[key] as? T)?.let { cached ->
+                    mine.complete(cached)
+                    return cached
+                }
+                val fromDisk = disk?.get(dKey, serializer, ttlMs)
+                if (fromDisk != null) {
+                    cache[key] = fromDisk
+                    mine.complete(fromDisk)
+                    return fromDisk
+                }
             }
             val loaded = load()
             cache[key] = loaded
@@ -423,10 +473,19 @@ class Repository(
             val o = e.obj() ?: continue
             val id = o.s("stream_id")
             if (id.isNotBlank() && seen.add(id)) {
-                result.add(Channel(id, o.s("name").ifBlank { Ar.noName }, o.s("stream_icon"), o.s("category_id"), o.s("epg_channel_id")))
+                result.add(
+                    Channel(
+                        id = id,
+                        name = o.s("name").ifBlank { Ar.noName },
+                        icon = o.s("stream_icon"),
+                        categoryId = o.s("category_id"),
+                        epgId = o.s("epg_channel_id"),
+                        added = o.s("added").toLongOrNull() ?: 0L,
+                    ),
+                )
             }
         }
-        return result
+        return if (result.any { it.added > 0L }) result.sortedByDescending { it.added } else result
     }
 
     private fun parseMovies(json: JsonElement): List<Poster> {
@@ -447,11 +506,12 @@ class Repository(
                         ext = o.s("container_extension"),
                         year = yearOf(name),
                         categoryId = o.s("category_id"),
+                        added = o.s("added").toLongOrNull() ?: 0L,
                     ),
                 )
             }
         }
-        return result
+        return if (result.any { it.added > 0L }) result.sortedByDescending { it.added } else result
     }
 
     private fun parseSeries(json: JsonElement): List<Poster> {
@@ -472,11 +532,12 @@ class Repository(
                         ext = "",
                         year = yearOf(o.s("releaseDate").ifBlank { o.s("release_date") }.ifBlank { name }),
                         categoryId = o.s("category_id"),
+                        added = o.s("last_modified").toLongOrNull() ?: 0L,
                     ),
                 )
             }
         }
-        return result
+        return if (result.any { it.added > 0L }) result.sortedByDescending { it.added } else result
     }
 
     private fun parseMovieDetails(id: String, json: JsonElement): MovieDetails {
@@ -580,6 +641,7 @@ class Repository(
     private companion object {
         const val MAX_EPG_MEMORY_ENTRIES = 256
         val YEAR_REGEX = Regex("(19|20)\\d{2}")
+        const val SYNC_TTL_MS = 24L * 3600_000L
         const val EPG_TTL_MS = 5 * 60_000L
         const val EPG_DISK_TTL_MS = 15 * 60_000L
         const val DAY_EPG_DISK_TTL_MS = 2 * 3600_000L

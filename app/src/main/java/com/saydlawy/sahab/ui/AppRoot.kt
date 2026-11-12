@@ -23,6 +23,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,6 +54,7 @@ import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.saydlawy.sahab.ui.components.SyncOverlay
 
 @Composable
 fun AppRoot(container: AppContainer) {
@@ -62,7 +65,10 @@ fun AppRoot(container: AppContainer) {
         val account = container.prefs.account.first()
         if (account != null) {
             container.repo.setAccount(account)
-            container.appScope.launch { container.repo.prewarmCatalog() }
+            container.appScope.launch {
+                container.repo.prewarmCatalog()
+                container.repo.syncCatalog(force = false)
+            }
         }
         start = if (account != null) Routes.HOME else Routes.LOGIN
     }
@@ -126,6 +132,17 @@ fun AppRoot(container: AppContainer) {
                         val startRoute = start
                         if (startRoute != null) AppNavHost(nav, container, startRoute)
                     }
+
+                    val syncing by container.repo.syncing.collectAsStateWithLifecycle()
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        SyncOverlay(
+                            visible = syncing && !onPlayer,
+                            modifier = Modifier.padding(bottom = 24.dp),
+                        )
+                    }
                 }
             }
         }
@@ -152,7 +169,10 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
     ) {
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
-                container.appScope.launch { container.repo.prewarmCatalog() }
+                container.appScope.launch {
+                    container.repo.prewarmCatalog()
+                    container.repo.syncCatalog(force = false)
+                }
                 nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true } }
             })
         }

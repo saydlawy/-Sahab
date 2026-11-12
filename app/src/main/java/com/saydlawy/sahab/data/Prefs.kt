@@ -6,6 +6,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -47,6 +48,7 @@ class Prefs @JvmOverloads constructor(
         val Favs = stringPreferencesKey("favorites")
         val Recents = stringPreferencesKey("recents")
         val LightEffects = booleanPreferencesKey("light_effects")
+        val LastSyncTime = longPreferencesKey("last_sync_time")
     }
 
     private val accountMutex = Mutex()
@@ -152,6 +154,12 @@ class Prefs @JvmOverloads constructor(
     val recents: Flow<List<RecentItem>> = store.data.map { decodeRecents(it[Keys.Recents]) }
 
     val lightEffects: Flow<Boolean> = store.data.map { it[Keys.LightEffects] ?: false }
+
+    val lastSyncTime: Flow<Long> = store.data.map { it[Keys.LastSyncTime] ?: 0L }
+
+    suspend fun setLastSyncTime(ms: Long) {
+        store.edit { it[Keys.LastSyncTime] = ms }
+    }
 
     suspend fun saveAccount(account: Account) {
         accountMutex.withLock {

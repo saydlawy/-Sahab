@@ -41,6 +41,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Account
+import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.UserInfo
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
@@ -84,13 +85,22 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
             refreshed = false
             refreshError = null
             scope.launch {
-                val res = runCatching { container.repo.refreshSubscription() }
+                val result = container.repo.refreshSubscription()
                 refreshing = false
-                if (res.isSuccess) {
-                    accountInfo = container.repo.userInfo
-                    refreshed = true
-                } else {
-                    refreshError = res.exceptionOrNull()?.message ?: Ar.errUnknown
+                when (result) {
+                    is Repository.SyncResult.Success -> {
+                        accountInfo = container.repo.userInfo
+                        refreshed = true
+                    }
+                    is Repository.SyncResult.Failure -> {
+                        refreshError = result.reason
+                    }
+                    Repository.SyncResult.AlreadyRunning -> {
+                        refreshError = "التحديث قيد التنفيذ بالفعل"
+                    }
+                    Repository.SyncResult.Skipped -> {
+                        refreshed = true
+                    }
                 }
             }
         }

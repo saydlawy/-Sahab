@@ -32,6 +32,7 @@ data class Channel(
     val icon: String = "",
     val categoryId: String = "",
     val epgId: String = "",
+    val added: Long = 0L,
 )
 
 /** A movie or a series shown as a poster in a grid. */
@@ -44,6 +45,7 @@ data class Poster(
     val ext: String = "",
     val year: String = "",
     val categoryId: String = "",
+    val added: Long = 0L,
 )
 
 @Serializable
