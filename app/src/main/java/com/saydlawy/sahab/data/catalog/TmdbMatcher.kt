@@ -73,7 +73,7 @@ object TmdbMatcher {
     // ─────────────────────────────── IPTV cleaning ───────────────────────────────
     private val PREFIX_TAG = Regex("^(?:\\s*[A-Z0-9]{2,8}\\s*[:|\\-]+\\s*)+", RegexOption.IGNORE_CASE)
     private val BRACKET_TAG = Regex("\\[[^\\]]*\\]|\\([^)]*(?:1080|720|480|4K|HD|CAM|WEB|BLU|مترجم|مدبلج)[^)]*\\)", RegexOption.IGNORE_CASE)
-    private val BRACE_TAG = Regex("\\{[^}]*}")
+    private val BRACE_TAG = Regex("\\{[^}]*\\}")
     private val YEAR_PAREN = Regex("\\((19|20)\\d{2}\\)")
     private val YEAR_TRAIL = Regex("[\\s\\-]*\\b(19[2-9]\\d|20[0-3]\\d)\\b[\\s\\-]*$")
 
