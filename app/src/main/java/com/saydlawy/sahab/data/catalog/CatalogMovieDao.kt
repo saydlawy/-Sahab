@@ -74,6 +74,9 @@ interface CatalogMovieDao {
     @Query("SELECT novaStreamId FROM catalog_movies WHERE deleted = 0")
     suspend fun allStreamIds(): List<String>
 
+    @Query("UPDATE catalog_movies SET needsEnrichment = -1, lastEnriched = :now WHERE novaStreamId = :streamId")
+    suspend fun markFailed(streamId: String, now: Long)
+
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()
 }

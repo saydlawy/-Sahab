@@ -158,6 +158,35 @@ class TmdbApi(
         })
     }
 
+    /**
+     * Raw search — returns full result objects (not just IDs).
+     * Used by TmdbMatcher to score candidates.
+     */
+    suspend fun searchMovieRaw(
+        query: String,
+        year: Int?,
+        lang: String = "en-US",
+    ): List<TmdbSearchResult> {
+        if (apiKey.isBlank() || query.isBlank()) return emptyList()
+        val urlBuilder = "https://api.themoviedb.org/3/search/movie".toHttpUrl().newBuilder()
+            .addQueryParameter("query", query)
+            .addQueryParameter("language", lang)
+            .addQueryParameter("include_adult", "false")
+        if (!isBearerV4Token) urlBuilder.addQueryParameter("api_key", trimmedKey)
+        if (year != null) urlBuilder.addQueryParameter("primary_release_year", year.toString())
+        val text = execute(urlBuilder.build().toString()) ?: return emptyList()
+        return withContext(Dispatchers.Default) {
+            try {
+                json.decodeFromString<RawSearchResponse>(text).results
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    /** Public alias for getMovieDetails — used by TmdbMatcher. */
+    suspend fun getMovieDetailsById(id: Int): TmdbMovie? = getMovieDetails(id)
+
     private companion object {
         const val MAX_MEMORY_ENTRIES = 200
         val PREFIX_TAG_REGEX = Regex("^[A-Za-z]{2,4}\\s*[:|\\-]\\s*")
@@ -182,12 +211,29 @@ private data class SearchResponse(val results: List<SearchResult> = emptyList())
 private data class SearchResult(val id: Int)
 
 @Serializable
+private data class RawSearchResponse(val results: List<TmdbSearchResult> = emptyList())
+
+@Serializable
+data class TmdbSearchResult(
+    val id: Int = 0,
+    val title: String = "",
+    @SerialName("original_title") val originalTitle: String = "",
+    @SerialName("release_date") val releaseDate: String = "",
+    @SerialName("vote_count") val voteCount: Int = 0,
+    val popularity: Double = 0.0,
+    val adult: Boolean = false,
+)
+
+@Serializable
 data class TmdbMovie(
     val id: Int = 0,
     val title: String = "",
     val overview: String = "",
     @SerialName("release_date") val releaseDate: String = "",
     @SerialName("vote_average") val voteAverage: Double = 0.0,
+    @SerialName("vote_count") val voteCount: Int = 0,
+    val popularity: Double = 0.0,
+    val adult: Boolean = false,
     val runtime: Int? = null,
     val genres: List<Genre> = emptyList(),
     val credits: Credits? = null,

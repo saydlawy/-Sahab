@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
  * Syncs Nova (Xtream) movies into the local Room catalog.
@@ -95,6 +96,79 @@ class CatalogSync(
         } finally {
             _syncing.value = false
         }
+    }
+
+    /**
+     * Enriches a single movie. Fetches from TMDB via TmdbMatcher, applies to Room.
+     * Safe to call from ViewModel. Does nothing if already enriched or marked failed.
+     */
+    suspend fun enrichOne(
+        repo: Repository,
+        tmdb: com.saydlawy.sahab.data.TmdbApi,
+        streamId: String,
+    ): com.saydlawy.sahab.data.catalog.TmdbMatcher.EnrichResult? {
+        val existing = dao.findByStreamId(streamId) ?: return null
+        if (existing.needsEnrichment == 0 || existing.needsEnrichment == -1) return null
+
+        val now = System.currentTimeMillis()
+        val catName = runCatching {
+            repo.movieCategories().firstOrNull { it.id == existing.categoryId }?.name ?: ""
+        }.getOrElse { "" }
+
+        val novaYear = existing.year.toIntOrNull()
+        val result = com.saydlawy.sahab.data.catalog.TmdbMatcher.enrich(
+            tmdb = tmdb,
+            rawName = existing.titleAr,
+            categoryName = catName,
+            novaYear = novaYear,
+        )
+
+        val movie = result.movie
+        if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG && movie != null) {
+            val newId = CatalogMovieEntity.idFromTmdb(movie.id)
+            dao.applyEnrichment(
+                streamId = streamId,
+                newId = newId,
+                tmdbId = movie.id,
+                titleEn = movie.title,
+                year = movie.releaseDate.take(4),
+                plot = movie.overview,
+                cast = movie.credits?.cast?.take(5)?.joinToString(", ") { it.name } ?: "",
+                director = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: "",
+                genre = movie.genres.joinToString(", ") { it.name },
+                runtime = movie.runtime?.let { "${it}m" } ?: "",
+                rating = if (movie.voteAverage > 0) String.format(Locale.US, "%.1f", movie.voteAverage) else "",
+                backdropUrl = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: "",
+                voteCount = movie.voteCount,
+                status = 0,
+                now = now,
+            )
+        } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {
+            // Weak match — store data but keep needsEnrichment=1 for potential retry
+            val newId = CatalogMovieEntity.idFromTmdb(movie.id)
+            dao.applyEnrichment(
+                streamId = streamId,
+                newId = newId,
+                tmdbId = movie.id,
+                titleEn = movie.title,
+                year = movie.releaseDate.take(4),
+                plot = movie.overview,
+                cast = movie.credits?.cast?.take(5)?.joinToString(", ") { it.name } ?: "",
+                director = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: "",
+                genre = movie.genres.joinToString(", ") { it.name },
+                runtime = movie.runtime?.let { "${it}m" } ?: "",
+                rating = if (movie.voteAverage > 0) String.format(Locale.US, "%.1f", movie.voteAverage) else "",
+                backdropUrl = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: "",
+                voteCount = movie.voteCount,
+                status = 1,
+                now = now,
+            )
+        } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG && movie == null) {
+            // Search matched but details fetch failed — keep needsEnrichment=1 to retry later.
+        } else {
+            dao.markFailed(streamId, now)
+        }
+        return result
     }
 
     private fun buildEntity(
