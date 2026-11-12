@@ -156,7 +156,7 @@ class SahabApp : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
-            .okHttpClient(container.client)
+            .okHttpClient(coilClient)
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.25)
@@ -165,10 +165,17 @@ class SahabApp : Application(), ImageLoaderFactory {
             .diskCache {
                 CoilDiskCache.Builder()
                     .directory(File(cacheDir, "image_cache"))
-                    .maxSizeBytes(150L * 1024L * 1024L)
+                    .maxSizeBytes(500L * 1024L * 1024L)
                     .build()
             }
             .respectCacheHeaders(false)
             .crossfade(false)
             .build()
+
+    private val coilClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
 }
