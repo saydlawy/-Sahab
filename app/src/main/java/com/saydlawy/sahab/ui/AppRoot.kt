@@ -165,6 +165,7 @@ fun AppRoot(container: AppContainer) {
 
 @Composable
 private fun AppNavHost(nav: NavHostController, container: AppContainer, start: String) {
+    val context = LocalContext.current
     val play: (PlayRequest) -> Unit = { request ->
         container.playback = request
         nav.navigate(Routes.PLAYER)
