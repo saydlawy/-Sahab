@@ -30,6 +30,9 @@ interface CatalogMovieDao {
     @Query("UPDATE catalog_movies SET lastSeen = :now, novaAdded = :added WHERE novaStreamId = :streamId")
     suspend fun touch(streamId: String, added: Long, now: Long)
 
+    @Query("UPDATE catalog_movies SET lastSeen = :now WHERE novaStreamId IN (:streamIds)")
+    suspend fun touchBulk(streamIds: List<String>, now: Long): Int
+
     @Query("UPDATE catalog_movies SET deleted = 1 WHERE deleted = 0 AND lastSeen < :cutoff")
     suspend fun softDeleteBefore(cutoff: Long): Int
 

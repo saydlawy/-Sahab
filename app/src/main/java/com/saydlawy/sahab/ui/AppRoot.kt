@@ -55,6 +55,7 @@ import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.saydlawy.sahab.ui.components.SyncOverlay
+import com.saydlawy.sahab.data.Repository
 
 @Composable
 fun AppRoot(container: AppContainer) {
@@ -67,7 +68,14 @@ fun AppRoot(container: AppContainer) {
             container.repo.setAccount(account)
             container.appScope.launch {
                 container.repo.prewarmCatalog()
-                container.repo.syncCatalog(force = false)
+                val sync = container.repo.syncCatalog(force = false)
+                val dbCount = container.catalogDb.movieDao().observeCount().first()
+                if (dbCount == 0 ||
+                    sync is Repository.SyncResult.Success ||
+                    sync is Repository.SyncResult.Failure
+                ) {
+                    container.catalogSync.syncMovies(container.repo)
+                }
             }
         }
         start = if (account != null) Routes.HOME else Routes.LOGIN
@@ -133,7 +141,9 @@ fun AppRoot(container: AppContainer) {
                         if (startRoute != null) AppNavHost(nav, container, startRoute)
                     }
 
-                    val syncing by container.repo.syncing.collectAsStateWithLifecycle()
+                    val repoSyncing by container.repo.syncing.collectAsStateWithLifecycle()
+                    val catalogSyncing by container.catalogSync.syncing.collectAsStateWithLifecycle()
+                    val syncing = repoSyncing || catalogSyncing
                     Box(
                         Modifier.fillMaxSize(),
                         contentAlignment = Alignment.BottomCenter,
@@ -171,7 +181,14 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             LoginScreen(onLoggedIn = {
                 container.appScope.launch {
                     container.repo.prewarmCatalog()
-                    container.repo.syncCatalog(force = false)
+                    val sync = container.repo.syncCatalog(force = false)
+                    val dbCount = container.catalogDb.movieDao().observeCount().first()
+                    if (dbCount == 0 ||
+                        sync is Repository.SyncResult.Success ||
+                        sync is Repository.SyncResult.Failure
+                    ) {
+                        container.catalogSync.syncMovies(container.repo)
+                    }
                 }
                 nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true } }
             })
