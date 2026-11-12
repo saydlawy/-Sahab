@@ -56,9 +56,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.saydlawy.sahab.ui.components.SyncOverlay
 import com.saydlawy.sahab.data.Repository
+import androidx.compose.ui.platform.LocalContext
+import android.util.Log
 
 @Composable
 fun AppRoot(container: AppContainer) {
+    val context = LocalContext.current
     val nav = rememberNavController()
     var start by remember { mutableStateOf<String?>(null) }
 
@@ -67,13 +70,14 @@ fun AppRoot(container: AppContainer) {
         if (account != null) {
             container.repo.setAccount(account)
             container.appScope.launch {
+                // 1. Seed population (only if DB empty or no enrichment yet)
+                val stats = container.catalogSync.populateFromSeed(context)
+                Log.d("SahabSeed", "seed: total=${stats.total} loaded=${stats.loaded} skipped=${stats.wasSkipped} dur=${stats.durationMs}ms")
+
+                // 2. Standard prewarm + delta sync
                 container.repo.prewarmCatalog()
                 val sync = container.repo.syncCatalog(force = false)
-                val dbCount = container.catalogDb.movieDao().observeCount().first()
-                if (dbCount == 0 ||
-                    sync is Repository.SyncResult.Success ||
-                    sync is Repository.SyncResult.Failure
-                ) {
+                if (sync is Repository.SyncResult.Success || sync is Repository.SyncResult.Failure) {
                     container.catalogSync.syncMovies(container.repo)
                 }
             }
@@ -180,13 +184,11 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
                 container.appScope.launch {
+                    val stats = container.catalogSync.populateFromSeed(context)
+                    Log.d("SahabSeed", "seed (login): total=${stats.total} loaded=${stats.loaded} skipped=${stats.wasSkipped}")
                     container.repo.prewarmCatalog()
                     val sync = container.repo.syncCatalog(force = false)
-                    val dbCount = container.catalogDb.movieDao().observeCount().first()
-                    if (dbCount == 0 ||
-                        sync is Repository.SyncResult.Success ||
-                        sync is Repository.SyncResult.Failure
-                    ) {
+                    if (sync is Repository.SyncResult.Success || sync is Repository.SyncResult.Failure) {
                         container.catalogSync.syncMovies(container.repo)
                     }
                 }

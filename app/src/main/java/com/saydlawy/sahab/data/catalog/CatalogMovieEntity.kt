@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.security.MessageDigest
+import kotlinx.serialization.Serializable
 
 /**
  * Unified movie catalog — Nova (Xtream) metadata + TMDB enrichment merged.
@@ -18,6 +19,7 @@ import java.security.MessageDigest
  *   0  = done
  *  -1  = permanently failed (skip)
  */
+@Serializable
 @Entity(
     tableName = "catalog_movies",
     indices = [

@@ -7,6 +7,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import android.content.Context
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
+import java.util.zip.GZIPInputStream
 
 /**
  * Syncs Nova (Xtream) movies into the local Room catalog.
@@ -102,6 +106,77 @@ class CatalogSync(
      * Enriches a single movie. Fetches from TMDB via TmdbMatcher, applies to Room.
      * Safe to call from ViewModel. Does nothing if already enriched or marked failed.
      */
+    data class SeedStats(
+        val total: Int = 0,
+        val loaded: Int = 0,
+        val durationMs: Long = 0L,
+        val wasSkipped: Boolean = false,
+    )
+
+    /**
+     * Reads catalog_seed.json.gz from assets and populates Room.
+     * Skips if DB already has enrichment (dbCount > 1000 AND enrichedCount > 100).
+     * Uses batched upserts (500) to stay under SQLite limits.
+     * Sets _syncing flag so SyncOverlay shows the operation.
+     */
+    suspend fun populateFromSeed(context: Context): SeedStats = withContext(Dispatchers.IO) {
+        if (_syncing.value) return@withContext SeedStats(wasSkipped = true)
+        _syncing.value = true
+        val start = System.currentTimeMillis()
+        try {
+            val dbCount = dao.observeCount().first()
+            val enrichedCount = dao.countEnriched()
+            if (dbCount > 1000 && enrichedCount > 100) {
+                return@withContext SeedStats(
+                    total = dbCount,
+                    wasSkipped = true,
+                    durationMs = System.currentTimeMillis() - start,
+                )
+            }
+
+            val json = Json { ignoreUnknownKeys = true }
+            var total = 0
+            var loaded = 0
+
+            context.assets.open("databases/catalog_seed.json.gz").use { input ->
+                GZIPInputStream(input).bufferedReader().use { reader ->
+                    val batch = mutableListOf<CatalogMovieEntity>()
+                    var line: String? = reader.readLine()
+                    while (line != null) {
+                        val trimmed = line.trim()
+                        if (trimmed.isNotEmpty()) {
+                            total++
+                            try {
+                                val entity = json.decodeFromString<CatalogMovieEntity>(trimmed)
+                                batch.add(entity)
+                                if (batch.size >= 500) {
+                                    dao.upsertAll(batch)
+                                    loaded += batch.size
+                                    batch.clear()
+                                }
+                            } catch (_: Exception) {
+                                // Skip malformed line
+                            }
+                        }
+                        line = reader.readLine()
+                    }
+                    if (batch.isNotEmpty()) {
+                        dao.upsertAll(batch)
+                        loaded += batch.size
+                    }
+                }
+            }
+
+            SeedStats(
+                total = total,
+                loaded = loaded,
+                durationMs = System.currentTimeMillis() - start,
+            )
+        } finally {
+            _syncing.value = false
+        }
+    }
+
     suspend fun enrichOne(
         repo: Repository,
         tmdb: com.saydlawy.sahab.data.TmdbApi,

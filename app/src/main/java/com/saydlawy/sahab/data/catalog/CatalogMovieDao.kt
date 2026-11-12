@@ -45,6 +45,9 @@ interface CatalogMovieDao {
     @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0")
     fun observeCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND needsEnrichment = 0")
+    suspend fun countEnriched(): Int
+
     @Query(
         "UPDATE catalog_movies SET " +
             "sahabId = :newId, tmdbId = :tmdbId, titleEn = :titleEn, year = :year, " +
