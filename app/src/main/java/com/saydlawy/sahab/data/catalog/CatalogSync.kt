@@ -111,6 +111,12 @@ class CatalogSync(
         if (existing.needsEnrichment == 0 || existing.needsEnrichment == -1) return null
 
         val now = System.currentTimeMillis()
+        // WEAK match retry gate: if we tried in the last 24h, skip (avoid re-hitting TMDB on every reopen)
+        if (existing.needsEnrichment == 1 && existing.lastEnriched > 0L &&
+            (now - existing.lastEnriched) < 24L * 3600_000L
+        ) {
+            return null
+        }
         val catName = runCatching {
             repo.movieCategories().firstOrNull { it.id == existing.categoryId }?.name ?: ""
         }.getOrElse { "" }

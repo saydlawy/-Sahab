@@ -67,6 +67,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class DetailUiState<T>(
     val loading: Boolean = true,
@@ -83,8 +86,49 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
         load()
     }
 
+    private fun CatalogMovieEntity.toMovieDetails() = MovieDetails(
+        id = novaStreamId,
+        name = titleAr.ifBlank { titleEn },
+        image = posterUrl,
+        backdrop = backdropUrl.ifBlank { posterUrl },
+        plot = plot,
+        cast = cast,
+        director = director,
+        genre = genre,
+        year = year,
+        duration = runtime,
+        rating = rating,
+        ext = containerExtension,
+    )
+
     fun load() {
         viewModelScope.launch {
+            // 1. Instant: read from Room
+            val fromRoom = withContext(Dispatchers.IO) {
+                runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+            }
+
+            if (fromRoom != null) {
+                _state.update { DetailUiState(loading = false, data = fromRoom.toMovieDetails()) }
+
+                // 2. Background enrichment if needed
+                if (fromRoom.needsEnrichment == 1) {
+                    try {
+                        container.catalogSync.enrichOne(container.repo, container.tmdb, id)
+                        val updated = withContext(Dispatchers.IO) {
+                            runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                        }
+                        if (updated != null) {
+                            _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
+                        }
+                    } catch (_: Exception) {
+                        // Keep showing basic data on enrichment failure
+                    }
+                }
+                return@launch
+            }
+
+            // 3. Fallback: movie not yet in Room — use original repo path
             _state.update { DetailUiState(loading = true) }
             try {
                 val details = container.repo.movieDetails(id)
