@@ -26,3 +26,8 @@ __pycache__/
 # Local DB backups
 sports_db.sqlite.bak_*
 *.bak_*
+
+# Diagnostic scripts (temp, not part of the app)
+_nova_diag/
+nova_diag.py
+test_matcher*.py

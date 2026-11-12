@@ -11,6 +11,7 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Prefs
+import com.saydlawy.sahab.data.catalog.CatalogDatabase
 import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.TmdbApi
@@ -34,6 +35,7 @@ class AppContainer(context: Context) {
 
     val prefs = Prefs(context)
     val diskCache = DiskCache(context)
+    val catalogDb by lazy { CatalogDatabase.getInstance(context.applicationContext) }
 
     val client: OkHttpClient = OkHttpClient.Builder()
         .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 50L * 1024L * 1024L))
