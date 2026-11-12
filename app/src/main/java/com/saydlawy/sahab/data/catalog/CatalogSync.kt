@@ -138,8 +138,16 @@ class CatalogSync(
             var total = 0
             var loaded = 0
 
-            context.assets.open("databases/catalog_seed.json.gz").use { input ->
-                GZIPInputStream(input).bufferedReader().use { reader ->
+            try {
+                // AAPT2/workflow may unpack .gz during build, producing
+                // "catalog_seed.json" (uncompressed) inside the APK.
+                // Try .json first, fall back to original .gz name.
+                val stream: java.io.InputStream = runCatching {
+                    context.assets.open("databases/catalog_seed.json")
+                }.getOrElse {
+                    GZIPInputStream(context.assets.open("databases/catalog_seed.json.gz"))
+                }
+                stream.bufferedReader().use { reader ->
                     val batch = mutableListOf<CatalogMovieEntity>()
                     var line: String? = reader.readLine()
                     while (line != null) {
@@ -165,6 +173,13 @@ class CatalogSync(
                         loaded += batch.size
                     }
                 }
+                }
+            } catch (e: java.io.FileNotFoundException) {
+                android.util.Log.e("SahabSeed", "catalog_seed.json.gz NOT FOUND in assets — skipping seed load, falling back to lazy enrichment", e)
+                return@withContext SeedStats(wasSkipped = true, durationMs = System.currentTimeMillis() - start)
+            } catch (e: Exception) {
+                android.util.Log.e("SahabSeed", "seed load failed — falling back to lazy enrichment", e)
+                return@withContext SeedStats(wasSkipped = true, durationMs = System.currentTimeMillis() - start)
             }
 
             SeedStats(
