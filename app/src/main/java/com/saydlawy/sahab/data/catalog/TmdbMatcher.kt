@@ -88,9 +88,9 @@ object TmdbMatcher {
 
     private val ARABIC_JUNK = Regex(
         "(?:^\\s*(?:مشاهدة|مشاهده|تحميل|فيلم|فلم|مسلسل|انمي|أنمي|كرتون)\\s+)|" +
-            "\\b(?:مترجم\\s*للعربية|مترجم\\s*عربي|مترجمة|مترجم|مدبلج\\s*للعربية|مدبلج\\s*عربي|مدبلج|" +
+            "(?<!\\S)(?:مترجم\\s*للعربية|مترجم\\s*عربي|مترجمة|مترجم|مدبلج\\s*للعربية|مدبلج\\s*عربي|مدبلج|" +
             "كامل\\s*بجودة|كامل|نسخة\\s*اصلية|نسحه\\s*اصليه|بدون\\s*حذف|بدون\\s*فواصل|حصريا|حصري|" +
-            "بجودة\\s*عالية|اون\\s*لاين|أونلاين|اونلاين)\\b|" +
+            "بجودة\\s*عالية|اون\\s*لاين|أونلاين|اونلاين)(?!\\S)|" +
             "(?:\\s+(?:فيلم|فلم|Movie|Film)\\s*$)",
         RegexOption.IGNORE_CASE,
     )
@@ -291,7 +291,6 @@ object TmdbMatcher {
     }
 
     fun acceptLevel(m: Score): Level {
-        if (m.titleSim >= 0.96 && m.votes >= 1) return Level.WEAK
         if (m.titleSim >= 0.98 && m.yearMatch == 1.0) return Level.STRONG
         if (m.titleSim >= 0.98 && m.yearMatch == 0.5 && m.votes >= 20) return Level.STRONG
         if (m.titleSim >= 0.90 && m.yearMatch >= 0.85 && m.votes >= 10) return Level.STRONG
@@ -299,6 +298,7 @@ object TmdbMatcher {
         if (m.titleSim >= 0.99 && m.yearMatch == 0.5 && m.votes >= 5) return Level.STRONG
         if (m.titleSim >= 0.90 && m.yearMatch == 0.5 && m.votes >= 50) return Level.STRONG
         if (m.titleSim >= 0.95 && m.yearMatch >= 0.85 && m.votes >= 1) return Level.STRONG
+        if (m.titleSim >= 0.96 && m.votes >= 1) return Level.WEAK
         if (m.final >= 0.60 && m.titleSim >= 0.80) return Level.WEAK
         return Level.REJECT
     }

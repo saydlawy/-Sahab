@@ -62,7 +62,7 @@ class TmdbMatcherTest {
     @Test
     fun `extractYear ignores title-only years`() {
         // "1917" is the title, not the year — no trailing year → falls to category
-        assertEquals(1917, TmdbMatcher.extractYear("1917", "MOVIES 2019"))  // v5 behavior
+        assertEquals(2019, TmdbMatcher.extractYear("1917", "MOVIES 2019"))
     }
 
     @Test
@@ -149,7 +149,7 @@ class TmdbMatcherTest {
     fun `generateQueries produces non-empty cascade`() {
         val (queries, variants) = TmdbMatcher.generateQueries("Inception", "MOVIES 2010", 2010)
         assertTrue(queries.isNotEmpty())
-        assertTrue(variants.contains("inception"))
+        assertTrue(variants.any { it.equals("inception", ignoreCase = true) })
         assertTrue(queries.any { it.year == 2010 })
     }
 
