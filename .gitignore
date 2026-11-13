@@ -29,6 +29,7 @@ sports_db.sqlite.bak_*
 
 # Local archives (offline backups & mockups)
 _local_archive/
+images/
 
 _nova_diag/
 nova_diag.py

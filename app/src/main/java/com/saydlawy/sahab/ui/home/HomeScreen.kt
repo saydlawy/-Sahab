@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -52,11 +53,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saydlawy.sahab.R
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
@@ -138,15 +141,22 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
             .fillMaxSize()
             .background(Palette.DeepBlue),
     ) {
+        Image(
+            painter = painterResource(R.drawable.home_bg),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Palette.DeepBlue.copy(alpha = 0.55f),
-                            Palette.DeepBlue.copy(alpha = 0.85f),
-                            Palette.DeepBlue.copy(alpha = 0.98f),
+                            Palette.DeepBlue.copy(alpha = 0.45f),
+                            Palette.DeepBlue.copy(alpha = 0.75f),
+                            Palette.DeepBlue.copy(alpha = 0.95f),
                         ),
                     ),
                 ),
