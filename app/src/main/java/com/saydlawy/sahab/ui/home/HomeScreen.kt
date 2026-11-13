@@ -8,12 +8,14 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -47,17 +49,22 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.data.Kind
+import com.saydlawy.sahab.data.weather.WeatherCondition
+import java.util.Calendar
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.RecentItem
@@ -466,40 +473,274 @@ private fun SportsQuickCard(modifier: Modifier, s: Float, onClick: () -> Unit) {
 }
 
 @Composable
+private fun AnalogClockFace(
+    calendar: Calendar,
+    sizeDp: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(sizeDp)) {
+        val radius = size.minDimension / 2f
+        val center = Offset(size.width / 2f, size.height / 2f)
+
+        // 1. Dial Background with subtle cosmic glow
+        drawCircle(
+            color = Palette.GlassStrong,
+            radius = radius,
+            center = center,
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Palette.Royal.copy(alpha = 0.22f), Color.Transparent),
+                center = center,
+                radius = radius,
+            ),
+            radius = radius,
+            center = center,
+        )
+        drawCircle(
+            color = Palette.Glow.copy(alpha = 0.28f),
+            radius = radius,
+            center = center,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
+        )
+
+        // 2. 12 Hour Ticks
+        for (i in 0 until 12) {
+            val angleDeg = i * 30f
+            val angleRad = Math.toRadians(angleDeg.toDouble())
+            val isMajor = i % 3 == 0
+            val tickLen = if (isMajor) radius * 0.16f else radius * 0.08f
+            val strokeW = if (isMajor) 2.4.dp.toPx() else 1.2.dp.toPx()
+            val tickColor = if (isMajor) Palette.Glow else Palette.TextDim.copy(alpha = 0.45f)
+
+            val startX = center.x + (radius - tickLen) * kotlin.math.sin(angleRad).toFloat()
+            val startY = center.y - (radius - tickLen) * kotlin.math.cos(angleRad).toFloat()
+            val endX = center.x + (radius - 2.dp.toPx()) * kotlin.math.sin(angleRad).toFloat()
+            val endY = center.y - (radius - 2.dp.toPx()) * kotlin.math.cos(angleRad).toFloat()
+
+            drawLine(
+                color = tickColor,
+                start = Offset(startX, startY),
+                end = Offset(endX, endY),
+                strokeWidth = strokeW,
+                cap = StrokeCap.Round,
+            )
+        }
+
+        // 3. Hour Hand
+        val hours = calendar.get(Calendar.HOUR)
+        val minutes = calendar.get(Calendar.MINUTE)
+        val seconds = calendar.get(Calendar.SECOND)
+
+        val hourAngleDeg = (hours % 12 + minutes / 60f) * 30f
+        val hourAngleRad = Math.toRadians(hourAngleDeg.toDouble())
+        val hourHandLen = radius * 0.52f
+        val hourEndX = center.x + hourHandLen * kotlin.math.sin(hourAngleRad).toFloat()
+        val hourEndY = center.y - hourHandLen * kotlin.math.cos(hourAngleRad).toFloat()
+
+        drawLine(
+            brush = Brush.linearGradient(listOf(Palette.Royal, Palette.Glow)),
+            start = center,
+            end = Offset(hourEndX, hourEndY),
+            strokeWidth = 3.6.dp.toPx(),
+            cap = StrokeCap.Round,
+        )
+
+        // 4. Minute Hand
+        val minuteAngleDeg = (minutes + seconds / 60f) * 6f
+        val minuteAngleRad = Math.toRadians(minuteAngleDeg.toDouble())
+        val minuteHandLen = radius * 0.74f
+        val minEndX = center.x + minuteHandLen * kotlin.math.sin(minuteAngleRad).toFloat()
+        val minEndY = center.y - minuteHandLen * kotlin.math.cos(minuteAngleRad).toFloat()
+
+        drawLine(
+            color = Color.White,
+            start = center,
+            end = Offset(minEndX, minEndY),
+            strokeWidth = 2.2.dp.toPx(),
+            cap = StrokeCap.Round,
+        )
+
+        // 5. Center Pivot
+        drawCircle(
+            color = Palette.Gold,
+            radius = 3.5.dp.toPx(),
+            center = center,
+        )
+        drawCircle(
+            color = Palette.DeepBlue,
+            radius = 1.5.dp.toPx(),
+            center = center,
+        )
+    }
+}
+
+@Composable
 private fun ClockWeatherCard(s: Float) {
+    val container = LocalContainer.current
+    val weatherData by container.weather.weather.collectAsStateWithLifecycle()
+
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
+        container.weather.refreshIfNeeded()
         while (true) {
-            delay(30_000)
+            delay(10_000)
             now = System.currentTimeMillis()
         }
     }
-    val ar = Locale.forLanguageTag("ar")
-    val time = formatNowMillis(now, "hh:mm", ar)
-    val date = formatNowMillis(now, "EEEE، d MMMM", ar)
 
-    Column(
+    val calendar = remember(now) {
+        Calendar.getInstance().apply { timeInMillis = now }
+    }
+
+    val ar = Locale.forLanguageTag("ar")
+    val timeStr = formatNowMillis(now, "hh:mm", ar)
+    val amPmStr = formatNowMillis(now, "a", ar)
+    val dateStr = formatNowMillis(now, "EEEE، d MMMM", ar)
+
+    val (weatherIcon, weatherColor) = when (weatherData.condition) {
+        WeatherCondition.CLEAR_DAY -> Ic.Sun to Palette.Gold
+        WeatherCondition.CLEAR_NIGHT -> Ic.Moon to Palette.Glow
+        WeatherCondition.PARTLY_CLOUDY -> Ic.Sun to Palette.Gold
+        WeatherCondition.CLOUDY -> Ic.Cloud to Palette.Glow
+        WeatherCondition.FOG -> Ic.Cloud to Palette.TextDim
+        WeatherCondition.RAIN -> Ic.Rain to Color(0xFF60A5FA)
+        WeatherCondition.SNOW -> Ic.Cloud to Color.White
+        WeatherCondition.THUNDERSTORM -> Ic.Thunderstorm to Color(0xFFFBBF24)
+    }
+
+    val shape = RoundedCornerShape((22 * s).dp)
+
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape((22 * s).dp))
-            .background(Palette.Glass)
-            .border(1.dp, Palette.GlassBorder, RoundedCornerShape((22 * s).dp))
-            .padding((18 * s).dp),
-        verticalArrangement = Arrangement.spacedBy((6 * s).dp),
+            .clip(shape)
+            .background(Palette.GlassStrong)
+            .border(1.dp, Palette.GlassBorder, shape)
+            .padding((14 * s).dp),
     ) {
-        Crossfade(targetState = time, animationSpec = tween(500), label = "clockFade") { target ->
-            Text(
-                target,
-                fontSize = (54 * s).sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-            )
-        }
-        Text(date, fontSize = (15 * s).sp, color = Palette.TextDim, maxLines = 1)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(Ic.Sun, null, tint = Palette.Gold, modifier = Modifier.size((24 * s).dp))
-            Text("الكويت · 27°C", fontSize = (15 * s).sp, fontWeight = FontWeight.Bold, color = Palette.Glow)
+        val isNarrow = maxWidth < 260.dp
+
+        if (isNarrow) {
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy((10 * s).dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy((10 * s).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AnalogClockFace(calendar = calendar, sizeDp = (54 * s).dp)
+                    Column {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(
+                                timeStr,
+                                fontSize = (26 * s).sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                            )
+                            Text(
+                                " $amPmStr",
+                                fontSize = (12 * s).sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Palette.Glow,
+                                modifier = Modifier.padding(bottom = (3 * s).dp),
+                            )
+                        }
+                        Text(dateStr, fontSize = (12 * s).sp, color = Palette.TextDim, maxLines = 1)
+                    }
+                }
+
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape((14 * s).dp))
+                        .background(Palette.Glass)
+                        .border(1.dp, Palette.GlassBorder, RoundedCornerShape((14 * s).dp))
+                        .padding(horizontal = (10 * s).dp, vertical = (6 * s).dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy((6 * s).dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(weatherIcon, null, tint = weatherColor, modifier = Modifier.size((18 * s).dp))
+                        Text("${weatherData.tempC}°C", fontSize = (14 * s).sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                    Text(
+                        "${weatherData.city} · ${weatherData.conditionText}",
+                        fontSize = (11 * s).sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Palette.Glow,
+                        maxLines = 1,
+                    )
+                }
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy((12 * s).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AnalogClockFace(calendar = calendar, sizeDp = (64 * s).dp)
+                    Column(verticalArrangement = Arrangement.spacedBy((2 * s).dp)) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(
+                                timeStr,
+                                fontSize = (32 * s).sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
+                            )
+                            Text(
+                                " $amPmStr",
+                                fontSize = (14 * s).sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Palette.Glow,
+                                modifier = Modifier.padding(bottom = (4 * s).dp),
+                            )
+                        }
+                        Text(dateStr, fontSize = (13 * s).sp, color = Palette.TextDim, maxLines = 1)
+                    }
+                }
+
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape((16 * s).dp))
+                        .background(Palette.Glass)
+                        .border(1.dp, Palette.GlassBorder, RoundedCornerShape((16 * s).dp))
+                        .padding(horizontal = (14 * s).dp, vertical = (10 * s).dp),
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy((2 * s).dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy((6 * s).dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(weatherIcon, null, tint = weatherColor, modifier = Modifier.size((22 * s).dp))
+                            Text(
+                                "${weatherData.tempC}°C",
+                                fontSize = (20 * s).sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
+                        Text(
+                            "${weatherData.city} · ${weatherData.conditionText}",
+                            fontSize = (12 * s).sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Palette.Glow,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }

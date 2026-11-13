@@ -136,6 +136,20 @@ object Ic {
         )
     }
 
+    val Rain by lazy {
+        icon(
+            "Rain",
+            "M19.35,10.04C18.67,6.59 15.64,4 12,4 9.11,4 6.6,5.64 5.35,8.04 2.34,8.36 0,10.91 0,14c0,3.31 2.69,6 6,6h13c2.76,0 5,-2.24 5,-5 0,-2.64 -2.05,-4.78 -4.65,-4.96zM7,22h2v-2H7v2zm4,0h2v-2h-2v2zm4,0h2v-2h-2v2z",
+        )
+    }
+
+    val Thunderstorm by lazy {
+        icon(
+            "Thunderstorm",
+            "M19.35,10.04C18.67,6.59 15.64,4 12,4 9.11,4 6.6,5.64 5.35,8.04 2.34,8.36 0,10.91 0,14c0,3.31 2.69,6 6,6h13c2.76,0 5,-2.24 5,-5 0,-2.64 -2.05,-4.78 -4.65,-4.96zM11,15h3l-2,5h2l-4,6v-4h-2l3,-7z",
+        )
+    }
+
     /** A plain left-pointing arrow (not mirrored), used for "go" buttons in the RTL layout. */
     val ArrowLeft by lazy { icon("ArrowLeft", "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z") }
 

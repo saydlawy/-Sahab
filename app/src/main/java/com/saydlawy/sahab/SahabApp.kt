@@ -41,6 +41,7 @@ class AppContainer(context: Context) {
     val aiKeys by lazy { com.saydlawy.sahab.data.ai.ApiKeyManager(context.applicationContext) }
     val catalogDb by lazy { CatalogDatabase.getInstance(context.applicationContext) }
     val catalogSync by lazy { CatalogSync(catalogDb.movieDao()) }
+    val weather by lazy { com.saydlawy.sahab.data.weather.WeatherService(client, context.applicationContext) }
 
     val client: OkHttpClient = OkHttpClient.Builder()
         .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 50L * 1024L * 1024L))
@@ -139,7 +140,7 @@ class AppContainer(context: Context) {
     private companion object {
         const val USER_AGENT = "Sahab/1.0 (Android)"
         val RETRY_BACKOFFS_MS = longArrayOf(500L, 1500L)
-        val STRICT_HTTPS_DOMAINS = listOf("themoviedb.org", "tmdb.org", "goal-api.com", "github.com", "githubusercontent.com")
+        val STRICT_HTTPS_DOMAINS = listOf("themoviedb.org", "tmdb.org", "goal-api.com", "github.com", "githubusercontent.com", "open-meteo.com", "ipwho.is")
     }
 }
 
@@ -155,6 +156,7 @@ class SahabApp : Application(), ImageLoaderFactory {
         container.appScope.launch {
             SyncScheduler.scheduleInitialRunIfNeeded(this@SahabApp)
             SahabPlayer.warmUpMediaCache(this@SahabApp)
+            container.weather.refreshIfNeeded()
         }
     }
 

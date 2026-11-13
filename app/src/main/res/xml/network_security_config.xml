@@ -7,6 +7,8 @@
         <domain includeSubdomains="true">goal-api.com</domain>
         <domain includeSubdomains="true">github.com</domain>
         <domain includeSubdomains="true">githubusercontent.com</domain>
+        <domain includeSubdomains="true">open-meteo.com</domain>
+        <domain includeSubdomains="true">ipwho.is</domain>
     </domain-config>
 
     <!-- Allow user-supplied IPTV portal & stream hosts that still operate over HTTP;
