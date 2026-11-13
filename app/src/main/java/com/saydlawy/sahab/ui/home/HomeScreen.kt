@@ -637,7 +637,7 @@ private fun FeaturedChannelCard(
                 if (channel.icon.isNotBlank()) {
                     RemoteImage(
                         url = channel.icon,
-                        contentDescription = channel.name,
+                        fallbackText = channel.name,
                         modifier = Modifier
                             .size((40 * s).dp)
                             .clip(RoundedCornerShape(8.dp)),
@@ -709,7 +709,7 @@ private fun FeaturedChannelGridTile(
             if (channel.icon.isNotBlank()) {
                 RemoteImage(
                     url = channel.icon,
-                    contentDescription = channel.name,
+                    fallbackText = channel.name,
                     modifier = Modifier
                         .size((38 * s).dp)
                         .clip(RoundedCornerShape(8.dp)),
