@@ -50,6 +50,7 @@ data class CatalogMovieEntity(
     val rating: String = "",
     val posterUrl: String = "",
     val backdropUrl: String = "",
+    val imdbId: String = "",
     val novaAdded: Long = 0L,
     val containerExtension: String = "m3u8",
     val isAdult: Int = 0,

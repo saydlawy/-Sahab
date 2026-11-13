@@ -36,6 +36,7 @@ class AppContainer(context: Context) {
 
     val prefs = Prefs(context)
     val diskCache = DiskCache(context)
+    val gemini by lazy { com.saydlawy.sahab.data.ai.GeminiStoryService() }
     val aiKeys by lazy { com.saydlawy.sahab.data.ai.ApiKeyManager(context.applicationContext) }
     val catalogDb by lazy { CatalogDatabase.getInstance(context.applicationContext) }
     val catalogSync by lazy { CatalogSync(catalogDb.movieDao()) }

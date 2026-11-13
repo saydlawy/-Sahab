@@ -82,6 +82,72 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
     private val _state = MutableStateFlow(DetailUiState<MovieDetails>())
     val state = _state.asStateFlow()
 
+    private val _aiState = MutableStateFlow<com.saydlawy.sahab.data.ai.AiGenerationState>(com.saydlawy.sahab.data.ai.AiGenerationState.Idle)
+    val aiState = _aiState.asStateFlow()
+
+    fun generateAiStory() {
+        viewModelScope.launch {
+            _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Loading
+            val entity = withContext(Dispatchers.IO) {
+                runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+            }
+            if (entity == null) {
+                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Error("لم يتم العثور على بيانات الفيلم")
+                return@launch
+            }
+            val key = container.aiKeys.getActiveKey()
+            if (key == null) {
+                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.NoKey
+                return@launch
+            }
+            val posterBytes = container.gemini.downloadPoster(entity.posterUrl)
+            val result = container.gemini.generateStory(
+                rawName = entity.titleAr.ifBlank { entity.titleEn },
+                year = entity.year,
+                imdbId = entity.imdbId,
+                posterBytes = posterBytes,
+                contentType = com.saydlawy.sahab.data.ai.ContentType.MOVIE,
+                apiKey = key.value,
+            )
+            container.aiKeys.markUsed(key.id)
+            when (result) {
+                is com.saydlawy.sahab.data.ai.GeminiResult.Success -> {
+                    withContext(Dispatchers.IO) {
+                        container.catalogDb.movieDao().updateAiPlot(
+                            sahabId = entity.sahabId,
+                            plot = result.story,
+                            source = "gemini_user_key",
+                            confidence = result.confidence,
+                            identifiedTitle = result.identifiedTitle,
+                            now = System.currentTimeMillis(),
+                        )
+                    }
+                    val updated = withContext(Dispatchers.IO) {
+                        runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                    }
+                    if (updated != null) {
+                        _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
+                    }
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Success(result.story, result.sources)
+                }
+                is com.saydlawy.sahab.data.ai.GeminiResult.RateLimited -> {
+                    container.aiKeys.mark429(key.id)
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.RateLimited
+                }
+                is com.saydlawy.sahab.data.ai.GeminiResult.InvalidKey -> {
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.InvalidKey
+                }
+                is com.saydlawy.sahab.data.ai.GeminiResult.Error -> {
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Error(result.message)
+                }
+            }
+        }
+    }
+
+    fun dismissAiDialog() {
+        _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Idle
+    }
+
     init {
         load()
     }
