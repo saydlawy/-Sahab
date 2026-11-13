@@ -90,11 +90,9 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
     fun generateAiStory() {
         viewModelScope.launch {
             _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Loading
-            val entity = withContext(Dispatchers.IO) {
-                runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
-            }
-            if (entity == null) {
-                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Error("لم يتم العثور على بيانات الفيلم")
+            val details = _state.value.data
+            if (details == null) {
+                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Error("لا توجد بيانات معروضة")
                 return@launch
             }
             val key = container.aiKeys.getActiveKey()
@@ -102,11 +100,15 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.NoKey
                 return@launch
             }
-            val posterBytes = container.gemini.downloadPoster(entity.posterUrl)
+            val entity = withContext(Dispatchers.IO) {
+                runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+            }
+            val imdbId = entity?.imdbId ?: ""
+            val posterBytes = container.gemini.downloadPoster(details.image)
             val result = container.gemini.generateStory(
-                rawName = entity.titleAr.ifBlank { entity.titleEn },
-                year = entity.year,
-                imdbId = entity.imdbId,
+                rawName = details.name,
+                year = details.year,
+                imdbId = imdbId,
                 posterBytes = posterBytes,
                 contentType = com.saydlawy.sahab.data.ai.ContentType.MOVIE,
                 apiKey = key.value,
@@ -114,21 +116,54 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             container.aiKeys.markUsed(key.id)
             when (result) {
                 is com.saydlawy.sahab.data.ai.GeminiResult.Success -> {
-                    withContext(Dispatchers.IO) {
-                        container.catalogDb.movieDao().updateAiPlot(
-                            sahabId = entity.sahabId,
+                    val now = System.currentTimeMillis()
+                    if (entity != null) {
+                        withContext(Dispatchers.IO) {
+                            container.catalogDb.movieDao().updateAiPlot(
+                                sahabId = entity.sahabId,
+                                plot = result.story,
+                                source = "gemini_user_key",
+                                confidence = result.confidence,
+                                identifiedTitle = result.identifiedTitle,
+                                now = now,
+                            )
+                        }
+                    } else {
+                        val newEntity = CatalogMovieEntity(
+                            sahabId = "pending:$id",
+                            novaStreamId = id,
+                            titleAr = details.name,
+                            year = details.year,
                             plot = result.story,
-                            source = "gemini_user_key",
-                            confidence = result.confidence,
+                            plotSource = "gemini_user_key",
+                            plotConfidence = result.confidence,
                             identifiedTitle = result.identifiedTitle,
-                            now = System.currentTimeMillis(),
+                            posterUrl = details.image,
+                            backdropUrl = details.backdrop,
+                            cast = details.cast,
+                            director = details.director,
+                            genre = details.genre,
+                            runtime = details.duration,
+                            rating = details.rating,
+                            containerExtension = details.ext,
+                            needsEnrichment = 0,
+                            lastEnriched = now,
+                            lastSeen = now,
                         )
+                        withContext(Dispatchers.IO) {
+                            runCatching { container.catalogDb.movieDao().upsert(newEntity) }
+                        }
                     }
                     val updated = withContext(Dispatchers.IO) {
                         runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
                     }
                     if (updated != null) {
                         _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
+                    } else {
+                        _state.update { st ->
+                            val d = st.data
+                            if (d != null) st.copy(data = d.copy(plot = result.story)) else st
+                        }
                     }
                     _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Success(result.story, result.sources)
                 }
