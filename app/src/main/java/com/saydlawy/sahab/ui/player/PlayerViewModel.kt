@@ -73,6 +73,7 @@ class PlayerViewModel(
     private var usedInitialPos: Boolean = false
     private var lastLoadedSeriesGroupId: String? = null
     private var epgJob: Job? = null
+    private var retryJob: Job? = null
 
     fun saveProgress(positionMs: Long, durationMs: Long) {
         val current = _state.value.currentItem
@@ -140,6 +141,7 @@ class PlayerViewModel(
     fun goTo(target: Int, positionMs: Long, durationMs: Long): Boolean {
         val current = _state.value
         if (target !in 0..current.playlist.lastIndex || target == current.index) return false
+        retryJob?.cancel()
         saveProgress(positionMs, durationMs)
         _state.update {
             it.copy(
@@ -217,6 +219,7 @@ class PlayerViewModel(
     }
 
     fun retry() {
+        retryJob?.cancel()
         _state.update {
             it.copy(
                 autoReconnectCount = 0,
@@ -268,28 +271,89 @@ class PlayerViewModel(
     }
 
     fun onPlayerError(errorCodeName: String, causeMessage: String) {
-        _state.update { s ->
-            val live = s.isLive
-            when {
-                s.autoReconnectCount < 2 -> s.copy(
+        retryJob?.cancel()
+
+        val codeMatch = Regex("""\b(401|403|404|458|500|502|503)\b""").find(causeMessage)?.value
+        val isDeviceConflict = codeMatch == "401" || codeMatch == "403" || codeMatch == "458"
+        val s = _state.value
+        val live = s.isLive
+
+        // Device-conflict: server keeps the old session alive for several
+        // seconds after ExoPlayer released it. Immediate retry => another 403.
+        if (isDeviceConflict) {
+            if (s.autoReconnectCount < 2) {
+                val waitMs = 5000L * (s.autoReconnectCount + 1)
+                _state.update { it.copy(
                     reconnecting = true,
-                    autoReconnectCount = s.autoReconnectCount + 1,
-                )
-                live && s.formatAttempt + 1 < repo.liveExtensions().size -> s.copy(
-                    autoReconnectCount = 0,
-                    reconnecting = true,
-                    formatAttempt = s.formatAttempt + 1,
-                )
-                else -> {
-                    val codeMatch = Regex("""\b(401|403|404|458|500|502|503)\b""").find(causeMessage)?.value
-                    val hint = when (codeMatch) {
-                        "401", "403", "458" -> "تم تجاوز الحد الأقصى للأجهزة المتصلة أو انتهى الاشتراك ($codeMatch)"
-                        "404" -> "القناة أو المحتوى غير متوفر حالياً على السيرفر (404)"
-                        "500", "502", "503" -> "خلل في خادم البث ($codeMatch)"
-                        else -> if (errorCodeName.isNotBlank()) "فشل تشغيل البث ($errorCodeName)" else Ar.errPlayback
-                    }
-                    s.copy(reconnecting = false, error = hint)
+                    error = "تعارض اتصال — إعادة المحاولة بعد ${waitMs / 1000} ثانية...",
+                ) }
+                retryJob = viewModelScope.launch {
+                    delay(waitMs)
+                    _state.update { it.copy(
+                        autoReconnectCount = it.autoReconnectCount + 1,
+                        error = null,
+                    ) }
                 }
+                return
+            }
+            if (live && s.formatAttempt + 1 < repo.liveExtensions().size) {
+                _state.update { it.copy(
+                    reconnecting = true,
+                    error = "جارٍ تبديل الصيغة بعد 5 ثوانٍ...",
+                ) }
+                retryJob = viewModelScope.launch {
+                    delay(5000)
+                    _state.update { it.copy(
+                        autoReconnectCount = 0,
+                        formatAttempt = it.formatAttempt + 1,
+                        error = null,
+                    ) }
+                }
+                return
+            }
+            _state.update { it.copy(
+                reconnecting = false,
+                error = "تم تجاوز الحد الأقصى للأجهزة المتصلة أو انتهى الاشتراك ($codeMatch)",
+            ) }
+            return
+        }
+
+        // Network / other errors — short backoff
+        when {
+            s.autoReconnectCount < 2 -> {
+                _state.update { it.copy(
+                    reconnecting = true,
+                    error = "جارٍ إعادة الاتصال بعد 2 ثانية...",
+                ) }
+                retryJob = viewModelScope.launch {
+                    delay(2000)
+                    _state.update { it.copy(
+                        autoReconnectCount = it.autoReconnectCount + 1,
+                        error = null,
+                    ) }
+                }
+            }
+            live && s.formatAttempt + 1 < repo.liveExtensions().size -> {
+                _state.update { it.copy(
+                    reconnecting = true,
+                    error = "جارٍ تبديل الصيغة بعد 3 ثوانٍ...",
+                ) }
+                retryJob = viewModelScope.launch {
+                    delay(3000)
+                    _state.update { it.copy(
+                        autoReconnectCount = 0,
+                        formatAttempt = it.formatAttempt + 1,
+                        error = null,
+                    ) }
+                }
+            }
+            else -> {
+                val hint = when (codeMatch) {
+                    "404" -> "القناة أو المحتوى غير متوفر حالياً على السيرفر (404)"
+                    "500", "502", "503" -> "خلل في خادم البث ($codeMatch)"
+                    else -> if (errorCodeName.isNotBlank()) "فشل تشغيل البث ($errorCodeName)" else Ar.errPlayback
+                }
+                _state.update { it.copy(reconnecting = false, error = hint) }
             }
         }
     }

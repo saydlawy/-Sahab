@@ -384,6 +384,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                     } else {
                         snapshot.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
                     }
+                    kotlinx.coroutines.delay(300)
                     onPlay(PlayRequest(items, index))
                 } finally {
                     openingPlayer = false
