@@ -67,3 +67,27 @@ jobs:
             --notes "ملف التثبيت: Sahab.apk — رقم البناء ${{ github.run_number }}" \
             --target "${{ github.sha }}" \
             --latest
+
+      - name: Prepare Firebase Service Account
+        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if echo "$FIREBASE_SERVICE_ACCOUNT" | grep -q '^{'; then
+            echo "$FIREBASE_SERVICE_ACCOUNT" > firebase-service-account.json
+          else
+            echo "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > firebase-service-account.json
+          fi
+
+      - name: Upload APK to Firebase App Distribution
+        if: env.FIREBASE_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        env:
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          serviceCredentialsFile: firebase-service-account.json
+          groups: testers
+          file: Sahab.apk
+          releaseNotes: "سحاب — بناء ${{ github.run_number }} (${{ github.sha }})"
