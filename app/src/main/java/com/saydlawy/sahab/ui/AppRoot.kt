@@ -48,6 +48,7 @@ import com.saydlawy.sahab.ui.home.FavoritesScreen
 import com.saydlawy.sahab.ui.home.HomeScreen
 import com.saydlawy.sahab.ui.live.LiveScreen
 import com.saydlawy.sahab.ui.login.LoginScreen
+import com.saydlawy.sahab.ui.login.CloudLoginScreen
 import com.saydlawy.sahab.ui.player.PlayerScreen
 import com.saydlawy.sahab.ui.settings.SettingsScreen
 import com.saydlawy.sahab.ui.theme.Palette
@@ -82,7 +83,7 @@ fun AppRoot(container: AppContainer) {
                 }
             }
         }
-        start = if (account != null) Routes.HOME else Routes.LOGIN
+        start = if (account != null) Routes.HOME else Routes.CLOUD_LOGIN
     }
 
     val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
@@ -182,6 +183,12 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         popEnterTransition = { fadeIn(tween(140)) },
         popExitTransition = { fadeOut(tween(100)) },
     ) {
+        composable(Routes.CLOUD_LOGIN) {
+            CloudLoginScreen(
+                onSuccess = { nav.navigate(Routes.LOGIN) { popUpTo(Routes.CLOUD_LOGIN) { inclusive = true } } },
+                onSkip = { nav.navigate(Routes.LOGIN) { popUpTo(Routes.CLOUD_LOGIN) { inclusive = true } } }
+            )
+        }
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
                 container.appScope.launch {

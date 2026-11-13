@@ -101,6 +101,7 @@ inline fun <reified VM : ViewModel> appViewModel(noinline build: (AppContainer) 
 }
 
 object Routes {
+    const val CLOUD_LOGIN = "cloud_login"
     const val LOGIN = "login"
     const val HOME = "home"
     const val LIVE = "live"
