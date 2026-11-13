@@ -133,27 +133,8 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val displayMode = LocalDisplayMode.current
     val maxH = LocalWindowInfo.current.heightDp
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Palette.DeepBlue),
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Palette.DeepBlue.copy(alpha = 0.55f),
-                            Palette.DeepBlue.copy(alpha = 0.85f),
-                            Palette.DeepBlue.copy(alpha = 0.98f),
-                        ),
-                    ),
-                ),
-        )
-
-        Column(Modifier.fillMaxSize()) {
-            SahabTopBar(current = Routes.HOME)
+    Column(Modifier.fillMaxSize()) {
+        SahabTopBar(current = Routes.HOME)
             val s = (maxH.value / 720f).coerceIn(0.82f, 1.35f)
             when (displayMode) {
                 DisplayMode.TABLET_OR_TV -> {
@@ -189,7 +170,6 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
                 }
             }
         }
-    }
 }
 
 @Composable
