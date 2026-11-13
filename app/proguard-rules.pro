@@ -35,3 +35,11 @@
 # Media3 / ExoPlayer
 -dontwarn androidx.media3.**
 -keepclassmembers class androidx.media3.** { *; }
+
+# Firebase App Distribution
+-keep class com.google.firebase.appdistribution.** { *; }
+-dontwarn com.google.firebase.appdistribution.**
+
+# AndroidX AppCompat
+-keep class androidx.appcompat.** { *; }
+-dontwarn androidx.appcompat.**

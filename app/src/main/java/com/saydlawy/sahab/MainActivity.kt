@@ -2,7 +2,7 @@ package com.saydlawy.sahab
 
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
@@ -14,7 +14,7 @@ import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.theme.SahabTheme
 import com.saydlawy.sahab.util.isTelevision
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
