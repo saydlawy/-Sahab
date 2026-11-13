@@ -127,27 +127,6 @@ class GeminiStoryService {
             }
             putJsonObject("generationConfig") {
                 put("temperature", 0.4)
-                put("responseMimeType", "application/json")
-                putJsonObject("responseSchema") {
-                    put("type", "OBJECT")
-                    putJsonObject("properties") {
-                        putJsonObject("story") { put("type", "STRING") }
-                        putJsonObject("confidence") {
-                            put("type", "STRING")
-                            putJsonArray("enum") {
-                                add("high"); add("medium"); add("low")
-                            }
-                        }
-                        putJsonObject("identified_title") { put("type", "STRING") }
-                        putJsonObject("sources") {
-                            put("type", "ARRAY")
-                            putJsonObject("items") { put("type", "STRING") }
-                        }
-                    }
-                    putJsonArray("required") {
-                        add("story"); add("confidence"); add("identified_title"); add("sources")
-                    }
-                }
             }
         }
         return root.toString()
@@ -203,7 +182,15 @@ class GeminiStoryService {
                 "- لا تذكر المخرج أو الممثلين داخل القصة\n" +
                 "- لا تخترع تفاصيل غير موجودة\n" +
                 "- إذا كانت الثقة منخفضة، اكتب قصة قصيرة توضح عدم اليقين\n" +
-                "- استخدم البحث المدمج للتحقق"
+                "- استخدم البحث المدمج للتحقق\n" +
+                "\n" +
+                "أخرج النتيجة **بصيغة JSON فقط** بدون أي نص قبله أو بعده، بالشكل:\n" +
+                "{\n" +
+                "  \"story\": \"القصة بالعربية...\",\n" +
+                "  \"confidence\": \"high\" أو \"medium\" أو \"low\",\n" +
+                "  \"identified_title\": \"العنوان الحقيقي بالإنجليزية\",\n" +
+                "  \"sources\": [\"https://...\"]\n" +
+                "}"
         } else {
             "أنت مساعد متخصص في التعرف على المسلسلات من بياناتها البصرية والنصية.\n\n" +
                 "معلومات المسلسل من المزود:\n" +
@@ -221,7 +208,15 @@ class GeminiStoryService {
                 "- لا تذكر المخرج أو الممثلين داخل القصة\n" +
                 "- لا تخترع تفاصيل غير موجودة\n" +
                 "- إذا كانت الثقة منخفضة، اكتب قصة قصيرة توضح ذلك\n" +
-                "- استخدم البحث المدمج للتحقق"
+                "- استخدم البحث المدمج للتحقق\n" +
+                "\n" +
+                "أخرج النتيجة **بصيغة JSON فقط** بدون أي نص قبله أو بعده، بالشكل:\n" +
+                "{\n" +
+                "  \"story\": \"القصة بالعربية...\",\n" +
+                "  \"confidence\": \"high\" أو \"medium\" أو \"low\",\n" +
+                "  \"identified_title\": \"العنوان الحقيقي بالإنجليزية\",\n" +
+                "  \"sources\": [\"https://...\"]\n" +
+                "}"
         }
     }
 }
