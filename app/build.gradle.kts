@@ -28,7 +28,7 @@ android {
 
     defaultConfig {
         applicationId = "com.saydlawy.sahab"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 34
         versionCode = runNumber
         versionName = "1.0.$runNumber"
