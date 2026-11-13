@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +69,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.data.ai.AiGenerationState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -218,6 +220,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
 fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { MovieDetailViewModel(it, id) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val aiState by vm.aiState.collectAsStateWithLifecycle()
     val container = LocalContainer.current
     val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -286,7 +289,9 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                             item = item,
                                             onPlay = onPlay,
                                             modifier = Modifier.weight(1f),
-                                        )
+            onGenerateStory = { vm.generateAiStory() },
+            aiState = aiState,
+        )
                                     }
                                 }
                                 DisplayMode.PHONE_LANDSCAPE -> {
@@ -304,7 +309,9 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                             item = item,
                                             onPlay = onPlay,
                                             modifier = Modifier.weight(1f),
-                                        )
+            onGenerateStory = { vm.generateAiStory() },
+            aiState = aiState,
+        )
                                     }
                                 }
                                 DisplayMode.PHONE_PORTRAIT -> {
@@ -323,7 +330,9 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                         item = item,
                                         onPlay = onPlay,
                                         modifier = Modifier.fillMaxWidth(),
-                                    )
+            onGenerateStory = { vm.generateAiStory() },
+            aiState = aiState,
+        )
                                 }
                             }
                             Spacer(Modifier.height(48.dp))
@@ -367,6 +376,8 @@ private fun MovieInfoPanel(
     item: PlayItem,
     onPlay: (PlayRequest) -> Unit,
     modifier: Modifier,
+    onGenerateStory: () -> Unit = {},
+    aiState: AiGenerationState = AiGenerationState.Idle,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -460,6 +471,26 @@ private fun MovieInfoPanel(
                     lineHeight = 25.sp,
                     color = Palette.Text.copy(alpha = 0.90f),
                 )
+                Spacer(Modifier.height(18.dp))
+            } else {
+                DotTitle(Ar.plot, Palette.Gold, fontSize = 16.sp)
+                Spacer(Modifier.height(8.dp))
+                when (aiState) {
+                    is AiGenerationState.Loading -> Text("جاري توليد القصة...", color = Palette.Glow, fontSize = 14.sp)
+                    is AiGenerationState.Error -> {
+                        Text(aiState.message, color = Palette.Danger, fontSize = 13.sp)
+                        Spacer(Modifier.height(8.dp))
+                        GlassButton("إعادة المحاولة", { onGenerateStory() }, primary = true)
+                    }
+                    is AiGenerationState.RateLimited -> Text("الخدمة غير متاحة مؤقتًا — جرّب مفتاحًا آخر.", color = Palette.Gold, fontSize = 13.sp)
+                    is AiGenerationState.InvalidKey -> Text("المفتاح غير صالح — تحقق من الإعدادات.", color = Palette.Danger, fontSize = 13.sp)
+                    is AiGenerationState.NoKey -> Text("أضف مفتاح Gemini من الإعدادات.", color = Palette.Gold, fontSize = 13.sp)
+                    else -> {
+                        Text("لا توجد قصة متاحة لهذا الفيلم.", color = Palette.TextDim, fontSize = 13.sp)
+                        Spacer(Modifier.height(8.dp))
+                        GlassButton("توليد القصة بالذكاء الاصطناعي", { onGenerateStory() }, primary = true)
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
             }
 
