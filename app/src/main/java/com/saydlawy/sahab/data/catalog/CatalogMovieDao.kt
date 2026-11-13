@@ -80,6 +80,21 @@ interface CatalogMovieDao {
     @Query("UPDATE catalog_movies SET needsEnrichment = -1, lastEnriched = :now WHERE novaStreamId = :streamId")
     suspend fun markFailed(streamId: String, now: Long)
 
+    @Query(
+        "UPDATE catalog_movies SET " +
+            "plot = :plot, plotSource = :source, plotConfidence = :confidence, " +
+            "identifiedTitle = :identifiedTitle, lastEnriched = :now " +
+            "WHERE sahabId = :sahabId"
+    )
+    suspend fun updateAiPlot(
+        sahabId: String,
+        plot: String,
+        source: String,
+        confidence: String,
+        identifiedTitle: String,
+        now: Long,
+    )
+
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()
 }

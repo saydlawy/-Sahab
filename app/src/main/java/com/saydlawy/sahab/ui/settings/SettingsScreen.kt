@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.AppContainer
+import com.saydlawy.sahab.data.ai.ApiKeyManager
 import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.UserInfo
@@ -155,6 +157,8 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+
+                AiKeysPanel(container.aiKeys, Modifier.fillMaxWidth())
 
                 Text(
                     text = Ar.version(appVersion(context).ifBlank { "1.0" }),
@@ -358,5 +362,111 @@ private fun InfoRow(label: String, value: String) {
     ) {
         Text(label, fontSize = 15.sp, color = Palette.TextDim, modifier = Modifier.weight(1f))
         Text(value, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+    }
+}
+
+@Composable
+private fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
+    val keys by aiKeys.keys.collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeId by aiKeys.activeId.collectAsStateWithLifecycle(initialValue = "")
+    var showAdd by remember { mutableStateOf(false) }
+    var newKeyText by remember { mutableStateOf("") }
+    var newKeyLabel by remember { mutableStateOf("") }
+
+    GlassPanel(
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        strong = true,
+        padding = 22.dp,
+    ) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            DotTitle("مفاتيح الذكاء الاصطناعي", Palette.Glow, fontSize = 16.sp)
+            Text(
+                "أضف مفاتيح Gemini لتوليد قصص الأفلام والمسلسلات عند الحاجة.",
+                fontSize = 12.sp,
+                color = Palette.TextDim,
+            )
+
+            keys.forEach { key ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (key.id == activeId) Palette.Royal.copy(alpha = 0.20f)
+                            else Color.White.copy(alpha = 0.04f)
+                        )
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(key.label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+                        Text(
+                            key.value.take(8) + "…" + key.value.takeLast(4),
+                            fontSize = 11.sp,
+                            color = Palette.TextDim,
+                        )
+                        if (key.last429Ms > 0) {
+                            Text("⚠️ استنفد الحصة مؤخرًا", fontSize = 10.sp, color = Color(0xFFF59E0B))
+                        }
+                    }
+                    if (key.id == activeId) {
+                        Tag("نشط", Palette.Emerald)
+                    } else {
+                        GlassButton(text = "تفعيل", onClick = { aiKeys.setActive(key.id) })
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    GlassButton(text = "حذف", onClick = { aiKeys.removeKey(key.id) })
+                }
+            }
+
+            GlassButton(
+                text = "+ إضافة مفتاح",
+                onClick = { showAdd = true },
+                modifier = Modifier.fillMaxWidth(),
+                primary = true,
+            )
+        }
+    }
+
+    if (showAdd) {
+        Dialog(onDismissRequest = { showAdd = false }) {
+            GlassPanel(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                strong = true,
+                padding = 22.dp,
+            ) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("مفتاح Gemini جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+                    OutlinedTextField(
+                        value = newKeyLabel,
+                        onValueChange = { newKeyLabel = it },
+                        label = { Text("اسم مختصر (اختياري)") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = newKeyText,
+                        onValueChange = { newKeyText = it },
+                        label = { Text("المفتاح (AIza...)") },
+                        singleLine = true,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GlassButton(
+                            text = "إضافة",
+                            onClick = {
+                                if (aiKeys.addKey(newKeyText, newKeyLabel) != null) {
+                                    newKeyText = ""
+                                    newKeyLabel = ""
+                                    showAdd = false
+                                }
+                            },
+                            primary = true,
+                        )
+                        GlassButton(text = "إلغاء", onClick = { showAdd = false })
+                    }
+                }
+            }
+        }
     }
 }
