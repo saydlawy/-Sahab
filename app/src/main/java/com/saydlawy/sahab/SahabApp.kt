@@ -40,7 +40,8 @@ class AppContainer(context: Context) {
     val gemini by lazy { com.saydlawy.sahab.data.ai.GeminiStoryService() }
     val aiKeys by lazy { com.saydlawy.sahab.data.ai.ApiKeyManager(context.applicationContext) }
     val catalogDb by lazy { CatalogDatabase.getInstance(context.applicationContext) }
-    val catalogSync by lazy { CatalogSync(catalogDb.movieDao()) }
+    val catalogSync by lazy { CatalogSync(catalogDb.movieDao(), firebaseCatalog) }
+    val firebaseCatalog by lazy { com.saydlawy.sahab.data.catalog.FirebaseCatalogService() }
     val weather by lazy { com.saydlawy.sahab.data.weather.WeatherService(client, context.applicationContext) }
 
     val client: OkHttpClient = OkHttpClient.Builder()

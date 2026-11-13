@@ -25,6 +25,7 @@ import java.util.zip.GZIPInputStream
  */
 class CatalogSync(
     private val dao: CatalogMovieDao,
+    private val firebaseCatalog: FirebaseCatalogService,
 ) {
     data class Stats(
         val total: Int = 0,
@@ -205,6 +206,29 @@ class CatalogSync(
             (now - existing.lastEnriched) < 24L * 3600_000L
         ) {
             return null
+        }
+
+        // 1. البحث في السحابة (Firebase) أولاً
+        val cloudData = firebaseCatalog.getCatalogItem(existing.sahabId)
+        if (cloudData != null && cloudData.plot.isNotBlank()) {
+            dao.applyEnrichment(
+                streamId = streamId,
+                newId = cloudData.sahabId,
+                tmdbId = cloudData.tmdbId,
+                titleEn = cloudData.titleEn,
+                year = cloudData.year,
+                plot = cloudData.plot,
+                cast = cloudData.cast,
+                director = cloudData.director,
+                genre = cloudData.genre,
+                runtime = cloudData.runtime,
+                rating = cloudData.rating,
+                backdropUrl = cloudData.backdropUrl,
+                voteCount = cloudData.tmdbVoteCount,
+                status = 0,
+                now = now
+            )
+            return null // تم الإثراء من السحابة بنجاح
         }
         val catName = runCatching {
             repo.movieCategories().firstOrNull { it.id == existing.categoryId }?.name ?: ""

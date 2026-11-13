@@ -158,6 +158,10 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                         runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
                     }
                     if (updated != null) {
+                        // رفع القصة الجديدة إلى السحابة (Firebase) ليستفيد منها باقي المستخدمين
+                        container.appScope.launch(Dispatchers.IO) {
+                            container.firebaseCatalog.saveCatalogItem(updated)
+                        }
                         _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
                     } else {
                         _state.update { st ->
