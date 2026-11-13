@@ -1,6 +1,7 @@
 package com.saydlawy.sahab
 
 import android.app.Application
+import com.google.firebase.FirebaseApp
 import android.content.Context
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -149,6 +150,7 @@ class SahabApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        FirebaseApp.initializeApp(this)
         container = AppContainer(this)
         container.appScope.launch {
             SyncScheduler.scheduleInitialRunIfNeeded(this@SahabApp)
