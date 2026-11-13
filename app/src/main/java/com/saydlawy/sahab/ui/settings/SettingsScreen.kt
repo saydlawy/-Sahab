@@ -19,6 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.AppContainer
+import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.ai.ApiKeyManager
 import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.Repository
@@ -71,6 +74,8 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
     val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
+    val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
+    val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(initialValue = HomeChannelsLayout.CAROUSEL)
     var confirmLogout by remember { mutableStateOf(false) }
     var loggingOut by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
@@ -157,6 +162,14 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+
+                HomeCustomizationPanel(
+                    showRecents = showRecents,
+                    homeChannelsLayout = homeChannelsLayout,
+                    onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } },
+                    onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } },
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
                 AiKeysPanel(container.aiKeys, Modifier.fillMaxWidth())
 
@@ -337,6 +350,154 @@ private fun SystemControlsColumn(
             modifier = Modifier.fillMaxWidth(),
             icon = Ic.Close,
         )
+    }
+}
+
+@Composable
+private fun HomeCustomizationPanel(
+    showRecents: Boolean,
+    homeChannelsLayout: HomeChannelsLayout,
+    onToggleShowRecents: () -> Unit,
+    onSelectLayout: (HomeChannelsLayout) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    GlassPanel(
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        strong = true,
+        padding = 22.dp,
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Palette.Royal.copy(alpha = 0.28f))
+                        .border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Ic.Tv, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("تخصيص الشاشة الرئيسية", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+                    Text("التحكم في أقسام الشاشة الرئيسية وشكل القنوات", fontSize = 13.sp, color = Palette.TextDim)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // 1. Switch for RecentsStrip
+        GlassCard(
+            onClick = onToggleShowRecents,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            selected = showRecents,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    DotTitle("عرض قسم تابع المشاهدة", Palette.Glow, fontSize = 15.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text("إظهار شريط القنوات والمحتوى المشاهد مؤخراً", fontSize = 12.sp, color = Palette.TextDim)
+                }
+                Switch(
+                    checked = showRecents,
+                    onCheckedChange = null,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Palette.Royal,
+                        uncheckedThumbColor = Palette.TextDim,
+                        uncheckedTrackColor = Color.White.copy(alpha = 0.12f),
+                    ),
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // 2. RadioGroup for Featured Channels Layout
+        Column(Modifier.fillMaxWidth()) {
+            DotTitle("شكل قنوات القائمة المميزة", Palette.Royal, fontSize = 15.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("اختر أسلوب عرض القنوات الرئيسية الموصى بها", fontSize = 12.sp, color = Palette.TextDim)
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Option Carousel
+                val isCarousel = homeChannelsLayout == HomeChannelsLayout.CAROUSEL
+                GlassCard(
+                    onClick = { onSelectLayout(HomeChannelsLayout.CAROUSEL) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp),
+                    selected = isCarousel,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = isCarousel,
+                            onClick = null,
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = Palette.Glow,
+                                unselectedColor = Palette.TextDim,
+                            ),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("سلايدر متحرك", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isCarousel) Palette.Text else Palette.TextDim)
+                            Text("بانورامي ثلاثي الأبعاد", fontSize = 11.sp, color = Palette.TextDim)
+                        }
+                    }
+                }
+
+                // Option Grid
+                val isGrid = homeChannelsLayout == HomeChannelsLayout.GRID
+                GlassCard(
+                    onClick = { onSelectLayout(HomeChannelsLayout.GRID) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(18.dp),
+                    selected = isGrid,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = isGrid,
+                            onClick = null,
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = Palette.Glow,
+                                unselectedColor = Palette.TextDim,
+                            ),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text("شبكة أيقونات", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isGrid) Palette.Text else Palette.TextDim)
+                            Text("مربعات متراصة منظمة", fontSize = 11.sp, color = Palette.TextDim)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

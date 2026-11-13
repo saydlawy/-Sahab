@@ -27,9 +27,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,7 +67,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.saydlawy.sahab.data.Channel
+import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.Kind
+import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.weather.WeatherCondition
 import java.util.Calendar
 import com.saydlawy.sahab.data.PlayItem
@@ -85,7 +93,9 @@ import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatNowMillis
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private data class HomeSectionCard(
@@ -104,6 +114,13 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val scrollState = rememberScrollState()
     val container = LocalContainer.current
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
+    val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(initialValue = HomeChannelsLayout.CAROUSEL)
+
+    var featuredChannels by remember { mutableStateOf<List<Channel>>(emptyList()) }
+    LaunchedEffect(container.repo.account) {
+        featuredChannels = loadFeaturedChannels(container.repo)
+    }
 
     val categories = remember {
         listOf(
@@ -149,6 +166,9 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
                         s = s,
                         categories = categories,
                         recents = recents,
+                        showRecents = showRecents,
+                        homeChannelsLayout = homeChannelsLayout,
+                        featuredChannels = featuredChannels,
                         autoFocus = isTv,
                         onOpen = onOpen,
                         onPlay = onPlay,
@@ -159,6 +179,9 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
                     PhoneLandscapeHome(
                         categories = categories,
                         recents = recents,
+                        showRecents = showRecents,
+                        homeChannelsLayout = homeChannelsLayout,
+                        featuredChannels = featuredChannels,
                         onOpen = onOpen,
                         onPlay = onPlay,
                         scrollState = scrollState,
@@ -169,6 +192,9 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
                     PhoneHome(
                         categories = categories,
                         recents = recents,
+                        showRecents = showRecents,
+                        homeChannelsLayout = homeChannelsLayout,
+                        featuredChannels = featuredChannels,
                         onOpen = onOpen,
                         onPlay = onPlay,
                         scrollState = scrollState,
@@ -184,6 +210,9 @@ private fun WideHome(
     s: Float,
     categories: List<HomeSectionCard>,
     recents: List<RecentItem>,
+    showRecents: Boolean,
+    homeChannelsLayout: HomeChannelsLayout,
+    featuredChannels: List<Channel>,
     autoFocus: Boolean,
     onOpen: (String) -> Unit,
     onPlay: (PlayRequest) -> Unit,
@@ -192,21 +221,19 @@ private fun WideHome(
     Column(
         modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f),
+            Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             Column(
                 Modifier
-                    .width((320 * s).dp)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    .width((320 * s).dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 ClockWeatherCard(s)
                 SportsQuickCard(Modifier.fillMaxWidth(), s) { onOpen(Routes.SPORTS) }
@@ -220,7 +247,7 @@ private fun WideHome(
                         cat = cat,
                         modifier = Modifier
                             .width((210 * s).dp)
-                            .height((320 * s).dp),
+                            .height((310 * s).dp),
                         s = s,
                         autoFocus = autoFocus && i == 0,
                         onClick = { onOpen(cat.route) },
@@ -229,12 +256,17 @@ private fun WideHome(
             }
         }
 
-        if (recents.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
+        FeaturedChannelsSection(
+            layout = homeChannelsLayout,
+            channels = featuredChannels,
+            onPlay = onPlay,
+            s = s,
+        )
+
+        if (showRecents && recents.isNotEmpty()) {
             RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay)
         }
 
-        Spacer(Modifier.height(10.dp))
         LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
     }
 }
@@ -243,6 +275,9 @@ private fun WideHome(
 private fun PhoneLandscapeHome(
     categories: List<HomeSectionCard>,
     recents: List<RecentItem>,
+    showRecents: Boolean,
+    homeChannelsLayout: HomeChannelsLayout,
+    featuredChannels: List<Channel>,
     onOpen: (String) -> Unit,
     onPlay: (PlayRequest) -> Unit,
     scrollState: ScrollState,
@@ -286,7 +321,14 @@ private fun PhoneLandscapeHome(
             }
         }
 
-        if (recents.isNotEmpty()) {
+        FeaturedChannelsSection(
+            layout = homeChannelsLayout,
+            channels = featuredChannels,
+            onPlay = onPlay,
+            s = 0.85f,
+        )
+
+        if (showRecents && recents.isNotEmpty()) {
             RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay)
         }
 
@@ -298,6 +340,9 @@ private fun PhoneLandscapeHome(
 private fun PhoneHome(
     categories: List<HomeSectionCard>,
     recents: List<RecentItem>,
+    showRecents: Boolean,
+    homeChannelsLayout: HomeChannelsLayout,
+    featuredChannels: List<Channel>,
     onOpen: (String) -> Unit,
     onPlay: (PlayRequest) -> Unit,
     scrollState: ScrollState,
@@ -311,6 +356,14 @@ private fun PhoneHome(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         ClockWeatherCard(s = 0.85f)
+
+        FeaturedChannelsSection(
+            layout = homeChannelsLayout,
+            channels = featuredChannels,
+            onPlay = onPlay,
+            s = 0.88f,
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             categories.forEach { cat ->
                 SectionHeroCard(
@@ -324,12 +377,414 @@ private fun PhoneHome(
                 )
             }
         }
-        if (recents.isNotEmpty()) {
+
+        if (showRecents && recents.isNotEmpty()) {
             RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay)
         }
+
         SportsQuickCard(Modifier.fillMaxWidth(), 0.9f) { onOpen(Routes.SPORTS) }
         LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
     }
+}
+
+data class PivotOffsets(val parentFraction: Float = 0.5f, val childFraction: Float = 0.5f)
+
+@Composable
+private fun TvLazyRow(
+    modifier: Modifier = Modifier,
+    state: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    pivotOffsets: PivotOffsets = PivotOffsets(0.5f, 0.5f),
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    val flingBehavior = rememberSnapFlingBehavior(lazyListState = state)
+    LazyRow(
+        modifier = modifier,
+        state = state,
+        contentPadding = contentPadding,
+        horizontalArrangement = horizontalArrangement,
+        flingBehavior = flingBehavior,
+        content = content,
+    )
+}
+
+@Composable
+private fun FeaturedChannelsSection(
+    layout: HomeChannelsLayout,
+    channels: List<Channel>,
+    onPlay: (PlayRequest) -> Unit,
+    s: Float = 1f,
+    modifier: Modifier = Modifier,
+) {
+    val displayChannels = if (channels.isNotEmpty()) channels else FALLBACK_FEATURED_CHANNELS
+    when (layout) {
+        HomeChannelsLayout.CAROUSEL -> {
+            FeaturedChannelsCarousel(
+                channels = displayChannels,
+                onPlay = onPlay,
+                s = s,
+                pivotOffsets = PivotOffsets(0.5f, 0.5f),
+                modifier = modifier,
+            )
+        }
+        HomeChannelsLayout.GRID -> {
+            FeaturedChannelsGrid(
+                channels = displayChannels,
+                onPlay = onPlay,
+                s = s,
+                modifier = modifier,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeaturedChannelsCarousel(
+    channels: List<Channel>,
+    onPlay: (PlayRequest) -> Unit,
+    s: Float = 1f,
+    pivotOffsets: PivotOffsets = PivotOffsets(0.5f, 0.5f),
+    modifier: Modifier = Modifier,
+) {
+    val isTv = LocalIsTv.current
+    val listState = rememberLazyListState()
+    val screenWidth = LocalWindowInfo.current.widthDp
+    val itemWidth = if (isTv) (260 * s).dp else 190.dp
+    val centerPadding = ((screenWidth - itemWidth) * pivotOffsets.parentFraction).coerceAtLeast(16.dp)
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DotTitle("القنوات المميزة", Palette.Glow, fontSize = (15 * s).sp)
+            Tag("سلايدر مباشر", Palette.Royal)
+        }
+
+        TvLazyRow(
+            state = listState,
+            contentPadding = PaddingValues(horizontal = centerPadding, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy((14 * s).dp),
+            pivotOffsets = pivotOffsets,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(channels, key = { it.id }) { channel ->
+                var isFocused by remember { mutableStateOf(false) }
+                val scale by animateFloatAsState(
+                    targetValue = if (isFocused) 1.12f else 0.90f,
+                    animationSpec = tween(durationMillis = 200),
+                    label = "scale",
+                )
+                val alpha by animateFloatAsState(
+                    targetValue = if (isFocused) 1.0f else 0.68f,
+                    animationSpec = tween(durationMillis = 200),
+                    label = "alpha",
+                )
+
+                LaunchedEffect(isFocused) {
+                    if (isFocused) {
+                        val index = channels.indexOf(channel)
+                        if (index >= 0) {
+                            listState.animateScrollToItem(index)
+                        }
+                    }
+                }
+
+                FeaturedChannelCard(
+                    channel = channel,
+                    width = itemWidth,
+                    s = s,
+                    isFocused = isFocused,
+                    onFocusChanged = { isFocused = it },
+                    onClick = {
+                        onPlay(
+                            PlayRequest(
+                                listOf(PlayItem(Kind.LIVE, channel.id, channel.name, icon = channel.icon)),
+                                0,
+                            ),
+                        )
+                    },
+                    modifier = Modifier
+                        .zIndex(if (isFocused) 5f else 1f)
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            this.alpha = alpha
+                        },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturedChannelsGrid(
+    channels: List<Channel>,
+    onPlay: (PlayRequest) -> Unit,
+    s: Float = 1f,
+    modifier: Modifier = Modifier,
+) {
+    val isTv = LocalIsTv.current
+    val cols = if (isTv) 4 else 3
+    val rows = (channels.size + cols - 1) / cols
+    val tileHeight = if (isTv) (110 * s).dp else 95.dp
+    val gridHeight = (rows * (tileHeight.value.toInt()) + (rows - 1) * 10).dp
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DotTitle("القنوات المميزة", Palette.Glow, fontSize = (15 * s).sp)
+            Tag("شبكة الأيقونات", Palette.Royal)
+        }
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(cols),
+            modifier = Modifier.fillMaxWidth().height(gridHeight),
+            userScrollEnabled = false,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(channels, key = { it.id }) { channel ->
+                FeaturedChannelGridTile(
+                    channel = channel,
+                    s = s,
+                    onClick = {
+                        onPlay(
+                            PlayRequest(
+                                listOf(PlayItem(Kind.LIVE, channel.id, channel.name, icon = channel.icon)),
+                                0,
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturedChannelCard(
+    channel: Channel,
+    width: Dp,
+    s: Float,
+    isFocused: Boolean,
+    onFocusChanged: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape((18 * s).dp)
+    val cardHeight = (width.value * 0.58f).dp
+
+    Box(
+        modifier = modifier
+            .width(width)
+            .height(cardHeight)
+            .onFocusChanged { onFocusChanged(it.isFocused) }
+            .clip(shape)
+            .clickable(onClick = onClick)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        if (isFocused) Palette.Royal.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.08f),
+                        if (isFocused) Palette.DeepBlue.copy(alpha = 0.90f) else Color.White.copy(alpha = 0.03f),
+                    ),
+                ),
+            )
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) Palette.Glow else Color.White.copy(alpha = 0.14f),
+                shape = shape,
+            )
+            .padding((12 * s).dp),
+    ) {
+        Column(
+            Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Tag("مباشر", if (isFocused) Palette.Glow else Palette.Royal)
+                Box(
+                    Modifier
+                        .size((28 * s).dp)
+                        .clip(CircleShape)
+                        .background(if (isFocused) Palette.Glow else Color.White.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Ic.Play,
+                        contentDescription = null,
+                        tint = if (isFocused) Color.Black else Color.White,
+                        modifier = Modifier.size((14 * s).dp),
+                    )
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy((10 * s).dp),
+            ) {
+                if (channel.icon.isNotBlank()) {
+                    RemoteImage(
+                        url = channel.icon,
+                        contentDescription = channel.name,
+                        modifier = Modifier
+                            .size((40 * s).dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Box(
+                        Modifier
+                            .size((40 * s).dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Ic.Tv, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size((22 * s).dp))
+                    }
+                }
+
+                Text(
+                    text = channel.name,
+                    fontSize = (13 * s).sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Palette.Text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturedChannelGridTile(
+    channel: Channel,
+    s: Float,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape((16 * s).dp)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height((95 * s).dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clip(shape)
+            .clickable(onClick = onClick)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        if (isFocused) Palette.Royal.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.08f),
+                        if (isFocused) Palette.DeepBlue.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.03f),
+                    ),
+                ),
+            )
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) Palette.Glow else Color.White.copy(alpha = 0.12f),
+                shape = shape,
+            )
+            .padding((8 * s).dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            if (channel.icon.isNotBlank()) {
+                RemoteImage(
+                    url = channel.icon,
+                    contentDescription = channel.name,
+                    modifier = Modifier
+                        .size((38 * s).dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Fit,
+                )
+            } else {
+                Box(
+                    Modifier
+                        .size((38 * s).dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Ic.Tv, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size((20 * s).dp))
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = channel.name,
+                fontSize = (11 * s).sp,
+                fontWeight = FontWeight.Bold,
+                color = Palette.Text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
+}
+
+private val FALLBACK_FEATURED_CHANNELS = listOf(
+    Channel("rotana_cinema", "روتانا سينما"),
+    Channel("rotana_khalijia", "روتانا خليجية"),
+    Channel("aljazeera_news", "الجزيرة الإخبارية"),
+    Channel("bein_sports_1", "beIN SPORTS 1 HD"),
+    Channel("ssc_1", "SSC 1 HD"),
+    Channel("mbc_1", "MBC 1 HD"),
+)
+
+private suspend fun loadFeaturedChannels(repo: Repository): List<Channel> = withContext(Dispatchers.IO) {
+    runCatching {
+        val all = repo.peekAllLiveChannels() ?: repo.liveChannels(null)
+        if (all.isEmpty()) return@withContext FALLBACK_FEATURED_CHANNELS
+
+        val targetKeywords = listOf(
+            listOf("روتانا سينما", "rotana cinema"),
+            listOf("روتانا خليجية", "rotana khalijiah", "rotana khalijia"),
+            listOf("الجزيرة", "al jazeera", "aljazeera", "العربية", "alarabiya", "الحدث"),
+            listOf("bein sports", "bein sport", "ssc", "alkass", "on time"),
+            listOf("mbc 1", "mbc drama", "mbc masr", "mbc"),
+            listOf("ناشونال", "national geographic", "nat geo", "discovery"),
+            listOf("دبي", "dubai", "abu dhabi", "أبوظبي"),
+        )
+
+        val matched = mutableListOf<Channel>()
+        val seen = mutableSetOf<String>()
+
+        for (keywords in targetKeywords) {
+            val candidate = all.firstOrNull { ch ->
+                val lower = ch.name.lowercase(Locale.ROOT)
+                keywords.any { kw -> lower.contains(kw.lowercase(Locale.ROOT)) } && seen.add(ch.id)
+            }
+            if (candidate != null) {
+                matched.add(candidate)
+            }
+        }
+
+        for (ch in all) {
+            if (matched.size >= 8) break
+            if (seen.add(ch.id)) {
+                matched.add(ch)
+            }
+        }
+
+        if (matched.isNotEmpty()) matched else FALLBACK_FEATURED_CHANNELS
+    }.getOrDefault(FALLBACK_FEATURED_CHANNELS)
 }
 
 @Composable

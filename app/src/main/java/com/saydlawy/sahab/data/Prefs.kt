@@ -27,6 +27,11 @@ import java.io.File
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "sahab")
 
+enum class HomeChannelsLayout {
+    CAROUSEL,
+    GRID,
+}
+
 class Prefs @JvmOverloads constructor(
     context: Context?,
     private val secureStoreOverride: SharedPreferences? = null,
@@ -48,6 +53,8 @@ class Prefs @JvmOverloads constructor(
         val Favs = stringPreferencesKey("favorites")
         val Recents = stringPreferencesKey("recents")
         val LightEffects = booleanPreferencesKey("light_effects")
+        val ShowRecents = booleanPreferencesKey("show_recents")
+        val HomeChannelsLayoutKey = stringPreferencesKey("home_channels_layout")
         val LastSyncTime = longPreferencesKey("last_sync_time")
     }
 
@@ -154,6 +161,21 @@ class Prefs @JvmOverloads constructor(
     val recents: Flow<List<RecentItem>> = store.data.map { decodeRecents(it[Keys.Recents]) }
 
     val lightEffects: Flow<Boolean> = store.data.map { it[Keys.LightEffects] ?: false }
+
+    val showRecents: Flow<Boolean> = store.data.map { it[Keys.ShowRecents] ?: true }
+
+    val homeChannelsLayout: Flow<HomeChannelsLayout> = store.data.map {
+        val raw = it[Keys.HomeChannelsLayoutKey]
+        if (raw == HomeChannelsLayout.GRID.name) HomeChannelsLayout.GRID else HomeChannelsLayout.CAROUSEL
+    }
+
+    suspend fun setShowRecents(show: Boolean) {
+        store.edit { it[Keys.ShowRecents] = show }
+    }
+
+    suspend fun setHomeChannelsLayout(layout: HomeChannelsLayout) {
+        store.edit { it[Keys.HomeChannelsLayoutKey] = layout.name }
+    }
 
     val lastSyncTime: Flow<Long> = store.data.map { it[Keys.LastSyncTime] ?: 0L }
 
