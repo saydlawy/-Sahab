@@ -154,7 +154,7 @@ private fun SettingsMenuItem(title: String, subtitle: String, icon: ImageVector,
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                Text(subtitle, fontSize = 12.sp, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, fontSize = 12.sp, color = Palette.TextDim, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
             // سهم التوجيه
             Text("<", fontSize = 22.sp, color = Palette.Glow, fontWeight = FontWeight.Bold)

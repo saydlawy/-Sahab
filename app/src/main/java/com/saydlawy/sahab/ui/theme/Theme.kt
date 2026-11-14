@@ -26,6 +26,7 @@ import com.saydlawy.sahab.R
 object Palette {
     // Core identity colours
     val DeepBlue = Color(0xFF0B0F24)
+    val TextMuted = Color(0xFF94A3B8)
     val CinematicBg = Color(0xFF0B0D17)
     val CinematicBgSecondary = Color(0xFF101322)
     val CardSurface = Color(0xFF161A29)

@@ -668,8 +668,8 @@ fun PosterCard(
                 if (progress != null) {
                     Spacer(Modifier.height(4.dp))
                     ProgressLine(
-                        progress = progress,
-                        modifier = Modifier.fillMaxWidth(),
+                        progress,
+                        Modifier.fillMaxWidth(),
                         height = 3.dp,
                     )
                 }
