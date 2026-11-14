@@ -1,6 +1,14 @@
 package com.saydlawy.sahab
 
 import android.os.Bundle
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.os.Build
+import androidx.compose.runtime.LaunchedEffect
+import com.google.firebase.messaging.FirebaseMessaging
+
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.enableEdgeToEdge
@@ -17,7 +25,12 @@ import com.saydlawy.sahab.util.isTelevision
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        
+        // إبقاء شاشة البداية حتى يتم رسم الواجهة (مدة قصيرة)
+        var isReady = false
+        splashScreen.setKeepOnScreenCondition { !isReady }
         enableEdgeToEdge()
         val container = (application as SahabApp).container
         val tv = isTelevision(this)
@@ -25,6 +38,26 @@ class MainActivity : AppCompatActivity() {
         checkForUpdates()
 
         setContent {
+            // طلب إذن الإشعارات لأندرويد 13+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { isGranted -> /* Handle permission */ }
+                LaunchedEffect(Unit) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+
+            // رفع FCM Token إلى السحابة
+            LaunchedEffect(Unit) {
+                FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        val token = task.result
+                        (application as SahabApp).container.userSyncService.saveFcmToken(token)
+                    }
+                }
+            }
+
             SahabTheme {
                 CompositionLocalProvider(
                     LocalContainer provides container,

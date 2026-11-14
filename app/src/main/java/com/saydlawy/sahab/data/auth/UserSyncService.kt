@@ -26,6 +26,13 @@ class UserSyncService {
             .addOnFailureListener { cont.resume(Unit) }
     }
 
+    suspend fun saveFcmToken(token: String) = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+        db.collection("users").document(uid).update("fcmToken", token)
+            .addOnSuccessListener { cont.resume(Unit) }
+            .addOnFailureListener { cont.resume(Unit) }
+    }
+
     suspend fun getXtreamAccount(): Account? = suspendCancellableCoroutine { cont ->
         val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
         db.collection("users").document(uid).collection("data").document("xtream")
