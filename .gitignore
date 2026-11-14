@@ -41,3 +41,7 @@ build_catalog_seed_v2.py
 build_seed.log
 build_seed_v2.log
 _nova_diag/
+
+firebase-service-account.json
+cert.rsa
+*.apk

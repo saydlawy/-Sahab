@@ -1,55 +1,60 @@
 package com.saydlawy.sahab
 
 import android.os.Bundle
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.Manifest
-import android.os.Build
-import androidx.compose.runtime.LaunchedEffect
-import com.google.firebase.messaging.FirebaseMessaging
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-
 import android.util.Log
-import androidx.appcompat.app.AppCompatActivity
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.google.firebase.Firebase
 import com.google.firebase.appdistribution.appDistribution
 import com.saydlawy.sahab.ui.AppRoot
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.components.BrandLogo
+import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.SahabTheme
 import com.saydlawy.sahab.util.isTelevision
+import kotlinx.coroutines.delay
 
 class MainActivity : AppCompatActivity() {
     var showSplash by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // شاشة البداية ستختفي تلقائياً بمجرد رسم أول إطار للواجهة
+
         enableEdgeToEdge()
         val container = (application as SahabApp).container
         val tv = isTelevision(this)
 
-        checkForUpdates()
-
         setContent {
             SahabTheme {
-            if (showSplash) {
-                SplashScreenContent {
-                    showSplash = false
-                }
-            } else {
-                val container = (application as SahabApp).container
-                CompositionLocalProvider(
-                    LocalContainer provides container,
-                    LocalIsTv provides tv,
-                ) {
-                    AppRoot(container)
+                if (showSplash) {
+                    SplashScreenContent {
+                        showSplash = false
+                    }
+                } else {
+                    LaunchedEffect(Unit) {
+                        delay(3000L)
+                        checkForUpdates()
+                    }
+                    CompositionLocalProvider(
+                        LocalContainer provides container,
+                        LocalIsTv provides tv,
+                    ) {
+                        AppRoot(container)
+                    }
                 }
             }
         }
@@ -70,19 +75,18 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-
-@androidx.compose.runtime.Composable
+@Composable
 fun SplashScreenContent(onTimeout: () -> Unit) {
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(1500)
+    LaunchedEffect(Unit) {
+        delay(1500L)
         onTimeout()
     }
-    androidx.compose.foundation.layout.Box(
-        modifier = androidx.compose.ui.Modifier
+    Box(
+        modifier = Modifier
             .fillMaxSize()
-            .background(com.saydlawy.sahab.ui.theme.Palette.DeepBlue),
-        contentAlignment = androidx.compose.ui.Alignment.Center
+            .background(Palette.DeepBlue),
+        contentAlignment = Alignment.Center
     ) {
-        com.saydlawy.sahab.ui.components.BrandLogo(size = 120.dp, bright = true)
+        BrandLogo(size = 120.dp, bright = true)
     }
 }
