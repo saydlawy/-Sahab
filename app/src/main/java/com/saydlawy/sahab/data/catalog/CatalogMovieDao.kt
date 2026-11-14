@@ -18,8 +18,14 @@ interface CatalogMovieDao {
     @Query("SELECT * FROM catalog_movies WHERE sahabId = :id")
     suspend fun findById(id: String): CatalogMovieEntity?
 
+    @Query("SELECT * FROM catalog_movies WHERE sahabId IN (:ids) AND deleted = 0")
+    suspend fun findByIds(ids: List<String>): List<CatalogMovieEntity>
+
     @Query("SELECT * FROM catalog_movies WHERE novaStreamId = :streamId")
     suspend fun findByStreamId(streamId: String): CatalogMovieEntity?
+
+    @Query("SELECT * FROM catalog_movies WHERE novaStreamId IN (:streamIds) AND deleted = 0")
+    suspend fun findByStreamIds(streamIds: List<String>): List<CatalogMovieEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CatalogMovieEntity)

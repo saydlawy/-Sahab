@@ -112,11 +112,15 @@ fun HomeScreen(
         featuredChannels = loadFeaturedChannels(container.repo)
     }
 
-    // 2. Load Trending Movies from Firebase Catalog
-    LaunchedEffect(Unit) {
-        trendingMovies = runCatching { container.firebaseCatalog.getTrendingMovies(15) }
-            .getOrNull()
-            .orEmpty()
+    // 2. Load Recommended Movies from Xtream Server + Firebase Catalog
+    LaunchedEffect(container.repo.account) {
+        trendingMovies = runCatching {
+            container.firebaseCatalog.getXtreamRecommendedMovies(
+                repo = container.repo,
+                dao = container.catalogDb.movieDao(),
+                limit = 15,
+            )
+        }.getOrNull().orEmpty()
     }
 
     // 3. Load Today's Matches from SportsDatabase

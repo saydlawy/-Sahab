@@ -54,9 +54,15 @@ fun TrendingMoviesSection(
     val container = LocalContainer.current
     var fetchedMovies by remember { mutableStateOf<List<CatalogMovieEntity>>(emptyList()) }
 
-    LaunchedEffect(preloadedMovies) {
+    LaunchedEffect(preloadedMovies, container.repo.account) {
         if (preloadedMovies.isNullOrEmpty()) {
-            fetchedMovies = runCatching { container.firebaseCatalog.getTrendingMovies(15) }.getOrNull().orEmpty()
+            fetchedMovies = runCatching {
+                container.firebaseCatalog.getXtreamRecommendedMovies(
+                    repo = container.repo,
+                    dao = container.catalogDb.movieDao(),
+                    limit = 15,
+                )
+            }.getOrNull().orEmpty()
         }
     }
 
@@ -95,7 +101,7 @@ fun TrendingMoviesSection(
             contentPadding = PaddingValues(horizontal = horizPad, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(movies, key = { _, item -> item.sahabId }) { index, movie ->
+            itemsIndexed(movies, key = { idx, item -> "${item.novaStreamId}_${item.sahabId}_$idx" }) { index, movie ->
                 TrendingMovieCard(
                     movie = movie,
                     isNew = index < 2 || movie.year >= "2025",
