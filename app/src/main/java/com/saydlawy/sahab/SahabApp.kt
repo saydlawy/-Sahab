@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.debounce
 import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -76,6 +77,21 @@ class AppContainer(context: Context) {
                 .digest("${a.server}|${a.user}".toByteArray(Charsets.UTF_8))
             return bytes.take(4).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         }
+
+    fun startAutoSync() {
+        appScope.launch {
+            // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين
+            prefs.favorites.debounce(2000L).collect { favs ->
+                if (authManager.currentUser != null) userSyncService.saveFavorites(favs)
+            }
+        }
+        appScope.launch {
+            // مزامنة سجل المشاهدة بعد توقف المشاهدة لمدة 5 ثوانٍ
+            prefs.recents.debounce(5000L).collect { recents ->
+                if (authManager.currentUser != null) userSyncService.saveRecents(recents)
+            }
+        }
+    }
 
     fun saveProgress(item: PlayItem, positionMs: Long, durationMs: Long) {
         val live = item.kind == Kind.LIVE
@@ -156,6 +172,7 @@ class SahabApp : Application(), ImageLoaderFactory {
         super.onCreate()
         FirebaseApp.initializeApp(this)
         container = AppContainer(this)
+        container.startAutoSync()
         container.appScope.launch {
             SyncScheduler.scheduleInitialRunIfNeeded(this@SahabApp)
             SahabPlayer.warmUpMediaCache(this@SahabApp)

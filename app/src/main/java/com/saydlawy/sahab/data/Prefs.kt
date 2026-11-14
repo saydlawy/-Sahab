@@ -252,6 +252,15 @@ class Prefs @JvmOverloads constructor(
         }
     }
 
+
+    suspend fun restoreFavorites(favs: List<FavItem>) {
+        store.edit { p -> p[Keys.Favs] = json.encodeToString(favSerializer, favs) }
+    }
+
+    suspend fun restoreRecents(recents: List<RecentItem>) {
+        store.edit { p -> p[Keys.Recents] = json.encodeToString(recentSerializer, recents) }
+    }
+
     private fun decodeFavs(raw: String?): List<FavItem> =
         if (raw.isNullOrBlank()) emptyList()
         else runCatching { json.decodeFromString(favSerializer, raw) }.getOrDefault(emptyList())

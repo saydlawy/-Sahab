@@ -76,6 +76,20 @@ fun AppRoot(container: AppContainer) {
                 account = cloudAccount
             }
         }
+        
+        // استعادة المفضلة وسجل المشاهدة من السحابة إذا كانت محلية فارغة
+        if (container.authManager.currentUser != null) {
+            val localFavs = container.prefs.favorites.first()
+            if (localFavs.isEmpty()) {
+                val cloudFavs = container.userSyncService.getFavorites()
+                if (!cloudFavs.isNullOrEmpty()) container.prefs.restoreFavorites(cloudFavs)
+            }
+            val localRecents = container.prefs.recents.first()
+            if (localRecents.isEmpty()) {
+                val cloudRecents = container.userSyncService.getRecents()
+                if (!cloudRecents.isNullOrEmpty()) container.prefs.restoreRecents(cloudRecents)
+            }
+        }
         if (account != null) {
             container.repo.setAccount(account)
             container.appScope.launch {
