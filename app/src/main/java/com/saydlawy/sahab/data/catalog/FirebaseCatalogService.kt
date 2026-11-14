@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.data.catalog
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
@@ -19,6 +20,23 @@ class FirebaseCatalogService {
             }
             .addOnFailureListener {
                 cont.resume(null) // في حال فشل الاتصال نرجع null لاستخدام الكاش المحلي
+            }
+    }
+
+
+    suspend fun getTrendingMovies(limit: Long = 10): List<CatalogMovieEntity> = suspendCancellableCoroutine { cont ->
+        collection
+            .orderBy("rating", Query.Direction.DESCENDING)
+            .limit(limit)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val list = snapshot.documents.mapNotNull { doc ->
+                    try { mapToEntity(doc.id, doc.data ?: emptyMap()) } catch (e: Exception) { null }
+                }
+                cont.resume(list)
+            }
+            .addOnFailureListener {
+                cont.resume(emptyList())
             }
     }
 

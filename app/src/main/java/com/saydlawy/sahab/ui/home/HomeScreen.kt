@@ -98,6 +98,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import androidx.compose.foundation.lazy.LazyColumn
+import com.saydlawy.sahab.ui.home.components.CompactTopBarInfo
+import com.saydlawy.sahab.ui.home.components.TrendingMoviesSection
 
 private data class HomeSectionCard(
     val label: String,
@@ -111,8 +114,6 @@ private data class HomeSectionCard(
 
 @Composable
 fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
-    val isTv = LocalIsTv.current
-    val scrollState = rememberScrollState()
     val container = LocalContainer.current
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
     val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
@@ -126,269 +127,79 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val categories = remember {
         listOf(
             HomeSectionCard(
-                label = Ar.live,
-                sub = Ar.liveSub,
-                route = Routes.LIVE,
-                badge = "LIVE 4K",
-                icon = Ic.Tv,
+                label = Ar.live, sub = Ar.liveSub, route = Routes.LIVE, badge = "LIVE 4K", icon = Ic.Tv,
                 art = Brush.linearGradient(listOf(Palette.Glow.copy(alpha = 0.42f), Palette.Blue.copy(alpha = 0.65f), Palette.DeepBlue)),
                 accent = Palette.Glow,
             ),
             HomeSectionCard(
-                label = Ar.movies,
-                sub = Ar.moviesSub,
-                route = Routes.MOVIES,
-                badge = "VOD",
-                icon = Ic.Movie,
+                label = Ar.movies, sub = Ar.moviesSub, route = Routes.MOVIES, badge = "VOD", icon = Ic.Movie,
                 art = Brush.linearGradient(listOf(Palette.Royal.copy(alpha = 0.58f), Color(0xFF4C1D95), Palette.DeepBlue)),
                 accent = Palette.Royal,
             ),
             HomeSectionCard(
-                label = Ar.series,
-                sub = Ar.seriesSub,
-                route = Routes.SERIES,
-                badge = "HD / 4K",
-                icon = Ic.Series,
+                label = Ar.series, sub = Ar.seriesSub, route = Routes.SERIES, badge = "HD / 4K", icon = Ic.Series,
                 art = Brush.linearGradient(listOf(Palette.Gold.copy(alpha = 0.48f), Palette.Royal.copy(alpha = 0.65f), Palette.DeepBlue)),
                 accent = Palette.Gold,
             ),
         )
     }
 
-    val displayMode = LocalDisplayMode.current
-    val maxH = LocalWindowInfo.current.heightDp
-
-    Column(Modifier.fillMaxSize()) {
-        SahabTopBar(current = Routes.HOME)
-            val s = (maxH.value / 720f).coerceIn(0.82f, 1.35f)
-            when (displayMode) {
-                DisplayMode.TABLET_OR_TV -> {
-                    WideHome(
-                        s = s,
-                        categories = categories,
-                        recents = recents,
-                        showRecents = showRecents,
-                        homeChannelsLayout = homeChannelsLayout,
-                        featuredChannels = featuredChannels,
-                        autoFocus = isTv,
-                        onOpen = onOpen,
-                        onPlay = onPlay,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                DisplayMode.PHONE_LANDSCAPE -> {
-                    PhoneLandscapeHome(
-                        categories = categories,
-                        recents = recents,
-                        showRecents = showRecents,
-                        homeChannelsLayout = homeChannelsLayout,
-                        featuredChannels = featuredChannels,
-                        onOpen = onOpen,
-                        onPlay = onPlay,
-                        scrollState = scrollState,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                DisplayMode.PHONE_PORTRAIT -> {
-                    PhoneHome(
-                        categories = categories,
-                        recents = recents,
-                        showRecents = showRecents,
-                        homeChannelsLayout = homeChannelsLayout,
-                        featuredChannels = featuredChannels,
-                        onOpen = onOpen,
-                        onPlay = onPlay,
-                        scrollState = scrollState,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-}
-
-@Composable
-private fun WideHome(
-    s: Float,
-    categories: List<HomeSectionCard>,
-    recents: List<RecentItem>,
-    showRecents: Boolean,
-    homeChannelsLayout: HomeChannelsLayout,
-    featuredChannels: List<Channel>,
-    autoFocus: Boolean,
-    onOpen: (String) -> Unit,
-    onPlay: (PlayRequest) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-        ) {
-            Column(
-                Modifier
-                    .width((320 * s).dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            SahabTopBar(current = Routes.HOME)
+            
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                ClockWeatherCard(s)
-                SportsQuickCard(Modifier.fillMaxWidth(), s) { onOpen(Routes.SPORTS) }
-            }
+                item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+                        CompactTopBarInfo()
+                    }
+                }
 
-            Spacer(Modifier.weight(1f))
+                if (showRecents && recents.isNotEmpty()) {
+                    item { RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay) }
+                }
 
-            Row(horizontalArrangement = Arrangement.spacedBy((20 * s).dp)) {
-                categories.forEachIndexed { i, cat ->
-                    SectionHeroCard(
-                        cat = cat,
-                        modifier = Modifier
-                            .width((210 * s).dp)
-                            .height((310 * s).dp),
-                        s = s,
-                        autoFocus = autoFocus && i == 0,
-                        onClick = { onOpen(cat.route) },
+                item {
+                    FeaturedChannelsSection(
+                        channels = featuredChannels,
+                        layout = homeChannelsLayout,
+                        onPlay = onPlay,
+                        onOpen = onOpen
                     )
+                }
+
+                item {
+                    TrendingMoviesSection { movie ->
+                        // الانتقال لشاشة التفاصيل باستخدام novaStreamId أو sahabId
+                        onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
+                    }
+                }
+
+                item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        categories.forEach { cat ->
+                            SectionHeroCard(
+                                cat = cat,
+                                modifier = Modifier.weight(1f).height(140.dp),
+                                s = 0.85f,
+                                autoFocus = false,
+                                onClick = { onOpen(cat.route) }
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
                 }
             }
         }
-
-        FeaturedChannelsSection(
-            layout = homeChannelsLayout,
-            channels = featuredChannels,
-            onPlay = onPlay,
-            s = s,
-        )
-
-        if (showRecents && recents.isNotEmpty()) {
-            RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay)
-        }
-
-        LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
     }
 }
-
-@Composable
-private fun PhoneLandscapeHome(
-    categories: List<HomeSectionCard>,
-    recents: List<RecentItem>,
-    showRecents: Boolean,
-    homeChannelsLayout: HomeChannelsLayout,
-    featuredChannels: List<Channel>,
-    onOpen: (String) -> Unit,
-    onPlay: (PlayRequest) -> Unit,
-    scrollState: ScrollState,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Column(
-                Modifier.width(235.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ClockWeatherCard(s = 0.78f)
-                SportsQuickCard(Modifier.fillMaxWidth(), 0.85f) { onOpen(Routes.SPORTS) }
-            }
-
-            Row(
-                Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                categories.forEach { cat ->
-                    SectionHeroCard(
-                        cat = cat,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(206.dp),
-                        s = 0.82f,
-                        autoFocus = false,
-                        onClick = { onOpen(cat.route) },
-                    )
-                }
-            }
-        }
-
-        FeaturedChannelsSection(
-            layout = homeChannelsLayout,
-            channels = featuredChannels,
-            onPlay = onPlay,
-            s = 0.85f,
-        )
-
-        if (showRecents && recents.isNotEmpty()) {
-            RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay)
-        }
-
-        LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
-    }
-}
-
-@Composable
-private fun PhoneHome(
-    categories: List<HomeSectionCard>,
-    recents: List<RecentItem>,
-    showRecents: Boolean,
-    homeChannelsLayout: HomeChannelsLayout,
-    featuredChannels: List<Channel>,
-    onOpen: (String) -> Unit,
-    onPlay: (PlayRequest) -> Unit,
-    scrollState: ScrollState,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        ClockWeatherCard(s = 0.85f)
-
-        FeaturedChannelsSection(
-            layout = homeChannelsLayout,
-            channels = featuredChannels,
-            onPlay = onPlay,
-            s = 0.88f,
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            categories.forEach { cat ->
-                SectionHeroCard(
-                    cat = cat,
-                    modifier = Modifier
-                        .weight(1f)
-                        .aspectRatio(0.68f),
-                    s = 0.85f,
-                    autoFocus = false,
-                    onClick = { onOpen(cat.route) },
-                )
-            }
-        }
-
-        if (showRecents && recents.isNotEmpty()) {
-            RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay)
-        }
-
-        SportsQuickCard(Modifier.fillMaxWidth(), 0.9f) { onOpen(Routes.SPORTS) }
-        LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
-    }
-}
-
-data class PivotOffsets(val parentFraction: Float = 0.5f, val childFraction: Float = 0.5f)
 
 @Composable
 private fun TvLazyRow(
