@@ -1,5 +1,11 @@
 package com.saydlawy.sahab.ui.login
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.api.ApiException
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Spacer
@@ -43,6 +49,19 @@ class CloudLoginViewModel(private val container: AppContainer) : ViewModel() {
     fun onEmail(value: String) = _state.update { it.copy(email = value, error = null) }
     fun onPass(value: String) = _state.update { it.copy(pass = value, error = null) }
     fun toggleMode() = _state.update { it.copy(isRegisterMode = !it.isRegisterMode, error = null) }
+
+    fun signInWithGoogle(idToken: String, onSuccess: () -> Unit) {
+        _state.update { it.copy(loading = true, error = null) }
+        viewModelScope.launch {
+            try {
+                container.authManager.signInWithGoogle(idToken)
+                _state.update { it.copy(loading = false) }
+                onSuccess()
+            } catch (e: Exception) {
+                _state.update { it.copy(loading = false, error = e.message ?: "فشل تسجيل الدخول بجوجل") }
+            }
+        }
+    }
 
     fun submit(onSuccess: () -> Unit) {
         val current = _state.value
@@ -135,10 +154,29 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
 
             Spacer(Modifier.height(8.dp))
 
-            // Placeholder for Google Sign-in
+            val context = LocalContext.current
+            val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                if (result.resultCode == Activity.RESULT_OK) {
+                    val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    try {
+                        val account = task.getResult(ApiException::class.java)!!
+                        account.idToken?.let { token ->
+                            vm.signInWithGoogle(token, onSuccess)
+                        } ?: run {
+                            // handle missing token
+                        }
+                    } catch (e: ApiException) {
+                        // handle error
+                    }
+                }
+            }
+
             GlassButton(
                 text = "تسجيل الدخول باستخدام Google",
-                onClick = { /* سيتم ربطها لاحقاً */ },
+                onClick = {
+                    val intent = container.authManager.getGoogleSignInClient(context).signInIntent
+                    launcher.launch(intent)
+                },
                 primary = false,
                 modifier = Modifier.fillMaxWidth()
             )

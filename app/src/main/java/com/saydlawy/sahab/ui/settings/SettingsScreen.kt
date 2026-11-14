@@ -85,6 +85,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
     val account: Account? = container.repo.account
     val info: UserInfo? = accountInfo ?: container.repo.userInfo
     val context = LocalContext.current
+    val cloudUser = container.authManager.currentUser
 
     val performRefresh: () -> Unit = {
         if (!refreshing) {
@@ -137,7 +138,13 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
-                        AccountPanel(account, info, Modifier.weight(1f))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            CloudAccountPanel(cloudUser?.email, onLogout = { 
+                                container.authManager.signOut()
+                                onLoggedOut()
+                            })
+                            AccountPanel(account, info, Modifier.fillMaxWidth())
+                        }
                         SystemControlsColumn(
                             light = light,
                             refreshing = refreshing,
@@ -150,6 +157,10 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         )
                     }
                 } else {
+                    CloudAccountPanel(cloudUser?.email, onLogout = { 
+                        container.authManager.signOut()
+                        onLoggedOut()
+                    })
                     AccountPanel(account, info, Modifier.fillMaxWidth())
                     SystemControlsColumn(
                         light = light,
@@ -627,6 +638,36 @@ private fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
                         GlassButton(text = "إلغاء", onClick = { showAdd = false })
                     }
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun CloudAccountPanel(email: String?, onLogout: () -> Unit) {
+    GlassPanel(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        strong = true,
+        padding = 22.dp,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Ic.Cloud, null, tint = Palette.Glow, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("الحساب السحابي", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+            }
+            if (email != null) {
+                Text("البريد: $email", fontSize = 14.sp, color = Palette.TextDim)
+                GlassButton(
+                    text = "تسجيل الخروج من السحابة",
+                    onClick = onLogout,
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Ic.Close
+                )
+            } else {
+                Text("غير مسجل الدخول", fontSize = 14.sp, color = Palette.Gold)
             }
         }
     }
