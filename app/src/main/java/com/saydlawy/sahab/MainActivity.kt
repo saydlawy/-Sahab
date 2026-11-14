@@ -31,9 +31,7 @@ class MainActivity : AppCompatActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         
-        // إبقاء شاشة البداية حتى يتم رسم الواجهة (مدة قصيرة)
-        var isReady = false
-        splashScreen.setKeepOnScreenCondition { !isReady }
+        // شاشة البداية ستختفي تلقائياً بمجرد رسم أول إطار للواجهة
         enableEdgeToEdge()
         val container = (application as SahabApp).container
         val tv = isTelevision(this)
