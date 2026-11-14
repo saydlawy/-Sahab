@@ -1,7 +1,6 @@
 package com.saydlawy.sahab
 
 import android.os.Bundle
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
@@ -26,9 +25,9 @@ import com.saydlawy.sahab.ui.theme.SahabTheme
 import com.saydlawy.sahab.util.isTelevision
 
 class MainActivity : AppCompatActivity() {
+    var showSplash by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         
         // شاشة البداية ستختفي تلقائياً بمجرد رسم أول إطار للواجهة
@@ -39,29 +38,13 @@ class MainActivity : AppCompatActivity() {
         checkForUpdates()
 
         setContent {
-            // طلب إذن الإشعارات لأندرويد 13+
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val permissionLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestPermission()
-                ) { isGranted -> /* Handle permission */ }
-                LaunchedEffect(Unit) {
-                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
-            }
-
-            // رفع FCM Token إلى السحابة
-            LaunchedEffect(Unit) {
-                FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-                    if (task.isSuccessful) {
-                        val token = task.result
-                        CoroutineScope(Dispatchers.IO).launch {
-                            (application as SahabApp).container.userSyncService.saveFcmToken(token)
-                        }
-                    }
-                }
-            }
-
             SahabTheme {
+            if (showSplash) {
+                SplashScreenContent {
+                    showSplash = false
+                }
+            } else {
+                val container = (application as SahabApp).container
                 CompositionLocalProvider(
                     LocalContainer provides container,
                     LocalIsTv provides tv,
@@ -84,5 +67,22 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.w("SahabApp", "Unable to check for App Distribution updates", e)
         }
+    }
+}
+
+
+@androidx.compose.runtime.Composable
+fun SplashScreenContent(onTimeout: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(1500)
+        onTimeout()
+    }
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxSize()
+            .background(com.saydlawy.sahab.ui.theme.Palette.DeepBlue),
+        contentAlignment = androidx.compose.ui.Alignment.Center
+    ) {
+        com.saydlawy.sahab.ui.components.BrandLogo(size = 120.dp, bright = true)
     }
 }
