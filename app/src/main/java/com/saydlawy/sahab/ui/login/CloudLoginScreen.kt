@@ -27,6 +27,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.ui.appViewModel
+import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.components.*
 import com.saydlawy.sahab.ui.theme.Palette
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,6 +89,7 @@ class CloudLoginViewModel(private val container: AppContainer) : ViewModel() {
 
 @Composable
 fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
+    val container = LocalContainer.current
     val vm = appViewModel { CloudLoginViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
 
