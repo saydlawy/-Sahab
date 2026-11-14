@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.PivotOffsets
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -236,7 +235,6 @@ private fun FeaturedChannelsSection(
                 channels = displayChannels,
                 onPlay = onPlay,
                 s = s,
-                pivotOffsets = PivotOffsets(0.5f, 0.5f),
                 modifier = modifier,
             )
         }
@@ -252,86 +250,79 @@ private fun FeaturedChannelsSection(
 }
 
 @Composable
+@Composable
 private fun FeaturedChannelsCarousel(
     channels: List<Channel>,
-    onPlay: (PlayRequest) -> Unit,
-    s: Float = 1f,
-    pivotOffsets: PivotOffsets = PivotOffsets(0.5f, 0.5f),
-    modifier: Modifier = Modifier,
+    onPlay: (Channel) -> Unit,
 ) {
-    val isTv = LocalIsTv.current
+    if (channels.isEmpty()) return
+
     val listState = rememberLazyListState()
-    val screenWidth = LocalWindowInfo.current.widthDp
-    val itemWidth = if (isTv) (260 * s).dp else 190.dp
-    val centerPadding = ((screenWidth - itemWidth) * pivotOffsets.parentFraction).coerceAtLeast(16.dp)
+    
+    LazyRow(
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 48.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxWidth().height(220.dp)
+    ) {
+        items(channels, key = { it.id }) { channel ->
+            val index = channels.indexOf(channel)
+            // حساب الموضع التقريبي للعنصر بالنسبة للمركز
+            val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.key == channel.id }
+            val centerOffset = if (itemInfo != null) {
+                val viewportCenter = listState.layoutInfo.viewportEndOffset / 2
+                val itemCenter = itemInfo.offset + itemInfo.size / 2
+                (itemCenter - viewportCenter).toFloat() / (listState.layoutInfo.viewportEndOffset / 2)
+            } else 1f
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DotTitle("القنوات المميزة", Palette.Glow, fontSize = (15 * s).sp)
-            Tag("سلايدر مباشر", Palette.Royal)
-        }
+            val scale by animateFloatAsState(
+                targetValue = if (centerOffset > -0.3f && centerOffset < 0.3f) 1.1f else 0.85f,
+                animationSpec = tween(300), label = "scale"
+            )
+            val alpha by animateFloatAsState(
+                targetValue = if (centerOffset > -0.3f && centerOffset < 0.3f) 1f else 0.6f,
+                animationSpec = tween(300), label = "alpha"
+            )
 
-        TvLazyRow(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = centerPadding, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy((14 * s).dp),
-            pivotOffsets = pivotOffsets,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            items(channels, key = { it.id }) { channel ->
-                var isFocused by remember { mutableStateOf(false) }
-                val scale by animateFloatAsState(
-                    targetValue = if (isFocused) 1.12f else 0.90f,
-                    animationSpec = tween(durationMillis = 200),
-                    label = "scale",
-                )
-                val alpha by animateFloatAsState(
-                    targetValue = if (isFocused) 1.0f else 0.68f,
-                    animationSpec = tween(durationMillis = 200),
-                    label = "alpha",
-                )
-
-                LaunchedEffect(isFocused) {
-                    if (isFocused) {
-                        val index = channels.indexOf(channel)
-                        if (index >= 0) {
-                            listState.animateScrollToItem(index)
-                        }
-                    }
-                }
-
-                FeaturedChannelCard(
-                    channel = channel,
-                    width = itemWidth,
-                    s = s,
-                    isFocused = isFocused,
-                    onFocusChanged = { isFocused = it },
-                    onClick = {
-                        onPlay(
-                            PlayRequest(
-                                listOf(PlayItem(Kind.LIVE, channel.id, channel.name, icon = channel.icon)),
-                                0,
-                            ),
-                        )
+            GlassCard(
+                onClick = { onPlay(channel) },
+                modifier = Modifier
+                    .width(180.dp)
+                    .fillMaxHeight()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
                     },
-                    modifier = Modifier
-                        .zIndex(if (isFocused) 5f else 1f)
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            this.alpha = alpha
-                        },
-                )
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    Modifier.fillMaxSize().padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    RemoteImage(
+                        url = channel.icon,
+                        fallbackText = channel.name,
+                        modifier = Modifier.size(80.dp).clip(CircleShape),
+                        contentScale = ContentScale.Fit
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        channel.name,
+                        color = Palette.Text,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        textAlign = TextAlign.Center,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
 }
 
-@Composable
 private fun FeaturedChannelsGrid(
     channels: List<Channel>,
     onPlay: (PlayRequest) -> Unit,
