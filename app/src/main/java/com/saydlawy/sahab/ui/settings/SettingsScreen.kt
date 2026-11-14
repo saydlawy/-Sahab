@@ -169,7 +169,7 @@ private fun SettingsDetailContent(category: String?, container: AppContainer, co
     when (category) {
         "account" -> {
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut(); onLoggedOut() })
+                CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut() })
                 AccountPanel(account, info)
             }
         }
