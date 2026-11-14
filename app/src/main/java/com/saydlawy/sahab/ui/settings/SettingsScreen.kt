@@ -141,8 +141,10 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                             },
                             onClick = performRefresh, modifier = Modifier.fillMaxWidth(), icon = Ic.Refresh, primary = true,
                         )
-                        if (!refreshError.isNullOrBlank()) {
-                            Text(refreshError, fontSize = 12.sp, color = Palette.Danger, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        refreshError?.let { err ->
+                            if (err.isNotBlank()) {
+                                Text(err, fontSize = 12.sp, color = Palette.Danger, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                            }
                         }
                         GlassButton(text = "تسجيل الخروج من الاشتراك الحالي", onClick = { confirmLogout = true }, modifier = Modifier.fillMaxWidth(), icon = Ic.Close)
                     }
