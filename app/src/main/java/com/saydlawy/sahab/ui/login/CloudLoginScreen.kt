@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.*
@@ -94,7 +95,7 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
 
-            Spacer(Modifier.height(16.dp))
+            Box(Modifier.height(16.dp))
 
             GlassTextField(
                 value = state.email,
@@ -131,7 +132,7 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
+            Box(Modifier.height(8.dp))
 
             // Placeholder for Google Sign-in
             GlassButton(
@@ -141,7 +142,7 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(Modifier.height(16.dp))
+            Box(Modifier.height(16.dp))
 
             TextButton(onClick = onSkip) {
                 Text("تخطي الآن (لن يتم حفظ البيانات سحابياً)", color = Palette.TextDim)
