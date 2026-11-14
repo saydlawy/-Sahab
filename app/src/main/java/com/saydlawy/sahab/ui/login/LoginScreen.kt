@@ -121,6 +121,8 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
                 val account = Account(server, current.user.trim(), current.pass.trim())
                 container.repo.login(account)
                 container.prefs.saveAccount(account)
+                // حفظ في السحابة إذا كان المستخدم مسجل دخول
+                container.userSyncService.saveXtreamAccount(account)
                 _state.update { it.copy(loading = false) }
                 onSuccess()
             } catch (e: CancellationException) {

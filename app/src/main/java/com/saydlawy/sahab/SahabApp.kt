@@ -43,6 +43,7 @@ class AppContainer(context: Context) {
     val catalogSync by lazy { CatalogSync(catalogDb.movieDao(), firebaseCatalog) }
     val firebaseCatalog by lazy { com.saydlawy.sahab.data.catalog.FirebaseCatalogService() }
     val authManager by lazy { com.saydlawy.sahab.data.auth.AuthManager() }
+    val userSyncService by lazy { com.saydlawy.sahab.data.auth.UserSyncService() }
     val weather by lazy { com.saydlawy.sahab.data.weather.WeatherService(client, context.applicationContext) }
 
     val client: OkHttpClient = OkHttpClient.Builder()

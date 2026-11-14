@@ -67,7 +67,15 @@ fun AppRoot(container: AppContainer) {
     var start by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        val account = container.prefs.account.first()
+        var account = container.prefs.account.first()
+        if (account == null && container.authManager.currentUser != null) {
+            // محاولة جلب الاشتراك من السحابة إذا لم يكن موجوداً محلياً
+            val cloudAccount = container.userSyncService.getXtreamAccount()
+            if (cloudAccount != null) {
+                container.prefs.saveAccount(cloudAccount)
+                account = cloudAccount
+            }
+        }
         if (account != null) {
             container.repo.setAccount(account)
             container.appScope.launch {
