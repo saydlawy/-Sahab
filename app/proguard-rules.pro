@@ -50,3 +50,8 @@
 -dontwarn com.google.firebase.**
 -keep class com.google.android.gms.** { *; }
 -keep class androidx.datastore.core.** { *; }
+
+# Firebase DataStorage - منع R8 من حذف الكلاس المطلوب في وقت التشغيل
+-keep class com.google.firebase.datastorage.** { *; }
+-keep class androidx.datastore.** { *; }
+-dontwarn com.google.firebase.datastorage.**
