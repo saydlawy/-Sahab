@@ -101,79 +101,37 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                 modifier = Modifier.widthIn(max = 980.dp).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                // --- قسم الحسابات ---
                 SectionHeader("الحساب والملف الشخصي", Ic.Person)
                 if (wide) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        CloudAccountPanel(cloudUser?.email, onLogout = {
-                            container.authManager.signOut()
-                            onLoggedOut()
-                        }, modifier = Modifier.weight(1f))
-                        
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Top) {
+                        CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut(); onLoggedOut() }, modifier = Modifier.weight(1f))
                         AccountPanel(account, info, Modifier.weight(1f))
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        CloudAccountPanel(cloudUser?.email, onLogout = {
-                            container.authManager.signOut()
-                            onLoggedOut()
-                        })
+                        CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut(); onLoggedOut() })
                         AccountPanel(account, info)
                     }
                 }
 
-                // --- قسم التخصيص والمظهر ---
                 SectionHeader("التخصيص والشاشة الرئيسية", Ic.Tv)
                 if (wide) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        AppearancePanel(
-                            light = light, 
-                            onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } },
-                            modifier = Modifier.weight(1f)
-                        )
-                        HomeCustomizationPanel(
-                            showRecents = showRecents,
-                            homeChannelsLayout = homeChannelsLayout,
-                            onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } },
-                            onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } },
-                            modifier = Modifier.weight(1f),
-                        )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Top) {
+                        AppearancePanel(light = light, onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } }, modifier = Modifier.weight(1f))
+                        HomeCustomizationPanel(showRecents = showRecents, homeChannelsLayout = homeChannelsLayout, onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } }, onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } }, modifier = Modifier.weight(1f))
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        AppearancePanel(
-                            light = light, 
-                            onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } }
-                        )
-                        HomeCustomizationPanel(
-                            showRecents = showRecents,
-                            homeChannelsLayout = homeChannelsLayout,
-                            onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } },
-                            onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } },
-                        )
+                        AppearancePanel(light = light, onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } })
+                        HomeCustomizationPanel(showRecents = showRecents, homeChannelsLayout = homeChannelsLayout, onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } }, onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } })
                     }
                 }
 
-                // --- قسم الذكاء الاصطناعي ---
                 SectionHeader("الذكاء الاصطناعي", Ic.Cloud)
                 AiKeysPanel(container.aiKeys, Modifier.fillMaxWidth())
 
-                // --- قسم إدارة البيانات ---
                 SectionHeader("إدارة البيانات والاشتراك", Ic.Refresh)
-                GlassPanel(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    strong = true,
-                    padding = 22.dp,
-                ) {
+                GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         GlassButton(
                             text = when {
@@ -181,43 +139,27 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                                 refreshed -> Ar.refreshed
                                 else -> "تحديث الاشتراك والقنوات (${Ar.refreshData})"
                             },
-                            onClick = performRefresh,
-                            modifier = Modifier.fillMaxWidth(),
-                            icon = Ic.Refresh,
-                            primary = true,
+                            onClick = performRefresh, modifier = Modifier.fillMaxWidth(), icon = Ic.Refresh, primary = true,
                         )
                         if (!refreshError.isNullOrBlank()) {
                             Text(refreshError, fontSize = 12.sp, color = Palette.Danger, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                         }
-                        GlassButton(
-                            text = "تسجيل الخروج من الاشتراك الحالي",
-                            onClick = { confirmLogout = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            icon = Ic.Close,
-                        )
+                        GlassButton(text = "تسجيل الخروج من الاشتراك الحالي", onClick = { confirmLogout = true }, modifier = Modifier.fillMaxWidth(), icon = Ic.Close)
                     }
                 }
 
                 Text(
                     text = Ar.version(appVersion(context).ifBlank { "1.0" }),
-                    fontSize = 13.sp,
-                    color = Palette.TextDim,
-                    textAlign = TextAlign.Center,
+                    fontSize = 13.sp, color = Palette.TextDim, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 )
             }
         }
     }
 
-    // نافذة تأكيد تسجيل الخروج
     if (confirmLogout) {
         Dialog(onDismissRequest = { confirmLogout = false }) {
-            GlassPanel(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(26.dp),
-                strong = true,
-                padding = 24.dp,
-            ) {
+            GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), strong = true, padding = 24.dp) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(Ar.logoutQuestion, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Text, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(8.dp))
@@ -230,13 +172,9 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                                 if (!loggingOut) {
                                     loggingOut = true
                                     confirmLogout = false
-                                    scope.launch {
-                                        logout(container, context)
-                                        onLoggedOut()
-                                    }
+                                    scope.launch { logout(container, context); onLoggedOut() }
                                 }
-                            },
-                            primary = true,
+                            }, primary = true,
                         )
                         GlassButton(text = Ar.cancel, onClick = { confirmLogout = false }, autoFocus = true)
                     }
@@ -248,11 +186,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
 
 @Composable
 private fun SectionHeader(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(icon, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size(18.dp))
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Glow)
     }
@@ -264,10 +198,7 @@ private fun CloudAccountPanel(email: String?, onLogout: () -> Unit, modifier: Mo
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Blue.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Blue.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
                         Icon(Ic.Cloud, null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
                     }
                     Spacer(Modifier.width(12.dp))
@@ -276,11 +207,8 @@ private fun CloudAccountPanel(email: String?, onLogout: () -> Unit, modifier: Mo
                         Text(if (email != null) "متصل" else "غير متصل", fontSize = 13.sp, color = if (email != null) Palette.Emerald else Palette.Gold)
                     }
                 }
-                if (email != null) {
-                    Tag("Cloud", Palette.Blue)
-                }
+                if (email != null) Tag("Cloud", Palette.Blue)
             }
-            
             if (email != null) {
                 InfoRow("البريد الإلكتروني", email)
                 GlassButton(text = "تسجيل الخروج من السحابة", onClick = onLogout, modifier = Modifier.fillMaxWidth(), icon = Ic.Close)
@@ -296,10 +224,7 @@ private fun AccountPanel(account: Account?, info: UserInfo?, modifier: Modifier 
     GlassPanel(modifier = modifier, shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
+                Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
                     Icon(Ic.Person, null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
@@ -311,7 +236,6 @@ private fun AccountPanel(account: Account?, info: UserInfo?, modifier: Modifier 
             val activeStatus = info?.status.orEmpty().ifBlank { "Active" }
             Tag(activeStatus, Palette.Emerald)
         }
-
         Spacer(Modifier.height(18.dp))
         InfoRow("الخادم", hostOf(account?.server.orEmpty()))
         InfoRow("اسم المستخدم", account?.user.orEmpty())
@@ -319,9 +243,7 @@ private fun AccountPanel(account: Account?, info: UserInfo?, modifier: Modifier 
             InfoRow("الحالة", if (info.status.isBlank()) "Active" else info.status)
             val expiry = info.expiry
             InfoRow("ينتهي الاشتراك", if (expiry == null || expiry <= 0L) Ar.subscriptionOpenShort else formatDate(expiry))
-            if (info.maxConnections.isNotBlank()) {
-                InfoRow("الأجهزة المتصلة", "${info.activeConnections.ifBlank { "0" }} / ${info.maxConnections}")
-            }
+            if (info.maxConnections.isNotBlank()) InfoRow("الأجهزة المتصلة", "${info.activeConnections.ifBlank { "0" }} / ${info.maxConnections}")
         }
     }
 }
@@ -331,10 +253,7 @@ private fun AppearancePanel(light: Boolean, onToggleLight: () -> Unit, modifier:
     GlassPanel(modifier = modifier, shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
+                Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
                     Icon(Ic.Sun, null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
@@ -343,16 +262,7 @@ private fun AppearancePanel(light: Boolean, onToggleLight: () -> Unit, modifier:
                     Text("وضع الأداء الخفيف", fontSize = 13.sp, color = Palette.TextDim)
                 }
             }
-            Switch(
-                checked = light,
-                onCheckedChange = { onToggleLight() },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = Palette.Royal,
-                    uncheckedThumbColor = Palette.TextDim,
-                    uncheckedTrackColor = Color.White.copy(alpha = 0.12f),
-                ),
-            )
+            Switch(checked = light, onCheckedChange = { onToggleLight() }, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Palette.Royal, uncheckedThumbColor = Palette.TextDim, uncheckedTrackColor = Color.White.copy(alpha = 0.12f)))
         }
         Spacer(Modifier.height(10.dp))
         Text("يوقف حركة الخلفية والتأثيرات البصرية لتسريع الأجهزة الضعيفة.", fontSize = 12.sp, color = Palette.TextDim)
@@ -370,10 +280,7 @@ private fun HomeCustomizationPanel(
     GlassPanel(modifier = modifier, shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
+                Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
                     Icon(Ic.Tv, null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
@@ -383,9 +290,7 @@ private fun HomeCustomizationPanel(
                 }
             }
         }
-
         Spacer(Modifier.height(16.dp))
-        
         GlassCard(onClick = onToggleShowRecents, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), selected = showRecents) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -393,19 +298,10 @@ private fun HomeCustomizationPanel(
                     Spacer(Modifier.height(4.dp))
                     Text("إظهار شريط القنوات والمحتوى المشاهد مؤخراً", fontSize = 12.sp, color = Palette.TextDim)
                 }
-                Switch(
-                    checked = showRecents,
-                    onCheckedChange = null,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White, checkedTrackColor = Palette.Royal,
-                        uncheckedThumbColor = Palette.TextDim, uncheckedTrackColor = Color.White.copy(alpha = 0.12f),
-                    ),
-                )
+                Switch(checked = showRecents, onCheckedChange = null, colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Palette.Royal, uncheckedThumbColor = Palette.TextDim, uncheckedTrackColor = Color.White.copy(alpha = 0.12f)))
             }
         }
-
         Spacer(Modifier.height(16.dp))
-
         Column(Modifier.fillMaxWidth()) {
             DotTitle("شكل قنوات القائمة المميزة", Palette.Royal, fontSize = 15.sp)
             Spacer(Modifier.height(10.dp))
@@ -449,28 +345,17 @@ private fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             DotTitle("مفاتيح Gemini", Palette.Glow, fontSize = 16.sp)
             Text("أضف مفاتيح لتوليد قصص الأفلام عند الحاجة.", fontSize = 12.sp, color = Palette.TextDim)
-
             keys.forEach { key ->
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .background(if (key.id == activeId) Palette.Royal.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.04f))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (key.id == activeId) Palette.Royal.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.04f)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(key.label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
                         Text(key.value.take(8) + "…" + key.value.takeLast(4), fontSize = 11.sp, color = Palette.TextDim)
                     }
-                    if (key.id == activeId) {
-                        Tag("نشط", Palette.Emerald)
-                    } else {
-                        GlassButton(text = "تفعيل", onClick = { aiKeys.setActive(key.id) })
-                    }
+                    if (key.id == activeId) Tag("نشط", Palette.Emerald) else GlassButton(text = "تفعيل", onClick = { aiKeys.setActive(key.id) })
                     Spacer(Modifier.width(6.dp))
                     GlassButton(text = "حذف", onClick = { aiKeys.removeKey(key.id) })
                 }
             }
-
             GlassButton(text = "+ إضافة مفتاح", onClick = { showAdd = true }, modifier = Modifier.fillMaxWidth(), primary = true)
         }
     }
@@ -480,21 +365,10 @@ private fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
             GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("مفتاح Gemini جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                    
-                    // استخدام GlassTextField بدلاً من OutlinedTextField
                     GlassTextField(value = newKeyLabel, onValueChange = { newKeyLabel = it }, placeholder = "اسم مختصر (اختياري)", modifier = Modifier.fillMaxWidth())
                     GlassTextField(value = newKeyText, onValueChange = { newKeyText = it }, placeholder = "المفتاح (AIza...)", modifier = Modifier.fillMaxWidth())
-                    
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        GlassButton(
-                            text = "إضافة",
-                            onClick = {
-                                if (aiKeys.addKey(newKeyText, newKeyLabel) != null) {
-                                    newKeyText = ""; newKeyLabel = ""; showAdd = false
-                                }
-                            },
-                            primary = true,
-                        )
+                        GlassButton(text = "إضافة", onClick = { if (aiKeys.addKey(newKeyText, newKeyLabel) != null) { newKeyText = ""; newKeyLabel = ""; showAdd = false } }, primary = true)
                         GlassButton(text = "إلغاء", onClick = { showAdd = false })
                     }
                 }
