@@ -1,9 +1,12 @@
 package com.saydlawy.sahab.ui.settings
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -12,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,141 +49,76 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
     val container = LocalContainer.current
-    val scope = rememberCoroutineScope()
-    val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
-    val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
-    val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(initialValue = HomeChannelsLayout.CAROUSEL)
-    
-    var confirmLogout by remember { mutableStateOf(false) }
-    var loggingOut by remember { mutableStateOf(false) }
-    var refreshing by remember { mutableStateOf(false) }
-    var refreshed by remember { mutableStateOf(false) }
-    var refreshError by remember { mutableStateOf<String?>(null) }
-    
-    var accountInfo by remember { mutableStateOf(container.repo.userInfo) }
-    val account: Account? = container.repo.account
-    val info: UserInfo? = accountInfo ?: container.repo.userInfo
     val context = LocalContext.current
-    val cloudUser = container.authManager.currentUser
+    val displayMode = LocalDisplayMode.current
+    val isWide = displayMode == DisplayMode.TABLET_OR_TV
+    
+    // تحديد القسم المفتوح حالياً (null يعني القائمة الرئيسية على الهاتف)
+    var selectedCategory by remember { mutableStateOf<String?>(if (isWide) "account" else null) }
 
-    val performRefresh: () -> Unit = {
-        if (!refreshing) {
-            refreshing = true
-            refreshed = false
-            refreshError = null
-            scope.launch {
-                val result = container.repo.refreshSubscription()
-                refreshing = false
-                when (result) {
-                    is Repository.SyncResult.Success -> {
-                        accountInfo = container.repo.userInfo
-                        refreshed = true
-                    }
-                    is Repository.SyncResult.Failure -> refreshError = result.reason
-                    Repository.SyncResult.AlreadyRunning -> refreshError = "التحديث قيد التنفيذ بالفعل"
-                    Repository.SyncResult.Skipped -> refreshed = true
-                }
-            }
-        }
+    // التعامل مع زر الرجوع في الهاتف
+    BackHandler(enabled = !isWide && selectedCategory != null) {
+        selectedCategory = null
     }
 
     Column(Modifier.fillMaxSize()) {
-        SahabTopBar(current = Routes.SETTINGS, onBack = onBack)
-
-        val displayMode = LocalDisplayMode.current
-        val maxWidth = LocalWindowInfo.current.widthDp
-        
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            val wide = displayMode != DisplayMode.PHONE_PORTRAIT && maxWidth >= 660.dp
-
-            Column(
-                modifier = Modifier.widthIn(max = 980.dp).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-            ) {
-                SectionHeader("الحساب والملف الشخصي", Ic.Person)
-                if (wide) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Top) {
-                        CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut(); onLoggedOut() }, modifier = Modifier.weight(1f))
-                        AccountPanel(account, info, Modifier.weight(1f))
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut(); onLoggedOut() })
-                        AccountPanel(account, info)
-                    }
-                }
-
-                SectionHeader("التخصيص والشاشة الرئيسية", Ic.Tv)
-                if (wide) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Top) {
-                        AppearancePanel(light = light, onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } }, modifier = Modifier.weight(1f))
-                        HomeCustomizationPanel(showRecents = showRecents, homeChannelsLayout = homeChannelsLayout, onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } }, onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } }, modifier = Modifier.weight(1f))
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        AppearancePanel(light = light, onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } })
-                        HomeCustomizationPanel(showRecents = showRecents, homeChannelsLayout = homeChannelsLayout, onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } }, onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } })
-                    }
-                }
-
-                SectionHeader("الذكاء الاصطناعي", Ic.Cloud)
-                AiKeysPanel(container.aiKeys, Modifier.fillMaxWidth())
-
-                SectionHeader("إدارة البيانات والاشتراك", Ic.Refresh)
-                GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        GlassButton(
-                            text = when {
-                                refreshing -> "جاري تحديث الاشتراك والقنوات..."
-                                refreshed -> Ar.refreshed
-                                else -> "تحديث الاشتراك والقنوات (${Ar.refreshData})"
-                            },
-                            onClick = performRefresh, modifier = Modifier.fillMaxWidth(), icon = Ic.Refresh, primary = true,
-                        )
-                        refreshError?.let { err ->
-                            if (err.isNotBlank()) {
-                                Text(err, fontSize = 12.sp, color = Palette.Danger, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                        GlassButton(text = "تسجيل الخروج من الاشتراك الحالي", onClick = { confirmLogout = true }, modifier = Modifier.fillMaxWidth(), icon = Ic.Close)
-                    }
-                }
-
-                Text(
-                    text = Ar.version(appVersion(context).ifBlank { "1.0" }),
-                    fontSize = 13.sp, color = Palette.TextDim, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                )
-            }
+        if (isWide || selectedCategory == null) {
+            SahabTopBar(current = Routes.SETTINGS, onBack = if (isWide) onBack else { { onBack() } })
         }
-    }
 
-    if (confirmLogout) {
-        Dialog(onDismissRequest = { confirmLogout = false }) {
-            GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), strong = true, padding = 24.dp) {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(Ar.logoutQuestion, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Palette.Text, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(8.dp))
-                    Text(Ar.logoutHint, fontSize = 14.sp, color = Palette.TextDim, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(20.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        GlassButton(
-                            text = if (loggingOut) "..." else Ar.logout,
-                            onClick = {
-                                if (!loggingOut) {
-                                    loggingOut = true
-                                    confirmLogout = false
-                                    scope.launch { logout(container, context); onLoggedOut() }
-                                }
-                            }, primary = true,
-                        )
-                        GlassButton(text = Ar.cancel, onClick = { confirmLogout = false }, autoFocus = true)
+        if (isWide) {
+            // --- تصميم التلفاز والتابلت: قائمة جانبية وتفاصيل ---
+            Row(
+                Modifier.fillMaxSize().padding(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // القائمة الجانبية
+                Column(
+                    Modifier.weight(0.3f).fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SettingsMenuItem("الحساب والاشتراك", "المزامنة السحابية وبيانات Xtream", Ic.Person, selectedCategory == "account") { selectedCategory = "account" }
+                    SettingsMenuItem("التخصيص والمظهر", "الشاشة الرئيسية، القنوات، والأداء", Ic.Tv, selectedCategory == "customize") { selectedCategory = "customize" }
+                    SettingsMenuItem("الذكاء الاصطناعي", "إدارة مفاتيح Gemini", Ic.Cloud, selectedCategory == "ai") { selectedCategory = "ai" }
+                    
+                    Spacer(Modifier.weight(1f))
+                    GlassButton(text = Ar.logout, onClick = { onLoggedOut() }, icon = Ic.Close, modifier = Modifier.fillMaxWidth())
+                }
+
+                // منطقة التفاصيل
+                Box(Modifier.weight(0.7f).fillMaxHeight().verticalScroll(rememberScrollState())) {
+                    SettingsDetailContent(selectedCategory, container, context, onLoggedOut)
+                }
+            }
+        } else {
+            // --- تصميم الهاتف ---
+            if (selectedCategory == null) {
+                // قائمة الهاتف
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    SettingsMenuItem("الحساب والاشتراك", "المزامنة السحابية وبيانات Xtream", Ic.Person, false) { selectedCategory = "account" }
+                    SettingsMenuItem("التخصيص والمظهر", "الشاشة الرئيسية، القنوات، والأداء", Ic.Tv, false) { selectedCategory = "customize" }
+                    SettingsMenuItem("الذكاء الاصطناعي", "إدارة مفاتيح Gemini", Ic.Cloud, false) { selectedCategory = "ai" }
+                    
+                    Spacer(Modifier.height(24.dp))
+                    GlassButton(text = Ar.logout, onClick = { onLoggedOut() }, icon = Ic.Close, modifier = Modifier.fillMaxWidth())
+                    
+                    Text(
+                        text = Ar.version(appVersion(context).ifBlank { "1.0" }),
+                        fontSize = 13.sp, color = Palette.TextDim, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    )
+                }
+            } else {
+                // صفحة تفاصيل الهاتف
+                Column(Modifier.fillMaxSize()) {
+                    SahabTopBar(current = Routes.SETTINGS, onBack = { selectedCategory = null })
+                    Column(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)
+                    ) {
+                        SettingsDetailContent(selectedCategory, container, context, onLoggedOut)
                     }
                 }
             }
@@ -187,12 +127,74 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
 }
 
 @Composable
-private fun SectionHeader(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(icon, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size(18.dp))
-        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Glow)
+private fun SettingsMenuItem(title: String, subtitle: String, icon: ImageVector, isSelected: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    GlassCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
+        shape = RoundedCornerShape(20.dp),
+        selected = isSelected || focused,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(48.dp).clip(RoundedCornerShape(16.dp))
+                    .background(if (isSelected || focused) Palette.Royal.copy(alpha = 0.4f) else Palette.Royal.copy(alpha = 0.2f))
+                    .border(1.dp, Palette.Glow.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = Palette.Glow, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+                Text(subtitle, fontSize = 13.sp, color = Palette.TextDim)
+            }
+            // سهم التوجيه
+            Text("<", fontSize = 22.sp, color = Palette.Glow, fontWeight = FontWeight.Bold)
+        }
     }
 }
+
+@Composable
+private fun SettingsDetailContent(category: String?, container: AppContainer, context: Context, onLoggedOut: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val cloudUser = container.authManager.currentUser
+    val account: Account? = container.repo.account
+    val info: UserInfo? = container.repo.userInfo
+    var confirmLogout by remember { mutableStateOf(false) }
+
+    when (category) {
+        "account" -> {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut(); onLoggedOut() })
+                AccountPanel(account, info)
+            }
+        }
+        "customize" -> {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
+                val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
+                val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(initialValue = HomeChannelsLayout.CAROUSEL)
+                
+                AppearancePanel(light = light, onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } })
+                HomeCustomizationPanel(
+                    showRecents = showRecents,
+                    homeChannelsLayout = homeChannelsLayout,
+                    onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } },
+                    onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } },
+                )
+            }
+        }
+        "ai" -> {
+            AiKeysPanel(container.aiKeys)
+        }
+    }
+}
+
+// --- المكونات السابقة (لم نغيرها) ---
 
 @Composable
 private fun CloudAccountPanel(email: String?, onLogout: () -> Unit, modifier: Modifier = Modifier) {
@@ -376,16 +378,6 @@ private fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
                 }
             }
         }
-    }
-}
-
-private suspend fun logout(container: AppContainer, context: Context) {
-    container.playback = null
-    withContext(Dispatchers.IO) {
-        container.repo.clearCache(clearDisk = true)
-        container.repo.setAccount(null)
-        container.prefs.clearAccount()
-        SahabPlayer.clearMediaCache(context)
     }
 }
 
