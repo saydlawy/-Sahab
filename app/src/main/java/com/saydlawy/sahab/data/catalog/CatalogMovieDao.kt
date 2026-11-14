@@ -27,6 +27,16 @@ interface CatalogMovieDao {
     @Query("SELECT * FROM catalog_movies WHERE novaStreamId IN (:streamIds) AND deleted = 0")
     suspend fun findByStreamIds(streamIds: List<String>): List<CatalogMovieEntity>
 
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND novaStreamId != '' " +
+            "AND year >= '2025' AND COALESCE(tmdbVoteCount, 0) >= 300 " +
+            "AND CAST(rating AS REAL) >= 7.0 AND CAST(rating AS REAL) <= 9.2 " +
+            "ORDER BY COALESCE(tmdbVoteCount, 0) DESC, CAST(rating AS REAL) DESC " +
+            "LIMIT :limit"
+    )
+    suspend fun getTopPopularMovies(limit: Int): List<CatalogMovieEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CatalogMovieEntity)
 

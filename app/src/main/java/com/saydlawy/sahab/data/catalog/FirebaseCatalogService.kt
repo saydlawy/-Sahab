@@ -32,19 +32,30 @@ class FirebaseCatalogService {
             }
     }
 
+    /**
+     * Queries Firebase `global_catalog` ordered by `tmdbVoteCount` DESC so real blockbuster
+     * movies (with hundreds/thousands of votes and ratings 7.0–9.2) are returned instead of
+     * obscure 1-vote items.
+     */
     suspend fun getTrendingMovies(limit: Long = 15): List<CatalogMovieEntity> = suspendCancellableCoroutine { cont ->
         collection
-            .orderBy("rating", Query.Direction.DESCENDING)
-            .limit(limit)
+            .orderBy("tmdbVoteCount", Query.Direction.DESCENDING)
+            .limit(limit * 3)
             .get()
             .addOnSuccessListener { snapshot ->
-                val list = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        mapToEntity(doc.id, doc.data ?: emptyMap())
-                    } catch (e: Exception) {
-                        null
+                val list = snapshot.documents
+                    .mapNotNull { doc ->
+                        try {
+                            mapToEntity(doc.id, doc.data ?: emptyMap())
+                        } catch (e: Exception) {
+                            null
+                        }
                     }
-                }
+                    .filter { m ->
+                        val r = m.rating.toDoubleOrNull() ?: 0.0
+                        (m.tmdbVoteCount ?: 0) >= 150 && r in 6.8..9.3 && m.year >= "2023"
+                    }
+                    .take(limit.toInt())
                 cont.resume(list)
             }
             .addOnFailureListener {
@@ -55,8 +66,8 @@ class FirebaseCatalogService {
     /**
      * Loads recommended movies for the Home Screen by combining:
      * 1. Real playable VOD streams from the active Xtream server (`repo.movies(null)`).
-     * 2. Enriched metadata (plot, genre, rating, year, TMDB/IMDB info) from Firebase `global_catalog`
-     *    and the local synced `CatalogMovieDao`.
+     * 2. Enriched blockbuster metadata (`tmdbVoteCount >= 300`, `year >= 2025`, `rating >= 7.0`)
+     *    from Firebase `global_catalog` and the local synced `CatalogMovieDao`.
      *
      * Every returned item is guaranteed to have a valid Xtream `novaStreamId` and live poster URL.
      */
@@ -70,8 +81,15 @@ class FirebaseCatalogService {
             repo.peekAllMovies() ?: repo.movies(null)
         }.getOrNull().orEmpty().filter { it.id.isNotBlank() && it.image.isNotBlank() }
 
+        val topRoomPopular = runCatching { dao.getTopPopularMovies(60) }.getOrNull().orEmpty()
+        val fbPopular = withTimeoutOrNull(4500L) {
+            runCatching { getTrendingMovies(45) }.getOrNull()
+        }.orEmpty()
+
         if (xtreamMovies.isEmpty()) {
-            return@withContext runCatching { getTrendingMovies(limit.toLong()) }.getOrNull().orEmpty()
+            return@withContext (fbPopular + topRoomPopular)
+                .distinctBy { it.sahabId }
+                .take(limit)
         }
 
         val xtreamById = HashMap<String, Poster>(xtreamMovies.size)
@@ -88,57 +106,55 @@ class FirebaseCatalogService {
         val usedStreamIds = HashSet<String>()
         val usedSahabIds = HashSet<String>()
 
-        // 2. Query Firebase global_catalog & match with active Xtream server streams
-        val fbCandidates = withTimeoutOrNull(4500L) {
-            runCatching { getTrendingMovies(60) }.getOrNull()
-        }.orEmpty()
+        // 2. Combine Firebase popular movies + Room popular 2025-2026 blockbusters and match to Xtream server
+        val roomBySahabId = runCatching {
+            val ids = fbPopular.map { it.sahabId }.distinct()
+            if (ids.isNotEmpty()) dao.findByIds(ids.take(100)).associateBy { it.sahabId } else emptyMap()
+        }.getOrNull().orEmpty()
 
-        if (fbCandidates.isNotEmpty()) {
-            val fbIds = fbCandidates.map { it.sahabId }.distinct()
-            val roomMatchesBySahabId = runCatching {
-                dao.findByIds(fbIds.take(100)).associateBy { it.sahabId }
-            }.getOrNull().orEmpty()
+        val combinedCatalogCandidates = (fbPopular + topRoomPopular)
+        for (cand in combinedCatalogCandidates) {
+            if (results.size >= limit) break
+            val roomEntity = roomBySahabId[cand.sahabId] ?: cand
+            val candidateStreamId = cand.novaStreamId.ifBlank { roomEntity.novaStreamId }
 
-            for (fb in fbCandidates) {
-                if (results.size >= limit) break
-                val roomEntity = roomMatchesBySahabId[fb.sahabId]
-                val candidateStreamId = fb.novaStreamId.ifBlank { roomEntity?.novaStreamId.orEmpty() }
-
-                val matchedPoster: Poster? = when {
-                    candidateStreamId.isNotBlank() && xtreamById.containsKey(candidateStreamId) ->
-                        xtreamById[candidateStreamId]
-                    else -> {
-                        val normAr = normalizeTitle(fb.titleAr)
-                        val normEn = normalizeTitle(fb.titleEn)
-                        val normRoom = normalizeTitle(roomEntity?.titleAr.orEmpty())
-                        xtreamByTitle[normAr]
-                            ?: xtreamByTitle[normEn]
-                            ?: xtreamByTitle[normRoom]
-                    }
+            val matchedPoster: Poster? = when {
+                candidateStreamId.isNotBlank() && xtreamById.containsKey(candidateStreamId) ->
+                    xtreamById[candidateStreamId]
+                else -> {
+                    val normAr = normalizeTitle(cand.titleAr)
+                    val normEn = normalizeTitle(cand.titleEn)
+                    val normRoom = normalizeTitle(roomEntity.titleAr)
+                    xtreamByTitle[normAr]
+                        ?: xtreamByTitle[normEn]
+                        ?: xtreamByTitle[normRoom]
                 }
+            }
 
-                if (matchedPoster != null && usedStreamIds.add(matchedPoster.id) && usedSahabIds.add(fb.sahabId)) {
-                    results.add(
-                        mergeXtreamAndCatalog(
-                            poster = matchedPoster,
-                            fb = fb,
-                            room = roomEntity,
-                        ),
-                    )
-                }
+            if (matchedPoster != null && usedStreamIds.add(matchedPoster.id) && usedSahabIds.add(cand.sahabId)) {
+                results.add(
+                    mergeXtreamAndCatalog(
+                        poster = matchedPoster,
+                        fb = cand,
+                        room = roomEntity,
+                    ),
+                )
             }
         }
 
-        // 3. Fill remaining slots with top/recent Xtream server movies enriched from Room + Firebase
+        // 3. Fill any remaining slots with recent 2024-2026 Xtream movies enriched from Room + Firebase
         if (results.size < limit) {
             val needed = limit - results.size
-            // Prioritize recent high-rated Xtream movies with valid posters
             val topXtreamCandidates = xtreamMovies
                 .asSequence()
                 .filter { it.id !in usedStreamIds }
                 .sortedWith(
-                    compareByDescending<Poster> { it.year >= "2024" }
-                        .thenByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+                    compareByDescending<Poster> { it.year >= "2025" }
+                        .thenByDescending { it.year >= "2024" }
+                        .thenByDescending {
+                            val r = it.rating.toDoubleOrNull() ?: 0.0
+                            if (r in 6.5..9.2) r else 0.0
+                        }
                         .thenByDescending { it.added },
                 )
                 .take(needed * 2)
@@ -149,7 +165,6 @@ class FirebaseCatalogService {
                 dao.findByStreamIds(candidateIds).associateBy { it.novaStreamId }
             }.getOrNull().orEmpty()
 
-            // Fetch Firebase enrichment in parallel for these Xtream movies
             val fbByStreamId: Map<String, CatalogMovieEntity?> = withTimeoutOrNull(4000L) {
                 supervisorScope {
                     topXtreamCandidates.take(needed).map { poster ->
@@ -186,19 +201,17 @@ class FirebaseCatalogService {
         room: CatalogMovieEntity?,
     ): CatalogMovieEntity {
         val cleanXtreamName = cleanDisplayTitle(poster.name)
-        val bestTitle = cleanXtreamName.ifBlank {
-            fb?.titleAr?.ifBlank { null }
-                ?: room?.titleAr?.ifBlank { null }
-                ?: fb?.titleEn?.ifBlank { null }
-                ?: poster.name
-        }
-        val bestRating = poster.rating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
-            ?: fb?.rating?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
+        val bestTitle = fb?.titleEn?.takeIf { it.isNotBlank() && anyArabic(it) }
+            ?: fb?.titleAr?.takeIf { it.isNotBlank() }
+            ?: room?.titleEn?.takeIf { it.isNotBlank() && anyArabic(it) }
+            ?: cleanXtreamName.ifBlank { poster.name }
+        val bestRating = fb?.rating?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
             ?: room?.rating?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
+            ?: poster.rating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
             ?: "7.8"
-        val bestYear = poster.year.ifBlank {
-            fb?.year?.ifBlank { null } ?: room?.year.orEmpty()
-        }
+        val bestYear = fb?.year?.ifBlank { null }
+            ?: room?.year?.ifBlank { null }
+            ?: poster.year
         val bestGenre = fb?.genre?.ifBlank { null }
             ?: room?.genre?.ifBlank { null }
             ?: "دراما وتشويق"
@@ -207,7 +220,9 @@ class FirebaseCatalogService {
             ?: ""
         // Always prefer the active Xtream server's poster URL so dead seed domains never break images
         val bestPoster = poster.image.ifBlank {
-            fb?.posterUrl?.ifBlank { null } ?: room?.posterUrl.orEmpty()
+            fb?.backdropUrl?.ifBlank { null }
+                ?: room?.backdropUrl?.ifBlank { null }
+                ?: fb?.posterUrl.orEmpty()
         }
 
         return CatalogMovieEntity(
@@ -225,9 +240,12 @@ class FirebaseCatalogService {
             backdropUrl = fb?.backdropUrl ?: room?.backdropUrl.orEmpty(),
             novaAdded = poster.added,
             containerExtension = poster.ext.ifBlank { "mp4" },
+            tmdbVoteCount = fb?.tmdbVoteCount ?: room?.tmdbVoteCount,
             needsEnrichment = 0,
         )
     }
+
+    private fun anyArabic(s: String): Boolean = s.any { it in '\u0600'..'\u06FF' }
 
     private fun normalizeTitle(raw: String): String {
         if (raw.isBlank()) return ""
