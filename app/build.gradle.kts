@@ -130,11 +130,9 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
 
-    implementation(platform("com.google.firebase:firebase-bom:32.8.1"))
+    implementation(platform("com.google.firebase:firebase-bom:33.12.0"))
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.android.gms:play-services-auth:20.7.0")
-    implementation("com.google.firebase:firebase-appdistribution:16.0.0-beta21") {
-        exclude(group = "com.google.firebase", module = "firebase-common")
-    }
+    implementation("com.google.firebase:firebase-appdistribution:16.0.0-beta21")
 }

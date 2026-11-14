@@ -63,3 +63,8 @@
 -dontwarn androidx.datastore.**
 -dontwarn com.google.firebase.datastorage.**
 -dontwarn com.google.firebase.installations.**
+
+# Firebase DataStorage & DataStore
+-keep class com.google.firebase.datastorage.** { *; }
+-keep class androidx.datastore.*.** {*;}
+-dontwarn com.google.firebase.datastorage.**
