@@ -57,7 +57,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.saydlawy.sahab.data.Channel
+import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.HomeChannelsLayout
+import com.saydlawy.sahab.data.HomeChannelsSource
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
@@ -78,9 +80,13 @@ import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SahabTopBar
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.home.components.TrendingMoviesSection
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.formatDayOffsetYmd
 import com.saydlawy.sahab.util.formatUtcClockToLocal
 import kotlinx.coroutines.Dispatchers
@@ -96,31 +102,75 @@ fun HomeScreen(
     val container = LocalContainer.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val focusNav = LocalFocusNavigation.current
 
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
     val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
+    val showLiveChannels by container.prefs.showLiveChannelsOnHome.collectAsStateWithLifecycle(initialValue = true)
+    val showRecommended by container.prefs.showRecommendedOnHome.collectAsStateWithLifecycle(initialValue = true)
+    val showQuickCategories by container.prefs.showQuickCategoriesOnHome.collectAsStateWithLifecycle(initialValue = true)
+    val showMatches by container.prefs.showMatchesOnHome.collectAsStateWithLifecycle(initialValue = true)
+
     val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(
         initialValue = HomeChannelsLayout.CAROUSEL,
     )
+    val homeChannelsSource by container.prefs.homeChannelsSource.collectAsStateWithLifecycle(
+        initialValue = HomeChannelsSource.AUTO,
+    )
+    val homeChannelsCategoryId by container.prefs.homeChannelsCategoryId.collectAsStateWithLifecycle(
+        initialValue = "",
+    )
+    val homeCustomChannelIds by container.prefs.homeCustomChannelIds.collectAsStateWithLifecycle(
+        initialValue = emptySet(),
+    )
 
     var featuredChannels by remember { mutableStateOf<List<Channel>>(emptyList()) }
-    var trendingMovies by remember { mutableStateOf<List<CatalogMovieEntity>>(emptyList()) }
+    var trendingMovies by remember {
+        mutableStateOf(container.firebaseCatalog.peekCachedRecommendedMovies())
+    }
     var todayMatches by remember { mutableStateOf<List<Match>>(emptyList()) }
 
-    // 1. Load Featured Live Channels from real Xtream Repository
-    LaunchedEffect(container.repo.account) {
-        featuredChannels = loadFeaturedChannels(container.repo)
+    // 1. Load Featured Live Channels according to user's Settings customization
+    LaunchedEffect(
+        container.repo.account,
+        homeChannelsSource,
+        homeChannelsCategoryId,
+        homeCustomChannelIds,
+        favorites,
+    ) {
+        featuredChannels = loadFeaturedChannels(
+            repo = container.repo,
+            source = homeChannelsSource,
+            categoryId = homeChannelsCategoryId,
+            customIds = homeCustomChannelIds,
+            favorites = favorites,
+        )
     }
 
-    // 2. Load Recommended Movies from Xtream Server + Firebase Catalog
+    // 2. Two-stage ultra-fast loading of Newest Additions from Xtream + Firebase
     LaunchedEffect(container.repo.account) {
-        trendingMovies = runCatching {
+        val instant = runCatching {
+            container.firebaseCatalog.getInstantRecommendedMovies(
+                repo = container.repo,
+                dao = container.catalogDb.movieDao(),
+                limit = 18,
+            )
+        }.getOrNull().orEmpty()
+        if (instant.isNotEmpty()) {
+            trendingMovies = instant
+        }
+
+        val enriched = runCatching {
             container.firebaseCatalog.getXtreamRecommendedMovies(
                 repo = container.repo,
                 dao = container.catalogDb.movieDao(),
-                limit = 15,
+                limit = 18,
             )
         }.getOrNull().orEmpty()
+        if (enriched.isNotEmpty()) {
+            trendingMovies = enriched
+        }
     }
 
     // 3. Load Today's Matches from SportsDatabase
@@ -145,8 +195,6 @@ fun HomeScreen(
         }
     }
 
-    // Build Continue Watching items: prioritize user's real watch history; if empty on fresh install,
-    // populate preview resume cards from real trending catalog movies so Section B matches reference image.
     val continueWatchingItems = remember(recents, trendingMovies) {
         if (recents.isNotEmpty()) {
             recents.take(10).mapIndexed { idx, item ->
@@ -155,13 +203,15 @@ fun HomeScreen(
                 } else {
                     0.70f
                 }
+                val itemFocusKey = "home_recent_${item.kind}_${item.id}_$idx"
                 ContinueCardModel(
-                    id = "recent_${item.kind}_${item.id}_$idx",
+                    id = itemFocusKey,
                     title = item.title,
                     subtitle = item.subtitle.ifBlank { Ar.kindLabel(item.kind) },
                     imageUrl = item.icon,
                     progress = rawProgress,
                     onClick = {
+                        focusNav.markNavigateFrom(Routes.HOME, itemFocusKey)
                         when (item.kind) {
                             Kind.LIVE -> onPlay(
                                 PlayRequest(
@@ -212,13 +262,15 @@ fun HomeScreen(
         } else {
             val sampleProgress = listOf(0.70f, 0.70f, 0.70f, 0.70f, 0.70f)
             trendingMovies.take(6).mapIndexed { idx, movie ->
+                val itemFocusKey = "home_preview_${movie.novaStreamId.ifEmpty { movie.sahabId }}"
                 ContinueCardModel(
-                    id = "preview_${movie.sahabId}",
+                    id = itemFocusKey,
                     title = movie.titleAr,
                     subtitle = movie.year,
                     imageUrl = movie.posterUrl,
                     progress = sampleProgress[idx % sampleProgress.size],
                     onClick = {
+                        focusNav.markNavigateFrom(Routes.HOME, itemFocusKey)
                         onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
                     },
                 )
@@ -227,6 +279,7 @@ fun HomeScreen(
     }
 
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+    val mainFeedState = rememberRestorableLazyListState("home_main_vertical_feed")
 
     Box(
         modifier = Modifier
@@ -242,11 +295,12 @@ fun HomeScreen(
             ),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // A. Top Navigation Bar (RTL) matching reference image while preserving Sahab identity
+            // A. Top Navigation Bar (RTL)
             SahabTopBar(current = Routes.HOME)
 
-            // Main scrollable vertical feed matching the 5 sections in the reference image
+            // Main scrollable vertical feed with preserved scroll & focus state
             LazyColumn(
+                state = mainFeedState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isTvOrTablet) 14.dp else 12.dp),
@@ -265,40 +319,63 @@ fun HomeScreen(
                 }
 
                 // C. القنوات المباشرة (Live Channels)
-                item(key = "section_live_channels") {
-                    FeaturedChannelsSection(
-                        layout = homeChannelsLayout,
-                        channels = featuredChannels,
-                        onPlay = onPlay,
-                        onSeeAll = { onOpen(Routes.LIVE) },
-                    )
+                if (showLiveChannels) {
+                    item(key = "section_live_channels") {
+                        FeaturedChannelsSection(
+                            layout = homeChannelsLayout,
+                            channels = featuredChannels,
+                            onPlay = onPlay,
+                            onSeeAll = {
+                                focusNav.markNavigateFrom(Routes.HOME, "home_live_see_all")
+                                onOpen(Routes.LIVE)
+                            },
+                        )
+                    }
                 }
 
-                // D. 🔥 أفلام مقترحة لك (Recommended Movies)
-                item(key = "section_trending_movies") {
-                    TrendingMoviesSection(
-                        preloadedMovies = trendingMovies,
-                        onMovieClick = { movie ->
-                            onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
-                        },
-                    )
+                // D. 🔥 أفلام مقترحة لك (Recommended Movies — Newest Additions from Xtream + Firebase)
+                if (showRecommended) {
+                    item(key = "section_trending_movies") {
+                        TrendingMoviesSection(
+                            preloadedMovies = trendingMovies,
+                            onMovieClick = { movie ->
+                                onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
+                            },
+                        )
+                    }
                 }
 
-                // E. تصفح الفئات السريعة (Quick Categories)
-                item(key = "section_quick_categories") {
-                    QuickCategoriesSection(
-                        onOpenSeries = { onOpen(Routes.SERIES) },
-                        onOpenMovies = { onOpen(Routes.MOVIES) },
-                        onOpenLive = { onOpen(Routes.LIVE) },
-                    )
+                // E. تصفح الفئات السريعة (Quick Categories: البث المباشر - الأفلام - المسلسلات from Right to Left)
+                if (showQuickCategories) {
+                    item(key = "section_quick_categories") {
+                        QuickCategoriesSection(
+                            onOpenLive = {
+                                focusNav.markNavigateFrom(Routes.HOME, "home_quick_live")
+                                onOpen(Routes.LIVE)
+                            },
+                            onOpenMovies = {
+                                focusNav.markNavigateFrom(Routes.HOME, "home_quick_movies")
+                                onOpen(Routes.MOVIES)
+                            },
+                            onOpenSeries = {
+                                focusNav.markNavigateFrom(Routes.HOME, "home_quick_series")
+                                onOpen(Routes.SERIES)
+                            },
+                        )
+                    }
                 }
 
                 // F. ⚽ مباريات اليوم (Today's Matches)
-                item(key = "section_today_matches") {
-                    TodayMatchesSection(
-                        matches = todayMatches,
-                        onOpenSports = { onOpen(Routes.SPORTS) },
-                    )
+                if (showMatches) {
+                    item(key = "section_today_matches") {
+                        TodayMatchesSection(
+                            matches = todayMatches,
+                            onOpenSports = { matchKey ->
+                                focusNav.markNavigateFrom(Routes.HOME, matchKey)
+                                onOpen(Routes.SPORTS)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -327,6 +404,7 @@ private fun ContinueWatchingSection(
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
     val cardWidth = if (isTvOrTablet) 232.dp else 198.dp
     val cardHeight = if (isTvOrTablet) 114.dp else 102.dp
+    val rowState = rememberRestorableLazyListState("home_continue_watching_row")
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -371,6 +449,7 @@ private fun ContinueWatchingSection(
         }
 
         LazyRow(
+            state = rowState,
             contentPadding = PaddingValues(horizontal = horizPad, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -378,7 +457,13 @@ private fun ContinueWatchingSection(
                 ContinueWatchingCard(
                     item = item,
                     useRedBar = index % 2 == 0,
-                    modifier = Modifier.size(width = cardWidth, height = cardHeight),
+                    modifier = Modifier
+                        .size(width = cardWidth, height = cardHeight)
+                        .restorableFocus(
+                            screenKey = Routes.HOME,
+                            itemKey = item.id,
+                            isDefaultEntry = index == 0,
+                        ),
                 )
             }
         }
@@ -413,7 +498,6 @@ private fun ContinueWatchingCard(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            // Cinematic dark bottom gradient overlay matching reference image
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -437,7 +521,6 @@ private fun ContinueWatchingCard(
                 )
             }
 
-            // Bottom overlay: Row(▶ تشغيل | 70%), Progress Bar, Title
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -450,7 +533,6 @@ private fun ContinueWatchingCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Right side in RTL: ▶ تشغيل
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -469,7 +551,6 @@ private fun ContinueWatchingCard(
                         )
                     }
 
-                    // Left side in RTL: 70%
                     Text(
                         text = "$pct%",
                         color = Color.White.copy(alpha = 0.85f),
@@ -478,7 +559,6 @@ private fun ContinueWatchingCard(
                     )
                 }
 
-                // Progress bar matching reference image
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -522,6 +602,8 @@ private fun FeaturedChannelsSection(
     val displayChannels = if (channels.isNotEmpty()) channels else FALLBACK_FEATURED_CHANNELS
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
+    val focusNav = LocalFocusNavigation.current
+    val rowState = rememberRestorableLazyListState("home_live_channels_row")
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -559,6 +641,7 @@ private fun FeaturedChannelsSection(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
+                    .restorableFocus(Routes.HOME, "home_live_see_all")
                     .clickable(onClick = onSeeAll)
                     .padding(horizontal = 6.dp, vertical = 3.dp),
             )
@@ -579,10 +662,12 @@ private fun FeaturedChannelsSection(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         rowItems.forEachIndexed { cIdx, ch ->
+                            val itemKey = "home_ch_${ch.id}"
                             LiveChannelReferenceCard(
                                 channel = ch,
                                 index = rIdx * cols + cIdx,
                                 onClick = {
+                                    focusNav.markNavigateFrom(Routes.HOME, itemKey)
                                     onPlay(
                                         PlayRequest(
                                             listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)),
@@ -592,7 +677,8 @@ private fun FeaturedChannelsSection(
                                 },
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(if (isTvOrTablet) 90.dp else 80.dp),
+                                    .height(if (isTvOrTablet) 90.dp else 80.dp)
+                                    .restorableFocus(Routes.HOME, itemKey),
                             )
                         }
                         repeat(cols - rowItems.size) {
@@ -605,14 +691,17 @@ private fun FeaturedChannelsSection(
             val cardW = if (isTvOrTablet) 132.dp else 112.dp
             val cardH = if (isTvOrTablet) 90.dp else 80.dp
             LazyRow(
+                state = rowState,
                 contentPadding = PaddingValues(horizontal = horizPad, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                itemsIndexed(displayChannels, key = { _, ch -> ch.id }) { index, ch ->
+                itemsIndexed(displayChannels, key = { _, ch -> "home_ch_${ch.id}" }) { index, ch ->
+                    val itemKey = "home_ch_${ch.id}"
                     LiveChannelReferenceCard(
                         channel = ch,
                         index = index,
                         onClick = {
+                            focusNav.markNavigateFrom(Routes.HOME, itemKey)
                             onPlay(
                                 PlayRequest(
                                     listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)),
@@ -620,7 +709,9 @@ private fun FeaturedChannelsSection(
                                 ),
                             )
                         },
-                        modifier = Modifier.size(width = cardW, height = cardH),
+                        modifier = Modifier
+                            .size(width = cardW, height = cardH)
+                            .restorableFocus(Routes.HOME, itemKey),
                     )
                 }
             }
@@ -628,13 +719,6 @@ private fun FeaturedChannelsSection(
     }
 }
 
-/**
- * Matches the Live Channel card in the reference image:
- * - Rounded dark card (`Palette.CardSurface`), zero inner dark rectangle artifact
- * - Centered circular white badge holding channel logo or short name
- * - Red `مباشر` badge at TopEnd
- * - Subtle bottom progress/accent line
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LiveChannelReferenceCard(
@@ -669,6 +753,18 @@ private fun LiveChannelReferenceCard(
     val bottomAccent = accentColors[index % accentColors.size]
     val circleSize = if (LocalDisplayMode.current == DisplayMode.TABLET_OR_TV) 54.dp else 46.dp
 
+    val primaryLogoUrl = remember(channel.icon, channel.name) {
+        ChannelLogoResolver.resolvePrimaryUrl(channel.icon, channel.name)
+    }
+    val fallbackLogoUrl = remember(channel.name) {
+        ChannelLogoResolver.resolveInternetLogoUrl(channel.name)
+    }
+    val (brandLabel, brandColor) = remember(channel.name) {
+        ChannelLogoResolver.resolveBrandStyle(channel.name)
+    }
+    var activeLogoUrl by remember(primaryLogoUrl, fallbackLogoUrl) { mutableStateOf(primaryLogoUrl) }
+    var logoFailed by remember(primaryLogoUrl, fallbackLogoUrl) { mutableStateOf(primaryLogoUrl.isBlank()) }
+
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -688,7 +784,7 @@ private fun LiveChannelReferenceCard(
                 onClick = onClick,
             ),
     ) {
-        // Centered circular channel badge
+        // Centered circular channel badge with automatic internet logo resolution
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -697,25 +793,40 @@ private fun LiveChannelReferenceCard(
                 .clip(CircleShape)
                 .background(Color.White)
                 .border(1.5.dp, Color.White.copy(alpha = 0.85f), CircleShape)
-                .padding(6.dp),
+                .padding(5.dp),
             contentAlignment = Alignment.Center,
         ) {
-            if (channel.icon.isNotBlank()) {
+            if (!logoFailed && activeLogoUrl.isNotBlank()) {
                 AsyncImage(
-                    model = channel.icon,
+                    model = activeLogoUrl,
                     contentDescription = channel.name,
                     contentScale = ContentScale.Fit,
+                    onError = {
+                        if (fallbackLogoUrl != null && activeLogoUrl != fallbackLogoUrl) {
+                            activeLogoUrl = fallbackLogoUrl
+                        } else {
+                            logoFailed = true
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Text(
-                    text = shortChannelLabel(channel.name),
-                    color = Palette.CinematicBg,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .background(brandColor.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = brandLabel,
+                        color = brandColor,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
 
@@ -757,35 +868,66 @@ private fun LiveChannelReferenceCard(
     }
 }
 
-private fun shortChannelLabel(name: String): String {
-    val clean = name
-        .replace(Regex("""\[.*?]|\(.*?\)"""), "")
-        .replace(Regex("""\b(HD|FHD|4K|UHD|SD|AR|VIP)\b""", RegexOption.IGNORE_CASE), "")
-        .trim()
-    return clean.take(8).ifBlank { "مباشر" }
-}
-
 private val FALLBACK_FEATURED_CHANNELS = listOf(
-    Channel("rotana_cinema", "روتانا سينما"),
-    Channel("rotana_khalijia", "روتانا خليجية"),
-    Channel("aljazeera_news", "الجزيرة الإخبارية"),
     Channel("bein_sports_1", "beIN SPORTS 1 HD"),
-    Channel("ssc_1", "SSC 1 HD"),
     Channel("mbc_1", "MBC 1 HD"),
+    Channel("mbc_action", "MBC Action HD"),
+    Channel("mbc_drama", "MBC Drama HD"),
+    Channel("rotana_cinema", "روتانا سينما"),
+    Channel("aljazeera_news", "الجزيرة الإخبارية"),
+    Channel("ssc_1", "SSC 1 HD"),
+    Channel("alkass_1", "الكأس 1 HD"),
 )
 
-private suspend fun loadFeaturedChannels(repo: Repository): List<Channel> = withContext(Dispatchers.IO) {
+private suspend fun loadFeaturedChannels(
+    repo: Repository,
+    source: HomeChannelsSource,
+    categoryId: String,
+    customIds: Set<String>,
+    favorites: List<FavItem>,
+): List<Channel> = withContext(Dispatchers.IO) {
     runCatching {
         val all = repo.peekAllLiveChannels() ?: repo.liveChannels(null)
         if (all.isEmpty()) return@withContext FALLBACK_FEATURED_CHANNELS
 
+        when (source) {
+            HomeChannelsSource.CUSTOM -> {
+                if (customIds.isNotEmpty()) {
+                    val byId = all.associateBy { it.id }
+                    val picked = customIds.mapNotNull { byId[it] }
+                    if (picked.isNotEmpty()) return@withContext picked
+                }
+            }
+            HomeChannelsSource.FAVORITES -> {
+                val favLiveIds = favorites.filter { it.kind == Kind.LIVE }.map { it.id }.toSet()
+                if (favLiveIds.isNotEmpty()) {
+                    val picked = all.filter { it.id in favLiveIds }
+                    if (picked.isNotEmpty()) return@withContext picked
+                }
+            }
+            HomeChannelsSource.CATEGORY -> {
+                if (categoryId.isNotBlank()) {
+                    val catChannels = all.filter { it.categoryId == categoryId }.ifEmpty {
+                        runCatching { repo.liveChannels(categoryId) }.getOrDefault(emptyList())
+                    }
+                    if (catChannels.isNotEmpty()) return@withContext catChannels.take(18)
+                }
+            }
+            HomeChannelsSource.AUTO -> Unit
+        }
+
         val targetKeywords = listOf(
+            listOf("bein sports 1", "bein sport 1", "بي ان سبورت 1"),
+            listOf("mbc 1", "ام بي سي 1"),
+            listOf("mbc action", "ام بي سي اكشن"),
+            listOf("mbc masr", "ام بي سي مصر"),
+            listOf("mbc drama", "ام بي سي دراما"),
             listOf("روتانا سينما", "rotana cinema"),
             listOf("روتانا خليجية", "rotana khalijiah", "rotana khalijia"),
-            listOf("الجزيرة", "al jazeera", "aljazeera", "العربية", "alarabiya", "الحدث"),
-            listOf("bein sports", "bein sport", "ssc", "alkass", "on time"),
-            listOf("mbc 1", "mbc drama", "mbc masr", "mbc"),
-            listOf("ناشونال", "national geographic", "nat geo", "discovery"),
+            listOf("الجزيرة", "al jazeera", "aljazeera"),
+            listOf("العربية", "alarabiya", "الحدث"),
+            listOf("ssc 1", "ssc", "alkass", "الكأس", "on time"),
+            listOf("ناشونال", "national geographic", "nat geo"),
             listOf("دبي", "dubai", "abu dhabi", "أبوظبي"),
         )
 
@@ -814,12 +956,13 @@ private suspend fun loadFeaturedChannels(repo: Repository): List<Channel> = with
 
 // ============================================================================
 // SECTION E — تصفح الفئات السريعة (Quick Categories)
+// Order from Right to Left (RTL): البث المباشر -> الأفلام -> المسلسلات
 // ============================================================================
 @Composable
 private fun QuickCategoriesSection(
-    onOpenSeries: () -> Unit,
-    onOpenMovies: () -> Unit,
     onOpenLive: () -> Unit,
+    onOpenMovies: () -> Unit,
+    onOpenSeries: () -> Unit,
 ) {
     val mode = LocalDisplayMode.current
     val isTvOrTablet = mode == DisplayMode.TABLET_OR_TV
@@ -855,7 +998,8 @@ private fun QuickCategoriesSection(
             )
         }
 
-        // In RTL order: Right = المسلسلات (Purple), Center = الأفلام (Crimson), Left = البث المباشر (Teal/Cyan)
+        // Strict RTL order from Right to Left:
+        // 1. البث المباشر (Right)  |  2. الأفلام (Center)  |  3. المسلسلات (Left)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -863,17 +1007,18 @@ private fun QuickCategoriesSection(
             horizontalArrangement = Arrangement.spacedBy(if (isTvOrTablet) 14.dp else 8.dp),
         ) {
             QuickCategoryBanner(
-                title = "المسلسلات",
-                icon = Ic.Series,
+                title = "البث المباشر",
+                icon = Ic.Broadcast,
                 gradient = Brush.horizontalGradient(
-                    colors = listOf(Palette.CategorySeriesEnd, Palette.CategorySeriesStart),
+                    colors = listOf(Palette.CategoryLiveEnd, Palette.CategoryLiveStart),
                 ),
-                accentColor = Color(0xFFA78BFA),
+                accentColor = Color(0xFF38BDF8),
                 compact = mode == DisplayMode.PHONE_PORTRAIT,
-                onClick = onOpenSeries,
+                onClick = onOpenLive,
                 modifier = Modifier
                     .weight(1f)
-                    .height(cardHeight),
+                    .height(cardHeight)
+                    .restorableFocus(Routes.HOME, "home_quick_live"),
             )
             QuickCategoryBanner(
                 title = "الأفلام",
@@ -886,20 +1031,22 @@ private fun QuickCategoriesSection(
                 onClick = onOpenMovies,
                 modifier = Modifier
                     .weight(1f)
-                    .height(cardHeight),
+                    .height(cardHeight)
+                    .restorableFocus(Routes.HOME, "home_quick_movies"),
             )
             QuickCategoryBanner(
-                title = "البث المباشر",
-                icon = Ic.Broadcast,
+                title = "المسلسلات",
+                icon = Ic.Series,
                 gradient = Brush.horizontalGradient(
-                    colors = listOf(Palette.CategoryLiveEnd, Palette.CategoryLiveStart),
+                    colors = listOf(Palette.CategorySeriesEnd, Palette.CategorySeriesStart),
                 ),
-                accentColor = Color(0xFF38BDF8),
+                accentColor = Color(0xFFA78BFA),
                 compact = mode == DisplayMode.PHONE_PORTRAIT,
-                onClick = onOpenLive,
+                onClick = onOpenSeries,
                 modifier = Modifier
                     .weight(1f)
-                    .height(cardHeight),
+                    .height(cardHeight)
+                    .restorableFocus(Routes.HOME, "home_quick_series"),
             )
         }
     }
@@ -954,7 +1101,6 @@ private fun QuickCategoryBanner(
                 )
             }
 
-            // Right side (RTL Start): Icon + Bold Category Title — sized so it NEVER truncates on A52s!
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -989,12 +1135,13 @@ private fun QuickCategoryBanner(
 @Composable
 private fun TodayMatchesSection(
     matches: List<Match>,
-    onOpenSports: () -> Unit,
+    onOpenSports: (String) -> Unit,
 ) {
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
     val cardWidth = if (isTvOrTablet) 232.dp else 204.dp
     val cardHeight = if (isTvOrTablet) 76.dp else 70.dp
+    val rowState = rememberRestorableLazyListState("home_today_matches_row")
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1032,21 +1179,26 @@ private fun TodayMatchesSection(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable(onClick = onOpenSports)
+                    .restorableFocus(Routes.HOME, "home_matches_see_all")
+                    .clickable(onClick = { onOpenSports("home_matches_see_all") })
                     .padding(horizontal = 6.dp, vertical = 3.dp),
             )
         }
 
         LazyRow(
+            state = rowState,
             contentPadding = PaddingValues(horizontal = horizPad, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(matches, key = { _, m -> m.id }) { index, match ->
+            itemsIndexed(matches, key = { _, m -> "home_match_${m.id}" }) { index, match ->
+                val itemKey = "home_match_${match.id}"
                 TodayMatchCard(
                     match = match,
                     showLiveBadge = match.status == MatchStatus.LIVE || index < 4,
-                    onClick = onOpenSports,
-                    modifier = Modifier.size(width = cardWidth, height = cardHeight),
+                    onClick = { onOpenSports(itemKey) },
+                    modifier = Modifier
+                        .size(width = cardWidth, height = cardHeight)
+                        .restorableFocus(Routes.HOME, itemKey),
                 )
             }
         }
@@ -1091,14 +1243,12 @@ private fun TodayMatchCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                // Right side (RTL Start): Home Team Logo
                 TeamCrestBadge(
                     logoUrl = match.homeTeam.logoUrl,
                     teamName = match.homeTeam.name,
                     size = 38.dp,
                 )
 
-                // Center: Match Time (or Score) + League Name
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -1128,7 +1278,6 @@ private fun TodayMatchCard(
                     )
                 }
 
-                // Left side (RTL End): Away Team Logo
                 TeamCrestBadge(
                     logoUrl = match.awayTeam.logoUrl,
                     teamName = match.awayTeam.name,
@@ -1136,7 +1285,6 @@ private fun TodayMatchCard(
                 )
             }
 
-            // Red "مباشر" badge at top-right (RTL TopStart) matching reference image
             if (showLiveBadge) {
                 Box(
                     modifier = Modifier
@@ -1191,7 +1339,6 @@ private fun TeamCrestBadge(
     }
 }
 
-/** Kept for compatibility with any caller referencing LiveMatchesBar. */
 @Composable
 fun LiveMatchesBar(
     onOpenLive: () -> Unit,

@@ -408,17 +408,22 @@ fun RemoteImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     fallbackText: String = "",
+    fallbackUrl: String? = null,
 ) {
+    val primaryUrl = url.trim().ifBlank { fallbackUrl?.trim().orEmpty() }
+    val secondaryUrl = fallbackUrl?.trim()?.takeIf { it.isNotBlank() && it != primaryUrl }
+
     Box(modifier.background(Color.White.copy(alpha = 0.05f))) {
-        if (url.isNotBlank()) {
+        if (primaryUrl.isNotBlank()) {
             val context = LocalContext.current
-            var showFallback by remember(url) { mutableStateOf(true) }
+            var activeUrl by remember(primaryUrl, secondaryUrl) { mutableStateOf(primaryUrl) }
+            var showFallback by remember(primaryUrl, secondaryUrl) { mutableStateOf(true) }
             if (showFallback) {
                 FallbackLetter(fallbackText)
             }
-            val request = remember(context, url) {
+            val request = remember(context, activeUrl) {
                 ImageRequest.Builder(context)
-                    .data(url)
+                    .data(activeUrl)
                     .crossfade(false)
                     .build()
             }
@@ -427,7 +432,13 @@ fun RemoteImage(
                 contentDescription = null,
                 contentScale = contentScale,
                 onSuccess = { showFallback = false },
-                onError = { showFallback = true },
+                onError = {
+                    if (secondaryUrl != null && activeUrl != secondaryUrl) {
+                        activeUrl = secondaryUrl
+                    } else {
+                        showFallback = true
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {

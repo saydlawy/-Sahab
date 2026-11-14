@@ -113,7 +113,11 @@ import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.components.rememberNow
 import com.saydlawy.sahab.ui.player.SahabPlayer
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatClock
 import com.saydlawy.sahab.util.formatNowMillis
@@ -350,10 +354,32 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { LiveViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val focusNav = LocalFocusNavigation.current
     val favorites by LocalContainer.current.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
     val favoriteIds = remember(favorites) { favorites.filter { it.kind == Kind.LIVE }.map { it.id }.toSet() }
     var guideFor by remember { mutableStateOf<Channel?>(null) }
     var previewChannel by remember { mutableStateOf<Channel?>(null) }
+
+    LaunchedEffect(state.categories.isNotEmpty()) {
+        if (state.categories.isNotEmpty()) {
+            val savedCat = focusNav.getSelectedCategory(Routes.LIVE)
+            if (!savedCat.isNullOrBlank() && savedCat != state.selectedId) {
+                vm.select(savedCat)
+            }
+            val savedQ = focusNav.getSearchQuery(Routes.LIVE)
+            if (savedQ.isNotEmpty() && savedQ != state.query) {
+                vm.onQuery(savedQ)
+            }
+        }
+    }
+
+    LaunchedEffect(state.selectedId) {
+        focusNav.saveSelectedCategory(Routes.LIVE, state.selectedId)
+    }
+
+    LaunchedEffect(state.query) {
+        focusNav.saveSearchQuery(Routes.LIVE, state.query)
+    }
 
     val rawChannels = state.visibleChannels
     val channels = remember(rawChannels, state.selectedId, favoriteIds, state.searchResults) {
@@ -467,7 +493,14 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     }
 
     guideFor?.let { channel ->
-        EpgDialog(channelName = channel.name, channelId = channel.id, onDismiss = { guideFor = null })
+        EpgDialog(
+            channelName = channel.name,
+            channelId = channel.id,
+            onDismiss = {
+                guideFor = null
+                focusNav.onScreenResumed(Routes.LIVE)
+            }
+        )
     }
 }
 
@@ -728,7 +761,9 @@ private fun CategorySidebar(
     categoryCounts: Map<String, Int>,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberRestorableLazyListState("live_categories_sidebar")
     LazyColumn(
+        state = listState,
         modifier = modifier.focusRestorer(),
         verticalArrangement = Arrangement.spacedBy(appDp(8)),
         contentPadding = PaddingValues(vertical = appDp(4)),
@@ -741,6 +776,7 @@ private fun CategorySidebar(
                 count = favCount.takeIf { it > 0 },
                 icon = Ic.HeartOutline,
                 iconTint = Palette.Glow,
+                modifier = Modifier.restorableFocus(Routes.LIVE, "live_cat_fav"),
             )
         }
         item(key = ALL_CAT_ID) {
@@ -749,6 +785,7 @@ private fun CategorySidebar(
                 selected = selectedId == ALL_CAT_ID || selectedId == null,
                 onClick = { onSelect(ALL_CAT_ID) },
                 count = totalCount.takeIf { it > 0 },
+                modifier = Modifier.restorableFocus(Routes.LIVE, "live_cat_all"),
             )
         }
         items(categories, key = { it.id }) { cat ->
@@ -760,6 +797,7 @@ private fun CategorySidebar(
                 onClick = { onSelect(cat.id) },
                 count = if (count != null && count > 0) count else null,
                 trailingText = if (isSport && (count == null || count == 0)) "مباشر ⚽" else null,
+                modifier = Modifier.restorableFocus(Routes.LIVE, "live_cat_${cat.id}"),
             )
         }
     }
@@ -778,7 +816,9 @@ private fun ChannelColumn(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
+    val listState = rememberRestorableLazyListState(
+        listKey = "live_channels_${state.selectedId ?: ALL_CAT_ID}_${state.query.trim()}"
+    )
 
     Column(modifier) {
         Row(
@@ -788,14 +828,25 @@ private fun ChannelColumn(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                Ar.channelList,
-                fontSize = appSp(15),
-                fontWeight = FontWeight.Bold,
-                color = Palette.TextDim,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(appDp(8)),
+            ) {
+                Box(
+                    Modifier
+                        .size(appDp(8))
+                        .clip(CircleShape)
+                        .background(Palette.LiveRed)
+                )
+                Text(
+                    Ar.channelList,
+                    fontSize = appSp(15),
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                )
+            }
             if (channels.isNotEmpty()) {
-                Tag(Ar.itemsCount(channels.size), Palette.Glow, fontSize = appSp(10))
+                Tag(Ar.itemsCount(channels.size), Palette.FocusCyan, fontSize = appSp(10))
             }
         }
 
@@ -820,8 +871,11 @@ private fun ChannelColumn(
                 ) {
                     itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
                         ChannelRow(
+                            index = index + 1,
                             channel = channel,
                             isPreviewed = channel.id == previewId,
+                            isFavorite = channel.id in favoriteIds,
+                            isDefaultEntry = index == 0,
                             onActivate = { onPlayAt(index) },
                             onToggleFavorite = { onToggleFavorite(channel) },
                         )
@@ -835,8 +889,11 @@ private fun ChannelColumn(
 @kotlin.OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelRow(
+    index: Int,
     channel: Channel,
     isPreviewed: Boolean,
+    isFavorite: Boolean,
+    isDefaultEntry: Boolean = false,
     onActivate: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
@@ -871,69 +928,140 @@ private fun ChannelRow(
     }
     var focused by remember { mutableStateOf(false) }
     val active = focused || isPreviewed
-    val shape = RoundedCornerShape(appDp(14))
+    val shape = RoundedCornerShape(appDp(16))
     val borderColor = when {
-        focused -> Palette.Glow
-        isPreviewed -> Palette.Glow.copy(alpha = 0.7f)
-        else -> Palette.GlassBorder
+        focused -> Palette.FocusCyan
+        isPreviewed -> Palette.FocusCyan.copy(alpha = 0.65f)
+        else -> Palette.CardBorder
     }
-    val bg: Brush = if (active) Palette.ActiveFill else IdleChannelRowFill
-    val borderWidth = if (active) appDp(2) else appDp(1)
+    val bgColor = when {
+        focused -> Palette.CardSurfaceElevated
+        isPreviewed -> Palette.Royal.copy(alpha = 0.28f)
+        else -> Palette.CardSurface.copy(alpha = 0.92f)
+    }
+    val borderWidth = if (focused) appDp(2) else appDp(1)
+
+    val primaryLogoUrl = remember(channel.icon, channel.name) {
+        ChannelLogoResolver.resolvePrimaryUrl(channel.icon, channel.name)
+    }
+    val internetFallbackLogoUrl = remember(channel.name) {
+        ChannelLogoResolver.resolveInternetLogoUrl(channel.name)
+    }
+    val brandStyle = remember(channel.name) {
+        ChannelLogoResolver.resolveBrandStyle(channel.name)
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .restorableFocus(
+                screenKey = Routes.LIVE,
+                itemKey = "live_ch_${channel.id}",
+                isDefaultEntry = isDefaultEntry,
+            )
             .then(
                 if (active) {
                     Modifier.shadow(
                         elevation = appDp(12),
                         shape = shape,
-                        ambientColor = Palette.Glow,
-                        spotColor = Palette.Glow,
+                        ambientColor = Palette.FocusCyan,
+                        spotColor = Palette.FocusCyan,
                     )
                 } else Modifier,
             )
             .clip(shape)
-            .background(bg)
+            .background(bgColor)
             .border(borderWidth, borderColor, shape)
             .onFocusChanged { focused = it.isFocused }
             .combinedClickable(
                 onClick = onActivate,
                 onLongClick = onToggleFavorite,
             )
-            .padding(horizontal = appDp(10), vertical = appDp(9)),
+            .padding(horizontal = appDp(10), vertical = appDp(8)),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(appDp(8)),
+        horizontalArrangement = Arrangement.spacedBy(appDp(10)),
     ) {
-        RemoteImage(
-            url = channel.icon,
-            fallbackText = channel.name,
+        // Reference-style Circular White Logo Badge with Internet Logo Resolution
+        Box(
             modifier = Modifier
-                .size(appDp(26))
-                .clip(RoundedCornerShape(appDp(7)))
-                .background(Color.White.copy(alpha = 0.08f))
-                .padding(appDp(2)),
-            contentScale = ContentScale.Fit,
-        )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(2))) {
-            Text(
-                channel.name,
-                fontSize = appSp(14),
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                .size(appDp(44))
+                .clip(CircleShape)
+                .background(Color.White)
+                .border(
+                    width = if (focused) appDp(2) else appDp(1),
+                    color = if (focused) Palette.FocusCyan else Color.White.copy(alpha = 0.85f),
+                    shape = CircleShape,
+                )
+                .padding(appDp(4)),
+            contentAlignment = Alignment.Center,
+        ) {
+            RemoteImage(
+                url = primaryLogoUrl,
+                fallbackUrl = internetFallbackLogoUrl,
+                fallbackText = brandStyle.badgeText,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = ContentScale.Fit,
             )
-            val program = now
-            if (program != null) {
+        }
+
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(3))) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(appDp(6)),
+            ) {
                 Text(
-                    program.title.ifBlank { Ar.noName },
+                    text = index.toString().padStart(2, '0'),
+                    fontSize = appSp(10),
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (active) Palette.FocusCyan else Palette.TextDim,
+                )
+                Text(
+                    text = channel.name,
+                    fontSize = appSp(14),
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            val program = now
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(appDp(6)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(appDp(5)))
+                        .background(Palette.LiveRed)
+                        .padding(horizontal = appDp(5), vertical = appDp(1)),
+                ) {
+                    Text(
+                        text = "مباشر",
+                        fontSize = appSp(8),
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                    )
+                }
+                Text(
+                    text = if (program != null && program.title.isNotBlank()) program.title else "بث مباشر",
                     fontSize = appSp(11),
-                    color = Palette.TextDim,
+                    color = if (program != null) Palette.FocusCyan else Palette.TextDim,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+
+        if (isFavorite) {
+            Icon(
+                imageVector = Ic.Heart,
+                contentDescription = null,
+                tint = Palette.LiveRed,
+                modifier = Modifier.size(appDp(15)),
+            )
         }
 
         if (isPreviewed) {
@@ -1155,13 +1283,30 @@ private fun PreviewPanel(
                             .background(PreviewPlaceholderBrush),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (channel != null && channel.icon.isNotBlank()) {
-                            RemoteImage(
-                                url = channel.icon,
-                                fallbackText = channel.name,
-                                modifier = Modifier.size(appDp(56)).clip(RoundedCornerShape(appDp(12))),
-                                contentScale = ContentScale.Fit,
-                            )
+                        if (channel != null) {
+                            val primaryPreviewLogo = remember(channel.icon, channel.name) {
+                                ChannelLogoResolver.resolvePrimaryUrl(channel.icon, channel.name)
+                            }
+                            val fallbackPreviewLogo = remember(channel.name) {
+                                ChannelLogoResolver.resolveInternetLogoUrl(channel.name)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(appDp(64))
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                                    .border(appDp(2), Palette.FocusCyan, CircleShape)
+                                    .padding(appDp(6)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                RemoteImage(
+                                    url = primaryPreviewLogo,
+                                    fallbackUrl = fallbackPreviewLogo,
+                                    fallbackText = channel.name,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = ContentScale.Fit,
+                                )
+                            }
                         }
                     }
                 }

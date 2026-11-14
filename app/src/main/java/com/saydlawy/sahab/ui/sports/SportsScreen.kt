@@ -102,6 +102,10 @@ import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyGridState
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.util.formatUtcClockToLocal
@@ -167,8 +171,9 @@ fun SportsScreen(
 
     val availableDateFilters = remember { DateFilter.values().toList() }
 
-    val portraitListState = rememberLazyListState()
-    val landscapeGridState = rememberLazyGridState()
+    val focusNav = LocalFocusNavigation.current
+    val portraitListState = rememberRestorableLazyListState("sports_portrait_list")
+    val landscapeGridState = rememberRestorableLazyGridState("sports_landscape_grid")
     val phoneScrolled by remember(displayMode) {
         derivedStateOf {
             when (displayMode) {
@@ -323,7 +328,10 @@ fun SportsScreen(
         LaunchedEffect(isTv) {
             if (isTv) runCatching { dialogCloseFocus.requestFocus() }
         }
-        Dialog(onDismissRequest = { showPhoneDetailsDialog = false }) {
+        Dialog(onDismissRequest = {
+            showPhoneDetailsDialog = false
+            focusNav.onScreenResumed(Routes.SPORTS)
+        }) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = SportContainer,
@@ -1248,8 +1256,8 @@ private fun SportsStateBody(
     highlightSelection: Boolean,
     useTwoColumnGrid: Boolean,
     suppressLeagueHeaderIfSingle: Boolean = false,
-    listState: LazyListState = rememberLazyListState(),
-    gridState: LazyGridState = rememberLazyGridState(),
+    listState: LazyListState = rememberRestorableLazyListState("sports_tv_list"),
+    gridState: LazyGridState = rememberRestorableLazyGridState("sports_tv_grid"),
     onMatchClick: (Match) -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -1441,6 +1449,10 @@ private fun SportMatchCard(
         modifier = Modifier
             .fillMaxWidth()
             .wrapContentHeight()
+            .restorableFocus(
+                screenKey = Routes.SPORTS,
+                itemKey = "sport_match_${match.id}",
+            )
             .then(
                 if (active) {
                     Modifier.shadow(

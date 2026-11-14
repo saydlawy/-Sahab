@@ -258,19 +258,9 @@ fun SahabTopBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        TopBarBellButton(
-                            onClick = { if (current != Routes.SPORTS) onTab(Routes.SPORTS) },
-                            size = 36.dp,
-                        )
                         if (roomy) {
                             CompactTopBarInfo()
                         }
-                        TopBarIconButton(
-                            icon = Ic.Search,
-                            contentDescription = "بحث",
-                            onClick = { if (current != Routes.MOVIES) onTab(Routes.MOVIES) },
-                            size = 36.dp,
-                        )
                         TopBarProfileButton(
                             active = current == Routes.SETTINGS,
                             onClick = { if (current != Routes.SETTINGS) onTab(Routes.SETTINGS) },
@@ -304,12 +294,6 @@ fun SahabTopBar(
                         Spacer(Modifier.weight(1f))
                     }
                     CompactTopBarInfo()
-                    TopBarIconButton(
-                        icon = Ic.Search,
-                        contentDescription = "بحث",
-                        onClick = { if (current != Routes.MOVIES) onTab(Routes.MOVIES) },
-                        size = 34.dp,
-                    )
                     TopBarProfileButton(
                         active = current == Routes.SETTINGS,
                         onClick = { if (current != Routes.SETTINGS) onTab(Routes.SETTINGS) },
@@ -342,12 +326,6 @@ fun SahabTopBar(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             CompactTopBarInfo()
-                            TopBarIconButton(
-                                icon = Ic.Search,
-                                contentDescription = "بحث",
-                                onClick = { if (current != Routes.MOVIES) onTab(Routes.MOVIES) },
-                                size = 34.dp,
-                            )
                             TopBarProfileButton(
                                 active = current == Routes.SETTINGS,
                                 onClick = { if (current != Routes.SETTINGS) onTab(Routes.SETTINGS) },

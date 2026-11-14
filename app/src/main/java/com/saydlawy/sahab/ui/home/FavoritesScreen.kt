@@ -44,6 +44,8 @@ import com.saydlawy.sahab.ui.components.PosterCard
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyGridState
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.launch
@@ -58,7 +60,7 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
     val filtered = remember(favorites, filterKind) {
         if (filterKind == null) favorites else favorites.filter { it.kind == filterKind }
     }
-    val gridState = rememberLazyGridState()
+    val gridState = rememberRestorableLazyGridState("favorites_grid_${filterKind ?: "all"}")
 
     val displayMode = LocalDisplayMode.current
     val hPad = if (displayMode == DisplayMode.TABLET_OR_TV) 24.dp else 14.dp
@@ -101,7 +103,7 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                 MessageBox(Ar.noFavorites)
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(if (isTv) 164.dp else 132.dp),
+                    columns = if (displayMode == DisplayMode.TABLET_OR_TV) GridCells.Fixed(6) else GridCells.Adaptive(132.dp),
                     state = gridState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
                     contentPadding = PaddingValues(horizontal = hPad, vertical = 12.dp),
@@ -135,6 +137,10 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                                 }
                             },
                             onLongClick = { scope.launch { container.prefs.toggleFavorite(favorite) } },
+                            modifier = Modifier.restorableFocus(
+                                screenKey = Routes.FAVORITES,
+                                itemKey = "fav_${favorite.kind}_${favorite.id}",
+                            ),
                         )
                     }
                 }

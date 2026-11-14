@@ -59,6 +59,7 @@ import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatDuration
@@ -470,6 +471,7 @@ private fun MovieInfoPanel(
         }
 
         // Actions
+        val screenKey = remember(details.id) { "movie/${details.id}" }
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -480,10 +482,22 @@ private fun MovieInfoPanel(
                 onClick = { onPlay(PlayRequest(listOf(item), 0, initialPositionMs = resumeMs)) },
                 icon = Ic.Play,
                 primary = true,
-                autoFocus = true,
+                autoFocus = false,
+                modifier = Modifier.restorableFocus(
+                    screenKey = screenKey,
+                    itemKey = "movie_play_btn",
+                    isDefaultEntry = true,
+                ),
             )
             if (canResume) {
-                GlassButton(Ar.fromStart, { onPlay(PlayRequest(listOf(item), 0, fromStart = true)) })
+                GlassButton(
+                    text = Ar.fromStart,
+                    onClick = { onPlay(PlayRequest(listOf(item), 0, fromStart = true)) },
+                    modifier = Modifier.restorableFocus(
+                        screenKey = screenKey,
+                        itemKey = "movie_from_start_btn",
+                    ),
+                )
             }
             GlassIconButton(
                 icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
@@ -492,6 +506,10 @@ private fun MovieInfoPanel(
                 size = 54.dp,
                 selected = isFavorite,
                 tint = if (isFavorite) Palette.Live else Palette.Glow,
+                modifier = Modifier.restorableFocus(
+                    screenKey = screenKey,
+                    itemKey = "movie_fav_btn",
+                ),
             )
         }
 

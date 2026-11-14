@@ -6,16 +6,12 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,27 +25,20 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRestorer
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,15 +60,11 @@ import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
-import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.Chip
 import com.saydlawy.sahab.ui.components.DotTitle
-import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassCard
-import com.saydlawy.sahab.ui.components.GlassIconButton
-import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
@@ -92,6 +77,10 @@ import com.saydlawy.sahab.ui.components.SideNavItem
 import com.saydlawy.sahab.ui.components.SkeletonGrid
 import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyGridState
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.normalizeForSearch
@@ -105,7 +94,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.compose.runtime.Immutable
 
 private const val RECENTS_CAT_ID = "__RECENTS__"
 private const val FAV_CAT_ID = "__FAVORITES__"
@@ -129,11 +117,15 @@ data class BrowseUiState(
     val busy: Boolean get() = loadingItems || searching
 }
 
-/** One view model for both movies and series: they only differ in which calls they make. */
-class BrowseViewModel(private val container: AppContainer, private val series: Boolean) : ViewModel() {
+class BrowseViewModel(
+    private val container: AppContainer,
+    private val series: Boolean,
+    private val initialCategoryId: String? = null,
+    private val initialQuery: String = "",
+) : ViewModel() {
 
     private val repo = container.repo
-    private val _state = MutableStateFlow(BrowseUiState())
+    private val _state = MutableStateFlow(BrowseUiState(query = initialQuery))
     val state = _state.asStateFlow()
 
     private var itemsJob: Job? = null
@@ -175,25 +167,35 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
             try {
                 val categories = fetchCategories()
                 val cachedAll = peekAllItems()
+                val preferredCat = initialCategoryId ?: _state.value.selectedId
+
                 if (!cachedAll.isNullOrEmpty()) {
                     updateSearchPool(cachedAll)
                     val counts = computeCounts(cachedAll)
+                    val targetCat = preferredCat ?: ALL_CAT_ID
+                    val initialItems = if (targetCat == ALL_CAT_ID || targetCat == FAV_CAT_ID || targetCat == RECENTS_CAT_ID) {
+                        cachedAll
+                    } else {
+                        cachedAll.filter { it.categoryId == targetCat }.ifEmpty { cachedAll }
+                    }
                     _state.update {
                         it.copy(
                             categories = categories,
-                            selectedId = ALL_CAT_ID,
-                            items = cachedAll,
+                            selectedId = targetCat,
+                            items = initialItems,
                             loadingCategories = false,
                             loadingItems = false,
                             totalCount = cachedAll.size,
                             categoryCounts = counts,
                         )
                     }
+                    if (initialQuery.isNotBlank()) {
+                        onQuery(initialQuery)
+                    }
                     return@launch
                 }
 
-                // First-time cold start: show categories immediately and load the first category right away
-                val firstCatId = categories.firstOrNull()?.id ?: ALL_CAT_ID
+                val firstCatId = preferredCat ?: categories.firstOrNull()?.id ?: ALL_CAT_ID
                 _state.update {
                     it.copy(
                         categories = categories,
@@ -203,7 +205,6 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
                 }
                 select(firstCatId)
 
-                // Warm up the full catalog and category counts in the background without blocking UI
                 viewModelScope.launch {
                     val allItems = runCatching { fetchItems(null) }.getOrDefault(emptyList())
                     if (allItems.isNotEmpty()) {
@@ -265,6 +266,22 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
                 return
             }
         }
+        val cachedPool = searchPool
+        if (!cachedPool.isNullOrEmpty()) {
+            val filtered = cachedPool.filter { it.categoryId == categoryId }
+            if (filtered.isNotEmpty()) {
+                _state.update {
+                    it.copy(
+                        selectedId = categoryId,
+                        items = filtered,
+                        loadingItems = false,
+                        error = null,
+                    )
+                }
+                return
+            }
+        }
+
         _state.update { it.copy(selectedId = categoryId, loadingItems = true, error = null) }
         itemsJob = viewModelScope.launch {
             try {
@@ -297,7 +314,7 @@ class BrowseViewModel(private val container: AppContainer, private val series: B
             return
         }
         searchJob = viewModelScope.launch {
-            delay(300)
+            delay(250)
             _state.update { it.copy(searching = true) }
             try {
                 val indexed = indexedPool ?: run {
@@ -337,11 +354,16 @@ fun BrowseScreen(
     onOpenItem: (String) -> Unit,
     onPlay: (PlayRequest) -> Unit = {},
 ) {
-    val vm = appViewModel { BrowseViewModel(it, series) }
+    val route = if (series) Routes.SERIES else Routes.MOVIES
+    val focusNav = LocalFocusNavigation.current
+    val savedCategory = remember(route) { focusNav.getSelectedCategory(route) }
+    val savedQuery = remember(route) { focusNav.getSearchQuery(route) }
+
+    val vm = appViewModel { BrowseViewModel(it, series, savedCategory, savedQuery) }
     val state by vm.state.collectAsStateWithLifecycle()
     val isTv = LocalIsTv.current
     val kind = if (series) Kind.SERIES else Kind.MOVIE
-    val route = if (series) Routes.SERIES else Routes.MOVIES
+
     val favorites by LocalContainer.current.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
     val recents by LocalContainer.current.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
     val favoriteIds = remember(favorites, kind) { favorites.filter { it.kind == kind }.map { it.id }.toSet() }
@@ -349,9 +371,16 @@ fun BrowseScreen(
         if (series) recents.filter { it.kind == Kind.SERIES || it.kind == Kind.EPISODE }
         else recents.filter { it.kind == Kind.MOVIE }
     }
-    var previewPoster by remember { mutableStateOf<Poster?>(null) }
+
+    LaunchedEffect(state.selectedId) {
+        state.selectedId?.let { focusNav.setSelectedCategory(route, it) }
+    }
+    LaunchedEffect(state.query) {
+        focusNav.setSearchQuery(route, state.query)
+    }
 
     val playRecent: (RecentItem) -> Unit = { recent ->
+        focusNav.markNavigateFrom(route, "browse_recent_${recent.kind}_${recent.id}")
         onPlay(
             PlayRequest(
                 items = listOf(
@@ -398,16 +427,22 @@ fun BrowseScreen(
         }
     }
 
-    val gridState = rememberLazyGridState()
+    val gridStorageKey = "${route}_grid_${state.selectedId ?: ALL_CAT_ID}"
+    val gridState = rememberRestorableLazyGridState(gridStorageKey)
     val displayMode = LocalDisplayMode.current
-    val maxWidth = LocalWindowInfo.current.widthDp
-    val itemIds = remember(items) {
-        HashSet<String>(items.size).apply { items.forEach { add(it.id) } }
+
+    val handleOpenPoster: (Poster) -> Unit = { poster ->
+        focusNav.markNavigateFrom(route, "poster_${poster.id}")
+        onOpenItem(poster.id)
+    }
+
+    val handleSelectCategory: (String) -> Unit = { catId ->
+        focusNav.setSelectedCategory(route, catId)
+        vm.select(catId)
     }
 
     Box(Modifier.fillMaxSize()) {
-        val showPreview = displayMode == DisplayMode.TABLET_OR_TV && maxWidth >= 1040.dp
-        val showTopBar by remember(displayMode) {
+        val showTopBar by remember(displayMode, gridState) {
             derivedStateOf {
                 displayMode == DisplayMode.TABLET_OR_TV ||
                     !gridState.canScrollBackward ||
@@ -434,15 +469,15 @@ fun BrowseScreen(
                 displayMode == DisplayMode.TABLET_OR_TV -> Row(
                     Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 24.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    // Column 1 (Right in RTL): Search + Categories sidebar
+                    // Column 1 (Right in RTL): Compact Search + Categories sidebar
                     Column(
                         Modifier
-                            .width(250.dp)
+                            .width(192.dp)
                             .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         SearchBox(
                             state.query,
@@ -451,9 +486,10 @@ fun BrowseScreen(
                             Modifier.fillMaxWidth(),
                         )
                         BrowseSidebar(
+                            screenKey = route,
                             categories = state.categories,
                             selectedId = state.selectedId,
-                            onSelect = vm::select,
+                            onSelect = handleSelectCategory,
                             totalCount = state.totalCount,
                             favCount = favoriteIds.size,
                             recentCount = screenRecents.size,
@@ -464,39 +500,24 @@ fun BrowseScreen(
                         )
                     }
 
-                    // Column 2 (Center): Poster grid
+                    // Column 2 (Full Remaining Width): 6 Posters per Row on Large Screens / TV!
                     PosterGrid(
+                        screenKey = route,
                         series = series,
                         state = state,
                         items = items,
                         gridState = gridState,
                         recents = if (state.query.isBlank() && state.selectedId != RECENTS_CAT_ID) screenRecents else emptyList(),
                         onPlayRecent = playRecent,
-                        columnWidth = if (isTv) 152.dp else 138.dp,
-                        onOpenItem = onOpenItem,
-                        onPreview = { previewPoster = it },
+                        fixedColumns = 6,
+                        columnWidth = if (isTv) 110.dp else 116.dp,
+                        onOpenPoster = handleOpenPoster,
                         onToggleFavorite = vm::toggleFavorite,
                         onRetry = { state.selectedId?.let(vm::select) },
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
                     )
-
-                    // Column 3 (Left in RTL): Live Preview Panel
-                    if (showPreview) {
-                        val active = previewPoster?.takeIf { it.id in itemIds } ?: items.firstOrNull()
-                        TitlePreviewPanel(
-                            series = series,
-                            poster = active,
-                            isFavorite = active?.id in favoriteIds,
-                            onOpenItem = { active?.let { onOpenItem(it.id) } },
-                            onPlay = onPlay,
-                            onToggleFavorite = { active?.let(vm::toggleFavorite) },
-                            modifier = Modifier
-                                .width(340.dp)
-                                .fillMaxHeight(),
-                        )
-                    }
                 }
                 displayMode == DisplayMode.PHONE_LANDSCAPE -> Row(
                     Modifier
@@ -504,7 +525,6 @@ fun BrowseScreen(
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    // Narrower sidebar (-25%) so landscape phones have spacious multi-column grid
                     Column(
                         Modifier
                             .width(158.dp)
@@ -518,9 +538,10 @@ fun BrowseScreen(
                             Modifier.fillMaxWidth(),
                         )
                         BrowseSidebar(
+                            screenKey = route,
                             categories = state.categories,
                             selectedId = state.selectedId,
-                            onSelect = vm::select,
+                            onSelect = handleSelectCategory,
                             totalCount = state.totalCount,
                             favCount = favoriteIds.size,
                             recentCount = screenRecents.size,
@@ -531,17 +552,17 @@ fun BrowseScreen(
                         )
                     }
 
-                    // Poster grid taking full remaining width with recents scrolling smoothly inside
                     PosterGrid(
+                        screenKey = route,
                         series = series,
                         state = state,
                         items = items,
                         gridState = gridState,
                         recents = if (state.query.isBlank() && state.selectedId == RECENTS_CAT_ID) screenRecents else emptyList(),
                         onPlayRecent = playRecent,
-                        columnWidth = 108.dp,
-                        onOpenItem = onOpenItem,
-                        onPreview = {},
+                        fixedColumns = 5,
+                        columnWidth = 104.dp,
+                        onOpenPoster = handleOpenPoster,
                         onToggleFavorite = vm::toggleFavorite,
                         onRetry = { state.selectedId?.let(vm::select) },
                         modifier = Modifier
@@ -550,6 +571,7 @@ fun BrowseScreen(
                     )
                 }
                 else -> Column(Modifier.fillMaxSize()) {
+                    val chipsState = rememberRestorableLazyListState("${route}_chips_row")
                     SearchBox(
                         state.query,
                         vm::onQuery,
@@ -557,34 +579,56 @@ fun BrowseScreen(
                         Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                     )
                     LazyRow(
+                        state = chipsState,
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (screenRecents.isNotEmpty()) {
                             item(key = RECENTS_CAT_ID) {
-                                Chip(Ar.continueWatching, state.selectedId == RECENTS_CAT_ID, { vm.select(RECENTS_CAT_ID) })
+                                Chip(
+                                    Ar.continueWatching,
+                                    state.selectedId == RECENTS_CAT_ID,
+                                    { handleSelectCategory(RECENTS_CAT_ID) },
+                                    Modifier.restorableFocus(route, "cat_$RECENTS_CAT_ID"),
+                                )
                             }
                         }
                         item(key = FAV_CAT_ID) {
-                            Chip(Ar.favorites, state.selectedId == FAV_CAT_ID, { vm.select(FAV_CAT_ID) })
+                            Chip(
+                                Ar.favorites,
+                                state.selectedId == FAV_CAT_ID,
+                                { handleSelectCategory(FAV_CAT_ID) },
+                                Modifier.restorableFocus(route, "cat_$FAV_CAT_ID"),
+                            )
                         }
                         item(key = ALL_CAT_ID) {
-                            Chip(Ar.all, state.selectedId == ALL_CAT_ID, { vm.select(ALL_CAT_ID) })
+                            Chip(
+                                Ar.all,
+                                state.selectedId == ALL_CAT_ID,
+                                { handleSelectCategory(ALL_CAT_ID) },
+                                Modifier.restorableFocus(route, "cat_$ALL_CAT_ID"),
+                            )
                         }
                         items(state.categories, key = { it.id }) { cat ->
-                            Chip(cat.name, cat.id == state.selectedId, { vm.select(cat.id) })
+                            Chip(
+                                cat.name,
+                                cat.id == state.selectedId,
+                                { handleSelectCategory(cat.id) },
+                                Modifier.restorableFocus(route, "cat_${cat.id}"),
+                            )
                         }
                     }
                     PosterGrid(
+                        screenKey = route,
                         series = series,
                         state = state,
                         items = items,
                         gridState = gridState,
                         recents = if (state.query.isBlank() && state.selectedId == RECENTS_CAT_ID) screenRecents else emptyList(),
                         onPlayRecent = playRecent,
-                        columnWidth = if (displayMode == DisplayMode.PHONE_LANDSCAPE) 92.dp else 100.dp,
-                        onOpenItem = onOpenItem,
-                        onPreview = {},
+                        fixedColumns = null,
+                        columnWidth = 104.dp,
+                        onOpenPoster = handleOpenPoster,
                         onToggleFavorite = vm::toggleFavorite,
                         onRetry = { state.selectedId?.let(vm::select) },
                         modifier = Modifier
@@ -600,6 +644,7 @@ fun BrowseScreen(
 
 @Composable
 private fun BrowseSidebar(
+    screenKey: String,
     categories: List<Category>,
     selectedId: String?,
     onSelect: (String) -> Unit,
@@ -609,9 +654,11 @@ private fun BrowseSidebar(
     categoryCounts: Map<String, Int>,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberRestorableLazyListState("${screenKey}_sidebar")
     LazyColumn(
+        state = listState,
         modifier = modifier.focusRestorer(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
         contentPadding = PaddingValues(vertical = 4.dp),
     ) {
         if (recentCount > 0) {
@@ -623,6 +670,7 @@ private fun BrowseSidebar(
                     count = recentCount,
                     icon = Ic.Clock,
                     iconTint = Palette.Gold,
+                    modifier = Modifier.restorableFocus(screenKey, "cat_$RECENTS_CAT_ID"),
                 )
             }
         }
@@ -634,6 +682,7 @@ private fun BrowseSidebar(
                 count = favCount.takeIf { it > 0 },
                 icon = Ic.HeartOutline,
                 iconTint = Palette.Glow,
+                modifier = Modifier.restorableFocus(screenKey, "cat_$FAV_CAT_ID"),
             )
         }
         item(key = ALL_CAT_ID) {
@@ -642,6 +691,7 @@ private fun BrowseSidebar(
                 selected = selectedId == ALL_CAT_ID || selectedId == null,
                 onClick = { onSelect(ALL_CAT_ID) },
                 count = totalCount.takeIf { it > 0 },
+                modifier = Modifier.restorableFocus(screenKey, "cat_$ALL_CAT_ID"),
             )
         }
         items(categories, key = { it.id }) { cat ->
@@ -653,6 +703,7 @@ private fun BrowseSidebar(
                 onClick = { onSelect(cat.id) },
                 count = if (count != null && count > 0) count else null,
                 trailingText = if (q != null && (count == null || count == 0)) q else null,
+                modifier = Modifier.restorableFocus(screenKey, "cat_${cat.id}"),
             )
         }
     }
@@ -660,27 +711,31 @@ private fun BrowseSidebar(
 
 @Composable
 private fun PosterGrid(
+    screenKey: String,
     series: Boolean,
     state: BrowseUiState,
     items: List<Poster>,
     gridState: LazyGridState,
     recents: List<RecentItem>,
     onPlayRecent: (RecentItem) -> Unit,
+    fixedColumns: Int?,
     columnWidth: Dp,
-    onOpenItem: (String) -> Unit,
-    onPreview: (Poster) -> Unit,
+    onOpenPoster: (Poster) -> Unit,
     onToggleFavorite: (Poster) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val headerTitle = if (series) Ar.seriesLibrary else Ar.moviesLibrary
+    val gridCells = remember(fixedColumns, columnWidth) {
+        if (fixedColumns != null) GridCells.Fixed(fixedColumns) else GridCells.Adaptive(columnWidth)
+    }
 
     Column(modifier) {
         if (LocalDisplayMode.current == DisplayMode.TABLET_OR_TV) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
@@ -700,33 +755,38 @@ private fun PosterGrid(
                 state.error != null && items.isEmpty() -> MessageBox(state.error, actionLabel = Ar.retry, onAction = onRetry)
                 items.isEmpty() && recents.isEmpty() -> MessageBox(if (state.selectedId == FAV_CAT_ID) Ar.noFavorites else Ar.noTitles)
                 else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(columnWidth),
+                    columns = gridCells,
                     state = gridState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
                     contentPadding = PaddingValues(6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    // Place "آخر ما تم مشاهدته" inside the scrollable grid header so posters below are never squeezed/cut off
                     if (recents.isNotEmpty()) {
                         item(key = "browse_recents_header", span = { GridItemSpan(maxLineSpan) }) {
                             BrowseRecentsStrip(
+                                screenKey = screenKey,
                                 title = if (series) "آخر ما تم مشاهدته في المسلسلات" else "آخر ما تم مشاهدته في الأفلام",
                                 recents = recents.take(10),
                                 onPlayRecent = onPlayRecent,
                             )
                         }
                     }
-                    items(items, key = { it.id }) { poster ->
+                    itemsIndexed(items, key = { _, p -> p.id }) { index, poster ->
+                        val itemKey = "poster_${poster.id}"
                         PosterCard(
                             title = poster.name,
                             imageUrl = poster.image,
                             badge = poster.rating,
                             quality = qualityOf(poster.name),
                             subtitle = poster.year,
-                            onClick = { onOpenItem(poster.id) },
+                            onClick = { onOpenPoster(poster) },
                             onLongClick = { onToggleFavorite(poster) },
-                            onFocused = { onPreview(poster) },
+                            modifier = Modifier.restorableFocus(
+                                screenKey = screenKey,
+                                itemKey = itemKey,
+                                isDefaultEntry = index == 0,
+                            ),
                         )
                     }
                 }
@@ -737,23 +797,29 @@ private fun PosterGrid(
 
 @Composable
 private fun BrowseRecentsStrip(
+    screenKey: String,
     title: String,
     recents: List<RecentItem>,
     onPlayRecent: (RecentItem) -> Unit,
 ) {
+    val rowState = rememberRestorableLazyListState("${screenKey}_recents_strip")
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         DotTitle(title, Palette.Gold, fontSize = 14.sp)
         LazyRow(
+            state = rowState,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(vertical = 2.dp),
         ) {
             items(recents, key = { "browse_recent_${it.kind}_${it.id}" }) { item ->
+                val itemKey = "browse_recent_${item.kind}_${item.id}"
                 val progress = if (item.durationMs > 0) {
                     (item.positionMs.toFloat() / item.durationMs).coerceIn(0f, 1f)
                 } else null
                 GlassCard(
                     onClick = { onPlayRecent(item) },
-                    modifier = Modifier.width(200.dp),
+                    modifier = Modifier
+                        .width(200.dp)
+                        .restorableFocus(screenKey, itemKey),
                     shape = RoundedCornerShape(14.dp),
                 ) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -789,251 +855,6 @@ private fun BrowseRecentsStrip(
                             ProgressLine(progress, height = 3.dp)
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-private data class PreviewMeta(
-    val backdrop: String = "",
-    val plot: String = "",
-    val genre: String = "",
-    val year: String = "",
-    val duration: String = "",
-    val rating: String = "",
-    val cast: String = "",
-    val director: String = "",
-    val firstPlayItem: PlayItem? = null,
-)
-
-@Composable
-private fun TitlePreviewPanel(
-    series: Boolean,
-    poster: Poster?,
-    isFavorite: Boolean,
-    onOpenItem: () -> Unit,
-    onPlay: (PlayRequest) -> Unit,
-    onToggleFavorite: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val repo = LocalContainer.current.repo
-    val meta by produceState<PreviewMeta?>(initialValue = null, poster?.id, series) {
-        value = null
-        val p = poster ?: return@produceState
-        delay(220) // Debounce rapid D-Pad navigation
-        value = try {
-            if (series) {
-                val d = repo.seriesDetails(p.id)
-                val firstEp = d.episodes.firstOrNull()
-                PreviewMeta(
-                    backdrop = d.backdrop.ifBlank { d.cover }.ifBlank { p.image },
-                    plot = d.plot,
-                    genre = d.genre,
-                    year = d.year.ifBlank { p.year },
-                    duration = if (d.seasons.isNotEmpty()) "${d.seasons.size} مواسم · ${d.episodes.size} حلقة" else "",
-                    rating = d.rating.ifBlank { p.rating },
-                    cast = d.cast,
-                    firstPlayItem = firstEp?.let {
-                        PlayItem(
-                            kind = Kind.EPISODE,
-                            id = it.id,
-                            title = d.name,
-                            subtitle = Ar.seasonEpisode(it.season, it.number),
-                            icon = it.image.ifBlank { d.cover },
-                            ext = it.ext,
-                            groupId = d.id,
-                        )
-                    },
-                )
-            } else {
-                val d = repo.movieDetails(p.id)
-                PreviewMeta(
-                    backdrop = d.backdrop.ifBlank { d.image }.ifBlank { p.image },
-                    plot = d.plot,
-                    genre = d.genre,
-                    year = d.year.ifBlank { p.year },
-                    duration = d.duration,
-                    rating = d.rating.ifBlank { p.rating },
-                    cast = d.cast,
-                    director = d.director,
-                    firstPlayItem = PlayItem(
-                        kind = Kind.MOVIE,
-                        id = d.id,
-                        title = d.name,
-                        icon = d.image,
-                        ext = d.ext.ifBlank { p.ext },
-                    ),
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    GlassPanel(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        padding = 16.dp,
-    ) {
-        if (poster == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(Ar.pickTitle, fontSize = 14.sp, color = Palette.TextDim)
-            }
-        } else {
-            val heroUrl = meta?.backdrop?.ifBlank { poster.image } ?: poster.image
-            val rating = meta?.rating?.ifBlank { poster.rating } ?: poster.rating
-            val year = meta?.year?.ifBlank { poster.year } ?: poster.year
-            val duration = meta?.duration.orEmpty()
-            val quality = qualityOf(poster.name) ?: "HD"
-
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black)
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
-                    .clickable(onClick = onOpenItem),
-            ) {
-                RemoteImage(
-                    url = heroUrl,
-                    fallbackText = poster.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.35f), Color.Transparent, Palette.DeepBlue.copy(alpha = 0.85f)),
-                            ),
-                        ),
-                )
-                Tag(
-                    quality,
-                    if (quality == "4K") Palette.Gold else Palette.Glow,
-                    Modifier.align(Alignment.TopStart).padding(10.dp),
-                )
-                if (rating.isNotBlank()) {
-                    Row(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.Black.copy(alpha = 0.70f))
-                            .border(1.dp, Palette.Gold.copy(alpha = 0.4f), RoundedCornerShape(50))
-                            .padding(horizontal = 9.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Ic.Star, null, tint = Palette.Gold, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(rating, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Palette.Gold)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Text(
-                poster.name,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Spacer(Modifier.height(6.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Tag(if (series) Ar.series else Ar.movies, Palette.Royal)
-                if (year.isNotBlank()) {
-                    Text(year, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Palette.Glow)
-                }
-                if (duration.isNotBlank()) {
-                    Text("• $duration", fontSize = 12.sp, color = Palette.TextDim, maxLines = 1)
-                }
-            }
-
-            val genre = meta?.genre.orEmpty()
-            if (genre.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(3).forEach { g ->
-                        Tag(g, Palette.Glow, fontSize = 10.sp)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // Quick Action Row
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlassButton(
-                    text = Ar.play,
-                    onClick = {
-                        val playItem = meta?.firstPlayItem ?: if (!series) {
-                            PlayItem(Kind.MOVIE, poster.id, poster.name, icon = poster.image, ext = poster.ext)
-                        } else null
-                        if (playItem != null) {
-                            onPlay(PlayRequest(listOf(playItem), 0))
-                        } else {
-                            onOpenItem()
-                        }
-                    },
-                    icon = Ic.Play,
-                    primary = true,
-                    modifier = Modifier.weight(1f),
-                )
-                GlassIconButton(
-                    icon = Ic.Info,
-                    description = Ar.details,
-                    onClick = onOpenItem,
-                    size = 46.dp,
-                    tint = Palette.Glow,
-                )
-                GlassIconButton(
-                    icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
-                    description = Ar.favorites,
-                    onClick = onToggleFavorite,
-                    size = 46.dp,
-                    tint = if (isFavorite) Palette.Live else Palette.TextDim,
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val plot = meta?.plot.orEmpty()
-                DotTitle(Ar.plot, Palette.Gold, fontSize = 13.sp)
-                Text(
-                    plot.ifBlank { "اضغط على العنوان لعرض كافة التفاصيل والقصة الكاملة والممثلين." },
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp,
-                    color = Palette.TextDim,
-                )
-                val cast = meta?.cast.orEmpty()
-                if (cast.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    DotTitle(Ar.cast, Palette.Glow, fontSize = 12.sp)
-                    Text(cast, fontSize = 12.sp, color = Palette.Text, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

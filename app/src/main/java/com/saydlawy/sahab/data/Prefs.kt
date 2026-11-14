@@ -32,6 +32,13 @@ enum class HomeChannelsLayout {
     GRID,
 }
 
+enum class HomeChannelsSource {
+    AUTO,
+    FAVORITES,
+    CATEGORY,
+    CUSTOM,
+}
+
 class Prefs @JvmOverloads constructor(
     context: Context?,
     private val secureStoreOverride: SharedPreferences? = null,
@@ -54,7 +61,14 @@ class Prefs @JvmOverloads constructor(
         val Recents = stringPreferencesKey("recents")
         val LightEffects = booleanPreferencesKey("light_effects")
         val ShowRecents = booleanPreferencesKey("show_recents")
+        val ShowLiveChannelsOnHome = booleanPreferencesKey("show_live_channels_on_home")
+        val ShowRecommendedOnHome = booleanPreferencesKey("show_recommended_on_home")
+        val ShowQuickCategoriesOnHome = booleanPreferencesKey("show_quick_categories_on_home")
+        val ShowMatchesOnHome = booleanPreferencesKey("show_matches_on_home")
         val HomeChannelsLayoutKey = stringPreferencesKey("home_channels_layout")
+        val HomeChannelsSourceKey = stringPreferencesKey("home_channels_source")
+        val HomeChannelsCategoryIdKey = stringPreferencesKey("home_channels_category_id")
+        val HomeCustomChannelIdsKey = stringPreferencesKey("home_custom_channel_ids")
         val LastSyncTime = longPreferencesKey("last_sync_time")
     }
 
@@ -164,17 +178,87 @@ class Prefs @JvmOverloads constructor(
 
     val showRecents: Flow<Boolean> = store.data.map { it[Keys.ShowRecents] ?: true }
 
+    val showLiveChannelsOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowLiveChannelsOnHome] ?: true }
+
+    val showRecommendedOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowRecommendedOnHome] ?: true }
+
+    val showQuickCategoriesOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowQuickCategoriesOnHome] ?: true }
+
+    val showMatchesOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowMatchesOnHome] ?: true }
+
     val homeChannelsLayout: Flow<HomeChannelsLayout> = store.data.map {
         val raw = it[Keys.HomeChannelsLayoutKey]
         if (raw == HomeChannelsLayout.GRID.name) HomeChannelsLayout.GRID else HomeChannelsLayout.CAROUSEL
+    }
+
+    val homeChannelsSource: Flow<HomeChannelsSource> = store.data.map {
+        val raw = it[Keys.HomeChannelsSourceKey]
+        runCatching { if (raw != null) HomeChannelsSource.valueOf(raw) else HomeChannelsSource.AUTO }
+            .getOrDefault(HomeChannelsSource.AUTO)
+    }
+
+    val homeChannelsCategoryId: Flow<String> = store.data.map { it[Keys.HomeChannelsCategoryIdKey].orEmpty() }
+
+    val homeCustomChannelIds: Flow<Set<String>> = store.data.map {
+        it[Keys.HomeCustomChannelIdsKey]
+            ?.split(",")
+            ?.map { id -> id.trim() }
+            ?.filter { id -> id.isNotBlank() }
+            ?.toSet()
+            ?: emptySet()
     }
 
     suspend fun setShowRecents(show: Boolean) {
         store.edit { it[Keys.ShowRecents] = show }
     }
 
+    suspend fun setShowLiveChannelsOnHome(show: Boolean) {
+        store.edit { it[Keys.ShowLiveChannelsOnHome] = show }
+    }
+
+    suspend fun setShowRecommendedOnHome(show: Boolean) {
+        store.edit { it[Keys.ShowRecommendedOnHome] = show }
+    }
+
+    suspend fun setShowQuickCategoriesOnHome(show: Boolean) {
+        store.edit { it[Keys.ShowQuickCategoriesOnHome] = show }
+    }
+
+    suspend fun setShowMatchesOnHome(show: Boolean) {
+        store.edit { it[Keys.ShowMatchesOnHome] = show }
+    }
+
     suspend fun setHomeChannelsLayout(layout: HomeChannelsLayout) {
         store.edit { it[Keys.HomeChannelsLayoutKey] = layout.name }
+    }
+
+    suspend fun setHomeChannelsSource(source: HomeChannelsSource) {
+        store.edit { it[Keys.HomeChannelsSourceKey] = source.name }
+    }
+
+    suspend fun setHomeChannelsCategoryId(categoryId: String) {
+        store.edit { it[Keys.HomeChannelsCategoryIdKey] = categoryId }
+    }
+
+    suspend fun toggleHomeCustomChannel(channelId: String) {
+        store.edit { p ->
+            val current = p[Keys.HomeCustomChannelIdsKey]
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() }
+                ?.toMutableSet()
+                ?: mutableSetOf()
+            if (!current.remove(channelId)) {
+                current.add(channelId)
+            }
+            p[Keys.HomeCustomChannelIdsKey] = current.joinToString(",")
+        }
+    }
+
+    suspend fun setHomeCustomChannelIds(ids: Set<String>) {
+        store.edit { p ->
+            p[Keys.HomeCustomChannelIdsKey] = ids.filter { it.isNotBlank() }.joinToString(",")
+        }
     }
 
     val lastSyncTime: Flow<Long> = store.data.map { it[Keys.LastSyncTime] ?: 0L }

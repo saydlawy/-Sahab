@@ -70,6 +70,9 @@ import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.userMessage
@@ -175,8 +178,17 @@ private fun SeriesContent(
     onToggleFavorite: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
 ) {
+    val focusNav = LocalFocusNavigation.current
+    val screenKey = remember(details.id) { "series/${details.id}" }
     val seasons = details.seasons
-    var selectedSeasonIndex by remember { mutableIntStateOf(0) }
+    var selectedSeasonIndex by remember(details.id) {
+        mutableIntStateOf(
+            focusNav.getSelectedSeason(details.id).coerceIn(0, (seasons.size - 1).coerceAtLeast(0))
+        )
+    }
+    LaunchedEffect(selectedSeasonIndex) {
+        focusNav.saveSelectedSeason(details.id, selectedSeasonIndex)
+    }
     val season = seasons.getOrNull(selectedSeasonIndex) ?: seasons.firstOrNull()
     val visibleEpisodes = details.episodes.filter { it.season == season }
     val queue = remember(details) { details.episodes.map { playItem(details, it) } }
@@ -193,8 +205,8 @@ private fun SeriesContent(
     }
     val resumeIndex = lastWatched?.let { last -> details.episodes.indexOfFirst { it.id == last.id } } ?: -1
     val resumePosMs = lastWatched?.positionMs ?: -1L
-    val episodesState = rememberLazyListState()
-    val seasonsRowState = rememberLazyListState()
+    val episodesState = rememberRestorableLazyListState("series_episodes_${details.id}_$selectedSeasonIndex")
+    val seasonsRowState = rememberRestorableLazyListState("series_seasons_${details.id}")
 
     val displayMode = LocalDisplayMode.current
     val hPad = when (displayMode) {
@@ -317,6 +329,7 @@ private fun SeriesContent(
                     episode = episode,
                     coverFallback = details.cover,
                     saved = progress[episode.id],
+                    screenKey = screenKey,
                     onClick = {
                         val index = details.episodes.indexOfFirst { it.id == episode.id }
                         if (index >= 0) onPlay(PlayRequest(queue, index))
@@ -423,7 +436,12 @@ private fun SeriesInfoPanel(
                     },
                     icon = Ic.Play,
                     primary = true,
-                    autoFocus = true,
+                    autoFocus = false,
+                    modifier = Modifier.restorableFocus(
+                        screenKey = "series/${details.id}",
+                        itemKey = "series_play_btn",
+                        isDefaultEntry = true,
+                    ),
                 )
             }
             GlassIconButton(
@@ -480,11 +498,21 @@ private fun EpisodeRow(
     episode: Episode,
     coverFallback: String,
     saved: RecentItem?,
+    screenKey: String = "",
     onClick: () -> Unit,
 ) {
     GlassCard(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (screenKey.isNotBlank()) {
+                    Modifier.restorableFocus(
+                        screenKey = screenKey,
+                        itemKey = "ep_${episode.id}",
+                    )
+                } else Modifier
+            ),
         shape = RoundedCornerShape(18.dp),
         focusScale = 1.02f,
     ) { focused ->

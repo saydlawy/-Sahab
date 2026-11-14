@@ -40,10 +40,14 @@ import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
+import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
+import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 
 @Composable
@@ -52,17 +56,33 @@ fun TrendingMoviesSection(
     onMovieClick: (CatalogMovieEntity) -> Unit,
 ) {
     val container = LocalContainer.current
-    var fetchedMovies by remember { mutableStateOf<List<CatalogMovieEntity>>(emptyList()) }
+    val focusNav = LocalFocusNavigation.current
+    var fetchedMovies by remember {
+        mutableStateOf(container.firebaseCatalog.peekCachedRecommendedMovies())
+    }
 
     LaunchedEffect(preloadedMovies, container.repo.account) {
         if (preloadedMovies.isNullOrEmpty()) {
-            fetchedMovies = runCatching {
+            val instant = runCatching {
+                container.firebaseCatalog.getInstantRecommendedMovies(
+                    repo = container.repo,
+                    dao = container.catalogDb.movieDao(),
+                    limit = 18,
+                )
+            }.getOrNull().orEmpty()
+            if (instant.isNotEmpty()) {
+                fetchedMovies = instant
+            }
+            val enriched = runCatching {
                 container.firebaseCatalog.getXtreamRecommendedMovies(
                     repo = container.repo,
                     dao = container.catalogDb.movieDao(),
-                    limit = 15,
+                    limit = 18,
                 )
             }.getOrNull().orEmpty()
+            if (enriched.isNotEmpty()) {
+                fetchedMovies = enriched
+            }
         }
     }
 
@@ -72,6 +92,7 @@ fun TrendingMoviesSection(
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
     val cardWidth = if (isTvOrTablet) 148.dp else 130.dp
+    val rowState = rememberRestorableLazyListState("home_trending_movies_row")
 
     Column(
         modifier = Modifier
@@ -98,15 +119,28 @@ fun TrendingMoviesSection(
         }
 
         LazyRow(
+            state = rowState,
             contentPadding = PaddingValues(horizontal = horizPad, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(movies, key = { idx, item -> "${item.novaStreamId}_${item.sahabId}_$idx" }) { index, movie ->
+            itemsIndexed(
+                items = movies,
+                key = { _, item -> "trending_${item.novaStreamId.ifEmpty { item.sahabId }}" },
+            ) { index, movie ->
+                val itemFocusKey = "trending_${movie.novaStreamId.ifEmpty { movie.sahabId }}"
                 TrendingMovieCard(
                     movie = movie,
-                    isNew = index < 2 || movie.year >= "2025",
-                    onClick = { onMovieClick(movie) },
-                    modifier = Modifier.width(cardWidth),
+                    isNew = index < 4 || movie.year >= "2025",
+                    onClick = {
+                        focusNav.markNavigateFrom(Routes.HOME, itemFocusKey)
+                        onMovieClick(movie)
+                    },
+                    modifier = Modifier
+                        .width(cardWidth)
+                        .restorableFocus(
+                            screenKey = Routes.HOME,
+                            itemKey = itemFocusKey,
+                        ),
                 )
             }
         }
@@ -126,7 +160,7 @@ private fun TrendingMovieCard(
         movie.genre.isNotBlank() -> movie.genre
         movie.plot.isNotBlank() -> movie.plot
         movie.year.isNotBlank() -> "إصدار ${movie.year}"
-        else -> "دراما وتشويق"
+        else -> "أحدث الإضافات"
     }
 
     GlassCard(

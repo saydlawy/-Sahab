@@ -51,6 +51,9 @@ import com.saydlawy.sahab.ui.login.LoginScreen
 import com.saydlawy.sahab.ui.login.CloudLoginScreen
 import com.saydlawy.sahab.ui.player.PlayerScreen
 import com.saydlawy.sahab.ui.settings.SettingsScreen
+import androidx.activity.compose.BackHandler
+import com.saydlawy.sahab.ui.focus.FocusNavigationController
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.flow.first
@@ -113,13 +116,31 @@ fun AppRoot(container: AppContainer) {
     val currentRoute = entry?.destination?.route
     val onPlayer = currentRoute == Routes.PLAYER
     val onSports = currentRoute == Routes.SPORTS
+    val focusController = remember { FocusNavigationController() }
+    var previousScreenKey by remember { mutableStateOf<String?>(null) }
 
-    val onTab: (String) -> Unit = remember(nav) {
+    LaunchedEffect(entry?.id, currentRoute) {
+        val resolvedKey = when (currentRoute) {
+            Routes.MOVIE_PATTERN -> "movie/${entry?.arguments?.getString("id").orEmpty()}"
+            Routes.SERIES_PATTERN -> "series/${entry?.arguments?.getString("id").orEmpty()}"
+            else -> currentRoute
+        }
+        if (resolvedKey != null) {
+            if (previousScreenKey != null && previousScreenKey != resolvedKey) {
+                focusController.onScreenResumed(resolvedKey)
+            }
+            previousScreenKey = resolvedKey
+        }
+    }
+
+    val onTab: (String) -> Unit = remember(nav, focusController) {
         { route ->
-            if (nav.currentDestination?.route != route) {
+            if (nav.currentDestination?.route != route && focusController.canNavigateNow()) {
+                focusController.onScreenResumed(route)
                 nav.navigate(route) {
-                    popUpTo(Routes.HOME) { saveState = false }
+                    popUpTo(Routes.HOME) { saveState = true }
                     launchSingleTop = true
+                    restoreState = true
                 }
             }
         }
@@ -128,6 +149,7 @@ fun AppRoot(container: AppContainer) {
     CompositionLocalProvider(
         LocalLightEffects provides light,
         LocalTabNavigator provides onTab,
+        LocalFocusNavigation provides focusController,
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val isTv = LocalIsTv.current
@@ -189,12 +211,21 @@ fun AppRoot(container: AppContainer) {
 @Composable
 private fun AppNavHost(nav: NavHostController, container: AppContainer, start: String) {
     val context = LocalContext.current
+    val focusController = LocalFocusNavigation.current
     val play: (PlayRequest) -> Unit = { request ->
-        container.playback = request
-        nav.navigate(Routes.PLAYER)
+        if (focusController.canNavigateNow()) {
+            container.playback = request
+            nav.navigate(Routes.PLAYER) { launchSingleTop = true }
+        }
     }
-    val open: (String) -> Unit = { route -> nav.navigate(route) }
-    val back: () -> Unit = { nav.popBackStack() }
+    val open: (String) -> Unit = { route ->
+        if (focusController.canNavigateNow()) {
+            nav.navigate(route) { launchSingleTop = true }
+        }
+    }
+    val back: () -> Unit = {
+        nav.popBackStack()
+    }
     val idArgument = listOf(navArgument("id") { type = NavType.StringType })
 
     NavHost(
