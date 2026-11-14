@@ -2,6 +2,7 @@ package com.saydlawy.sahab.ui.login
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -95,7 +96,7 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
 
-            Box(Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp))
 
             GlassTextField(
                 value = state.email,
@@ -114,8 +115,8 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
 
-            if (state.error != null) {
-                Text(state.error, color = Palette.Danger, fontSize = 13.sp)
+            state.error?.let { err ->
+                Text(err, color = Palette.Danger, fontSize = 13.sp)
             }
 
             GlassButton(
@@ -132,7 +133,7 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 )
             }
 
-            Box(Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
 
             // Placeholder for Google Sign-in
             GlassButton(
@@ -142,7 +143,7 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Box(Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp))
 
             TextButton(onClick = onSkip) {
                 Text("تخطي الآن (لن يتم حفظ البيانات سحابياً)", color = Palette.TextDim)
