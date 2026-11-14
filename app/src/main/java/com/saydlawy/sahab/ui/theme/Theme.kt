@@ -32,9 +32,11 @@ object Palette {
     val CardSurface = Color(0xFF161A29)
     val CardSurfaceElevated = Color(0xFF1E2336)
     val CardBorderIdle = Color(0x26FFFFFF)
+    val CardBorder = CardBorderIdle
     val FocusCyan = Color(0xFF38BDF8)
     val FocusBlueGlow = Color(0xFF0EA5E9)
     val LiveBadgeRed = Color(0xFFE53935)
+    val LiveRed = LiveBadgeRed
     val NewBadgeBlue = Color(0xFF2563EB)
     val CategorySeriesStart = Color(0xFF5B21B6)
     val CategorySeriesEnd = Color(0xFF2E1065)

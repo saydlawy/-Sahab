@@ -817,7 +817,7 @@ private fun ChannelColumn(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberRestorableLazyListState(
-        listKey = "live_channels_${state.selectedId ?: ALL_CAT_ID}_${state.query.trim()}"
+        "live_channels_${state.selectedId ?: ALL_CAT_ID}_${state.query.trim()}"
     )
 
     Column(modifier) {
@@ -947,7 +947,7 @@ private fun ChannelRow(
     val internetFallbackLogoUrl = remember(channel.name) {
         ChannelLogoResolver.resolveInternetLogoUrl(channel.name)
     }
-    val brandStyle = remember(channel.name) {
+    val (badgeText, _) = remember(channel.name) {
         ChannelLogoResolver.resolveBrandStyle(channel.name)
     }
 
@@ -998,7 +998,7 @@ private fun ChannelRow(
             RemoteImage(
                 url = primaryLogoUrl,
                 fallbackUrl = internetFallbackLogoUrl,
-                fallbackText = brandStyle.badgeText,
+                fallbackText = badgeText,
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape),

@@ -27,6 +27,9 @@ interface CatalogMovieDao {
     @Query("SELECT * FROM catalog_movies WHERE novaStreamId IN (:streamIds) AND deleted = 0")
     suspend fun findByStreamIds(streamIds: List<String>): List<CatalogMovieEntity>
 
+    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND novaStreamId != '' ORDER BY novaAdded DESC LIMIT :limit")
+    suspend fun getRecentlyAdded(limit: Int): List<CatalogMovieEntity>
+
     @Query(
         "SELECT * FROM catalog_movies " +
             "WHERE deleted = 0 AND novaStreamId != '' " +

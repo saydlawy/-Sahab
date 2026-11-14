@@ -146,9 +146,13 @@ class FocusNavigationController {
 
     fun getSelectedCategory(screenKey: String): String? = selectedFilterByScreen[screenKey]
 
-    fun setSelectedCategory(screenKey: String, categoryId: String) {
-        selectedFilterByScreen[screenKey] = categoryId
+    fun setSelectedCategory(screenKey: String, categoryId: String?) {
+        if (categoryId == null) selectedFilterByScreen.remove(screenKey)
+        else selectedFilterByScreen[screenKey] = categoryId
     }
+
+    fun saveSelectedCategory(screenKey: String, categoryId: String?) =
+        setSelectedCategory(screenKey, categoryId)
 
     fun getPreviewItem(screenKey: String): String? = previewItemByScreen[screenKey]
 
@@ -163,12 +167,18 @@ class FocusNavigationController {
         selectedSeasonBySeries[seriesId] = seasonIndex
     }
 
+    fun saveSelectedSeason(seriesId: String, seasonIndex: Int) =
+        setSelectedSeason(seriesId, seasonIndex)
+
     fun getSearchQuery(screenKey: String): String = searchQueryByScreen[screenKey].orEmpty()
 
     fun setSearchQuery(screenKey: String, query: String) {
         if (query.isBlank()) searchQueryByScreen.remove(screenKey)
         else searchQueryByScreen[screenKey] = query
     }
+
+    fun saveSearchQuery(screenKey: String, query: String) =
+        setSearchQuery(screenKey, query)
 }
 
 val LocalFocusNavigation = compositionLocalOf { FocusNavigationController() }
