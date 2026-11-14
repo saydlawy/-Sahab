@@ -55,3 +55,11 @@
 -keep class com.google.firebase.datastorage.** { *; }
 -keep class androidx.datastore.** { *; }
 -dontwarn com.google.firebase.datastorage.**
+
+# الحل النهائي لمشكلة JavaDataStorage مع R8
+-keep class androidx.datastore.*.** {*;}
+-keep class com.google.firebase.datastorage.** { *; }
+-keep class com.google.firebase.installations.** { *; }
+-dontwarn androidx.datastore.**
+-dontwarn com.google.firebase.datastorage.**
+-dontwarn com.google.firebase.installations.**
