@@ -34,6 +34,12 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release-keystore.jks
 
+      - name: Diagnose Firebase dependencies
+        run: |
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency firebase-installations
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency firebase-common
+          gradle :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency firebase-appdistribution
+
       - name: Run unit tests
         run: gradle :app:testReleaseUnitTest --no-daemon --stacktrace
 
