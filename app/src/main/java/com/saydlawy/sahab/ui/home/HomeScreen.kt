@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.PivotOffsets
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -167,8 +168,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
                     FeaturedChannelsSection(
                         channels = featuredChannels,
                         layout = homeChannelsLayout,
-                        onPlay = onPlay,
-                        onOpen = onOpen
+                        onPlay = onPlay
                     )
                 }
 
