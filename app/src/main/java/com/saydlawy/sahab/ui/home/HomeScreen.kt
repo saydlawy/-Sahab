@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -201,26 +202,6 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
 }
 
 @Composable
-private fun TvLazyRow(
-    modifier: Modifier = Modifier,
-    state: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState(),
-    contentPadding: PaddingValues = PaddingValues(0.dp),
-    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
-    pivotOffsets: PivotOffsets = PivotOffsets(0.5f, 0.5f),
-    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
-) {
-    val flingBehavior = rememberSnapFlingBehavior(lazyListState = state)
-    LazyRow(
-        modifier = modifier,
-        state = state,
-        contentPadding = contentPadding,
-        horizontalArrangement = horizontalArrangement,
-        flingBehavior = flingBehavior,
-        content = content,
-    )
-}
-
-@Composable
 private fun FeaturedChannelsSection(
     layout: HomeChannelsLayout,
     channels: List<Channel>,
@@ -250,45 +231,56 @@ private fun FeaturedChannelsSection(
 }
 
 @Composable
-@Composable
 private fun FeaturedChannelsCarousel(
     channels: List<Channel>,
-    onPlay: (Channel) -> Unit,
+    onPlay: (PlayRequest) -> Unit,
+    s: Float = 1f,
+    modifier: Modifier = Modifier,
 ) {
     if (channels.isEmpty()) return
 
     val listState = rememberLazyListState()
-    
+    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+
     LazyRow(
         state = listState,
+        flingBehavior = flingBehavior,
         contentPadding = PaddingValues(horizontal = 48.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = Modifier.fillMaxWidth().height(220.dp)
+        modifier = modifier.fillMaxWidth().height((220 * s).dp)
     ) {
         items(channels, key = { it.id }) { channel ->
-            val index = channels.indexOf(channel)
             // حساب الموضع التقريبي للعنصر بالنسبة للمركز
             val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.key == channel.id }
+            val viewportHalf = (listState.layoutInfo.viewportEndOffset / 2).coerceAtLeast(1)
             val centerOffset = if (itemInfo != null) {
-                val viewportCenter = listState.layoutInfo.viewportEndOffset / 2
                 val itemCenter = itemInfo.offset + itemInfo.size / 2
-                (itemCenter - viewportCenter).toFloat() / (listState.layoutInfo.viewportEndOffset / 2)
+                (itemCenter - viewportHalf).toFloat() / viewportHalf
             } else 1f
 
+            val isCentered = centerOffset > -0.3f && centerOffset < 0.3f
             val scale by animateFloatAsState(
-                targetValue = if (centerOffset > -0.3f && centerOffset < 0.3f) 1.1f else 0.85f,
+                targetValue = if (isCentered) 1.1f else 0.85f,
                 animationSpec = tween(300), label = "scale"
             )
             val alpha by animateFloatAsState(
-                targetValue = if (centerOffset > -0.3f && centerOffset < 0.3f) 1f else 0.6f,
+                targetValue = if (isCentered) 1f else 0.6f,
                 animationSpec = tween(300), label = "alpha"
             )
 
             GlassCard(
-                onClick = { onPlay(channel) },
+                onClick = {
+                    onPlay(
+                        PlayRequest(
+                            listOf(PlayItem(Kind.LIVE, channel.id, channel.name, icon = channel.icon)),
+                            0,
+                        ),
+                    )
+                },
                 modifier = Modifier
-                    .width(180.dp)
+                    .width((180 * s).dp)
                     .fillMaxHeight()
+                    .zIndex(if (isCentered) 5f else 1f)
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
@@ -304,14 +296,14 @@ private fun FeaturedChannelsCarousel(
                     RemoteImage(
                         url = channel.icon,
                         fallbackText = channel.name,
-                        modifier = Modifier.size(80.dp).clip(CircleShape),
+                        modifier = Modifier.size((80 * s).dp).clip(CircleShape),
                         contentScale = ContentScale.Fit
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
                         channel.name,
                         color = Palette.Text,
-                        fontSize = 14.sp,
+                        fontSize = (14 * s).sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         textAlign = TextAlign.Center,
@@ -323,6 +315,7 @@ private fun FeaturedChannelsCarousel(
     }
 }
 
+@Composable
 private fun FeaturedChannelsGrid(
     channels: List<Channel>,
     onPlay: (PlayRequest) -> Unit,
