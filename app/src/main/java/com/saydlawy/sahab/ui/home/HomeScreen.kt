@@ -1,44 +1,34 @@
 package com.saydlawy.sahab.ui.home
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,22 +36,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,470 +55,710 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.saydlawy.sahab.data.Channel
 import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.Kind
-import com.saydlawy.sahab.data.Repository
-import com.saydlawy.sahab.data.weather.WeatherCondition
-import java.util.Calendar
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.RecentItem
+import com.saydlawy.sahab.data.Repository
+import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.data.sports.Match
+import com.saydlawy.sahab.data.sports.MatchStatus
+import com.saydlawy.sahab.data.sports.SportsDatabase
+import com.saydlawy.sahab.data.sports.toMatch
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
-import com.saydlawy.sahab.ui.LocalLightEffects
-import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.Ic
-import com.saydlawy.sahab.ui.components.ProgressLine
 import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SahabTopBar
-import com.saydlawy.sahab.ui.components.Tag
+import com.saydlawy.sahab.ui.home.components.TrendingMoviesSection
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
-import com.saydlawy.sahab.util.formatNowMillis
+import com.saydlawy.sahab.util.formatDayOffsetYmd
+import com.saydlawy.sahab.util.formatUtcClockToLocal
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
-import androidx.compose.foundation.lazy.LazyColumn
-import com.saydlawy.sahab.ui.home.components.CompactTopBarInfo
-import com.saydlawy.sahab.ui.home.components.TrendingMoviesSection
-
-private data class HomeSectionCard(
-    val label: String,
-    val sub: String,
-    val route: String,
-    val badge: String,
-    val icon: ImageVector,
-    val art: Brush,
-    val accent: Color,
-)
 
 @Composable
-fun HomeScreen(onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
+fun HomeScreen(
+    onOpen: (String) -> Unit,
+    onPlay: (PlayRequest) -> Unit,
+) {
     val container = LocalContainer.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
     val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
-    val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(initialValue = HomeChannelsLayout.CAROUSEL)
+    val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(
+        initialValue = HomeChannelsLayout.CAROUSEL,
+    )
 
     var featuredChannels by remember { mutableStateOf<List<Channel>>(emptyList()) }
+    var trendingMovies by remember { mutableStateOf<List<CatalogMovieEntity>>(emptyList()) }
+    var todayMatches by remember { mutableStateOf<List<Match>>(emptyList()) }
+
+    // 1. Load Featured Live Channels from real Xtream Repository
     LaunchedEffect(container.repo.account) {
         featuredChannels = loadFeaturedChannels(container.repo)
     }
 
-    val categories = remember {
-        listOf(
-            HomeSectionCard(
-                label = Ar.live, sub = Ar.liveSub, route = Routes.LIVE, badge = "LIVE 4K", icon = Ic.Tv,
-                art = Brush.linearGradient(listOf(Palette.Glow.copy(alpha = 0.42f), Palette.Blue.copy(alpha = 0.65f), Palette.DeepBlue)),
-                accent = Palette.Glow,
-            ),
-            HomeSectionCard(
-                label = Ar.movies, sub = Ar.moviesSub, route = Routes.MOVIES, badge = "VOD", icon = Ic.Movie,
-                art = Brush.linearGradient(listOf(Palette.Royal.copy(alpha = 0.58f), Color(0xFF4C1D95), Palette.DeepBlue)),
-                accent = Palette.Royal,
-            ),
-            HomeSectionCard(
-                label = Ar.series, sub = Ar.seriesSub, route = Routes.SERIES, badge = "HD / 4K", icon = Ic.Series,
-                art = Brush.linearGradient(listOf(Palette.Gold.copy(alpha = 0.48f), Palette.Royal.copy(alpha = 0.65f), Palette.DeepBlue)),
-                accent = Palette.Gold,
-            ),
-        )
+    // 2. Load Trending Movies from Firebase Catalog
+    LaunchedEffect(Unit) {
+        trendingMovies = runCatching { container.firebaseCatalog.getTrendingMovies(15) }
+            .getOrNull()
+            .orEmpty()
     }
 
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
+    // 3. Load Today's Matches from SportsDatabase
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val dao = SportsDatabase.getInstance(context).matchDao()
+                val all = dao.getAllMatches().map { it.toMatch() }
+                val todayStr = formatDayOffsetYmd(0)
+                val tomorrowStr = formatDayOffsetYmd(1)
+                val yesterdayStr = formatDayOffsetYmd(-1)
+
+                val todayList = all.filter { it.date == todayStr || it.status == MatchStatus.LIVE }
+                val combined = if (todayList.size >= 5) {
+                    todayList
+                } else {
+                    val nearby = all.filter { it.date == tomorrowStr || it.date == yesterdayStr }
+                    (todayList + nearby + all).distinctBy { it.id }.take(12)
+                }
+                todayMatches = combined.take(12)
+            }
+        }
+    }
+
+    // Build Continue Watching items: prioritize user's real watch history; if empty on fresh install,
+    // populate preview resume cards from real trending catalog movies so Section B matches reference image.
+    val continueWatchingItems = remember(recents, trendingMovies) {
+        if (recents.isNotEmpty()) {
+            recents.take(10).mapIndexed { idx, item ->
+                val rawProgress = if (item.durationMs > 0) {
+                    (item.positionMs.toFloat() / item.durationMs.toFloat()).coerceIn(0.08f, 0.96f)
+                } else {
+                    0.70f
+                }
+                ContinueCardModel(
+                    id = "recent_${item.kind}_${item.id}_$idx",
+                    title = item.title,
+                    subtitle = item.subtitle.ifBlank { Ar.kindLabel(item.kind) },
+                    imageUrl = item.icon,
+                    progress = rawProgress,
+                    onClick = {
+                        when (item.kind) {
+                            Kind.LIVE -> onPlay(
+                                PlayRequest(
+                                    listOf(PlayItem(Kind.LIVE, item.id, item.title, icon = item.icon)),
+                                    0,
+                                ),
+                            )
+                            Kind.MOVIE -> onPlay(
+                                PlayRequest(
+                                    listOf(
+                                        PlayItem(
+                                            Kind.MOVIE,
+                                            item.id,
+                                            item.title,
+                                            subtitle = item.subtitle,
+                                            icon = item.icon,
+                                            ext = item.ext.ifBlank { "mp4" },
+                                        ),
+                                    ),
+                                    startIndex = 0,
+                                    fromStart = false,
+                                    initialPositionMs = item.positionMs,
+                                ),
+                            )
+                            Kind.EPISODE -> onPlay(
+                                PlayRequest(
+                                    listOf(
+                                        PlayItem(
+                                            Kind.EPISODE,
+                                            item.id,
+                                            item.title,
+                                            subtitle = item.subtitle,
+                                            icon = item.icon,
+                                            ext = item.ext,
+                                            groupId = item.groupId,
+                                        ),
+                                    ),
+                                    startIndex = 0,
+                                    fromStart = false,
+                                    initialPositionMs = item.positionMs,
+                                ),
+                            )
+                            else -> onOpen(Routes.series(item.id))
+                        }
+                    },
+                )
+            }
+        } else {
+            val sampleProgress = listOf(0.70f, 0.70f, 0.70f, 0.70f, 0.70f)
+            trendingMovies.take(6).mapIndexed { idx, movie ->
+                ContinueCardModel(
+                    id = "preview_${movie.sahabId}",
+                    title = movie.titleAr,
+                    subtitle = movie.year,
+                    imageUrl = movie.posterUrl,
+                    progress = sampleProgress[idx % sampleProgress.size],
+                    onClick = {
+                        onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
+                    },
+                )
+            }
+        }
+    }
+
+    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Palette.CinematicBg,
+                        Palette.CinematicBgSecondary,
+                        Palette.CinematicBg,
+                    ),
+                ),
+            ),
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // A. Top Navigation Bar (RTL) matching reference image while preserving Sahab identity
             SahabTopBar(current = Routes.HOME)
-            
+
+            // Main scrollable vertical feed matching the 5 sections in the reference image
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                contentPadding = PaddingValues(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isTvOrTablet) 14.dp else 12.dp),
             ) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-                        CompactTopBarInfo()
+                // B. تابع المشاهدة (Continue Watching)
+                if (showRecents && continueWatchingItems.isNotEmpty()) {
+                    item(key = "section_continue_watching") {
+                        ContinueWatchingSection(
+                            items = continueWatchingItems,
+                            hasRealRecents = recents.isNotEmpty(),
+                            onClearRecents = {
+                                scope.launch { container.prefs.restoreRecents(emptyList()) }
+                            },
+                        )
                     }
                 }
 
-                if (showRecents && recents.isNotEmpty()) {
-                    item { RecentsStrip(recents = recents.take(10), onOpen = onOpen, onPlay = onPlay) }
-                }
-
-                item {
+                // C. القنوات المباشرة (Live Channels)
+                item(key = "section_live_channels") {
                     FeaturedChannelsSection(
-                        channels = featuredChannels,
                         layout = homeChannelsLayout,
-                        onPlay = onPlay
+                        channels = featuredChannels,
+                        onPlay = onPlay,
+                        onSeeAll = { onOpen(Routes.LIVE) },
                     )
                 }
 
-                item {
-                    TrendingMoviesSection { movie ->
-                        // الانتقال لشاشة التفاصيل باستخدام novaStreamId أو sahabId
-                        onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
-                    }
+                // D. 🔥 أفلام مقترحة لك (Recommended Movies)
+                item(key = "section_trending_movies") {
+                    TrendingMoviesSection(
+                        preloadedMovies = trendingMovies,
+                        onMovieClick = { movie ->
+                            onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
+                        },
+                    )
                 }
 
-                item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        categories.forEach { cat ->
-                            SectionHeroCard(
-                                cat = cat,
-                                modifier = Modifier.weight(1f).height(140.dp),
-                                s = 0.85f,
-                                autoFocus = false,
-                                onClick = { onOpen(cat.route) }
-                            )
-                        }
-                    }
+                // E. تصفح الفئات السريعة (Quick Categories)
+                item(key = "section_quick_categories") {
+                    QuickCategoriesSection(
+                        onOpenSeries = { onOpen(Routes.SERIES) },
+                        onOpenMovies = { onOpen(Routes.MOVIES) },
+                        onOpenLive = { onOpen(Routes.LIVE) },
+                    )
                 }
 
-                item {
-                    LiveMatchesBar(onOpenLive = { onOpen(Routes.LIVE) }, onOpenSports = { onOpen(Routes.SPORTS) })
+                // F. ⚽ مباريات اليوم (Today's Matches)
+                item(key = "section_today_matches") {
+                    TodayMatchesSection(
+                        matches = todayMatches,
+                        onOpenSports = { onOpen(Routes.SPORTS) },
+                    )
                 }
             }
         }
     }
 }
 
+private data class ContinueCardModel(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val imageUrl: String,
+    val progress: Float,
+    val onClick: () -> Unit,
+)
+
+// ============================================================================
+// SECTION B — تابع المشاهدة (Continue Watching)
+// ============================================================================
+@Composable
+private fun ContinueWatchingSection(
+    items: List<ContinueCardModel>,
+    hasRealRecents: Boolean,
+    onClearRecents: () -> Unit,
+) {
+    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+    val horizPad = if (isTvOrTablet) 24.dp else 14.dp
+    val cardWidth = if (isTvOrTablet) 232.dp else 198.dp
+    val cardHeight = if (isTvOrTablet) 114.dp else 102.dp
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizPad),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Ic.Clock,
+                    contentDescription = null,
+                    tint = Palette.TextMuted,
+                    modifier = Modifier.size(if (isTvOrTablet) 18.dp else 16.dp),
+                )
+                Text(
+                    text = "تابع المشاهدة",
+                    color = Color.White,
+                    fontSize = if (isTvOrTablet) 17.sp else 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            if (hasRealRecents) {
+                Text(
+                    text = "مسح السجل",
+                    color = Palette.TextMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onClearRecents)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = horizPad, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            itemsIndexed(items, key = { _, it -> it.id }) { index, item ->
+                ContinueWatchingCard(
+                    item = item,
+                    useRedBar = index % 2 == 0,
+                    modifier = Modifier.size(width = cardWidth, height = cardHeight),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    item: ContinueCardModel,
+    useRedBar: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val pct = (item.progress * 100).toInt().coerceIn(5, 99)
+    val barColor = if (useRedBar) Palette.LiveBadgeRed else Palette.FocusCyan
+
+    GlassCard(
+        onClick = item.onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        focusScale = 1.04f,
+    ) { focused ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Palette.CardSurface),
+        ) {
+            RemoteImage(
+                url = item.imageUrl,
+                fallbackText = item.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            // Cinematic dark bottom gradient overlay matching reference image
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color(0x1A0B0D17),
+                                0.45f to Color(0x660B0D17),
+                                0.80f to Color(0xE60B0D17),
+                                1.0f to Color(0xF80B0D17),
+                            ),
+                        ),
+                    ),
+            )
+
+            if (focused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(12.dp)),
+                )
+            }
+
+            // Bottom overlay: Row(▶ تشغيل | 70%), Progress Bar, Title
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Right side in RTL: ▶ تشغيل
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = Ic.Play,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(11.dp),
+                        )
+                        Text(
+                            text = "تشغيل",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    // Left side in RTL: 70%
+                    Text(
+                        text = "$pct%",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                // Progress bar matching reference image
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.22f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(item.progress.coerceIn(0.05f, 1f))
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(barColor),
+                    )
+                }
+
+                Text(
+                    text = item.title,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
+// SECTION C — القنوات المباشرة (Live Channels)
+// ============================================================================
 @Composable
 private fun FeaturedChannelsSection(
     layout: HomeChannelsLayout,
     channels: List<Channel>,
     onPlay: (PlayRequest) -> Unit,
-    s: Float = 1f,
+    onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val displayChannels = if (channels.isNotEmpty()) channels else FALLBACK_FEATURED_CHANNELS
-    when (layout) {
-        HomeChannelsLayout.CAROUSEL -> {
-            FeaturedChannelsCarousel(
-                channels = displayChannels,
-                onPlay = onPlay,
-                s = s,
-                modifier = modifier,
-            )
-        }
-        HomeChannelsLayout.GRID -> {
-            FeaturedChannelsGrid(
-                channels = displayChannels,
-                onPlay = onPlay,
-                s = s,
-                modifier = modifier,
-            )
-        }
-    }
-}
+    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+    val horizPad = if (isTvOrTablet) 24.dp else 14.dp
 
-@Composable
-private fun FeaturedChannelsCarousel(
-    channels: List<Channel>,
-    onPlay: (PlayRequest) -> Unit,
-    s: Float = 1f,
-    modifier: Modifier = Modifier,
-) {
-    if (channels.isEmpty()) return
-
-    val listState = rememberLazyListState()
-    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
-
-    LazyRow(
-        state = listState,
-        flingBehavior = flingBehavior,
-        contentPadding = PaddingValues(horizontal = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = modifier.fillMaxWidth().height((220 * s).dp)
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(channels, key = { it.id }) { channel ->
-            // حساب الموضع التقريبي للعنصر بالنسبة للمركز
-            val itemInfo = listState.layoutInfo.visibleItemsInfo.find { it.key == channel.id }
-            val viewportHalf = (listState.layoutInfo.viewportEndOffset / 2).coerceAtLeast(1)
-            val centerOffset = if (itemInfo != null) {
-                val itemCenter = itemInfo.offset + itemInfo.size / 2
-                (itemCenter - viewportHalf).toFloat() / viewportHalf
-            } else 1f
-
-            val isCentered = centerOffset > -0.3f && centerOffset < 0.3f
-            val scale by animateFloatAsState(
-                targetValue = if (isCentered) 1.1f else 0.85f,
-                animationSpec = tween(300), label = "scale"
-            )
-            val alpha by animateFloatAsState(
-                targetValue = if (isCentered) 1f else 0.6f,
-                animationSpec = tween(300), label = "alpha"
-            )
-
-            GlassCard(
-                onClick = {
-                    onPlay(
-                        PlayRequest(
-                            listOf(PlayItem(Kind.LIVE, channel.id, channel.name, icon = channel.icon)),
-                            0,
-                        ),
-                    )
-                },
-                modifier = Modifier
-                    .width((180 * s).dp)
-                    .fillMaxHeight()
-                    .zIndex(if (isCentered) 5f else 1f)
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        this.alpha = alpha
-                    },
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Column(
-                    Modifier.fillMaxSize().padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    RemoteImage(
-                        url = channel.icon,
-                        fallbackText = channel.name,
-                        modifier = Modifier.size((80 * s).dp).clip(CircleShape),
-                        contentScale = ContentScale.Fit
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        channel.name,
-                        color = Palette.Text,
-                        fontSize = (14 * s).sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        textAlign = TextAlign.Center,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FeaturedChannelsGrid(
-    channels: List<Channel>,
-    onPlay: (PlayRequest) -> Unit,
-    s: Float = 1f,
-    modifier: Modifier = Modifier,
-) {
-    val isTv = LocalIsTv.current
-    val cols = if (isTv) 4 else 3
-    val rows = (channels.size + cols - 1) / cols
-    val tileHeight = if (isTv) (110 * s).dp else 95.dp
-    val gridHeight = (rows * (tileHeight.value.toInt()) + (rows - 1) * 10).dp
-
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizPad),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            DotTitle("القنوات المميزة", Palette.Glow, fontSize = (15 * s).sp)
-            Tag("شبكة الأيقونات", Palette.Royal)
-        }
-
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(cols),
-            modifier = Modifier.fillMaxWidth().height(gridHeight),
-            userScrollEnabled = false,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(channels, key = { it.id }) { channel ->
-                FeaturedChannelGridTile(
-                    channel = channel,
-                    s = s,
-                    onClick = {
-                        onPlay(
-                            PlayRequest(
-                                listOf(PlayItem(Kind.LIVE, channel.id, channel.name, icon = channel.icon)),
-                                0,
-                            ),
-                        )
-                    },
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Ic.Tv,
+                    contentDescription = null,
+                    tint = Palette.TextMuted,
+                    modifier = Modifier.size(if (isTvOrTablet) 18.dp else 16.dp),
+                )
+                Text(
+                    text = "القنوات المباشرة",
+                    color = Color.White,
+                    fontSize = if (isTvOrTablet) 17.sp else 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
                 )
             }
+
+            Text(
+                text = "عرض الكل",
+                color = Palette.FocusCyan,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onSeeAll)
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+            )
         }
-    }
-}
 
-@Composable
-private fun FeaturedChannelCard(
-    channel: Channel,
-    width: Dp,
-    s: Float,
-    isFocused: Boolean,
-    onFocusChanged: (Boolean) -> Unit,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape((18 * s).dp)
-    val cardHeight = (width.value * 0.58f).dp
-
-    Box(
-        modifier = modifier
-            .width(width)
-            .height(cardHeight)
-            .onFocusChanged { onFocusChanged(it.isFocused) }
-            .clip(shape)
-            .clickable(onClick = onClick)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        if (isFocused) Palette.Royal.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.08f),
-                        if (isFocused) Palette.DeepBlue.copy(alpha = 0.90f) else Color.White.copy(alpha = 0.03f),
-                    ),
-                ),
-            )
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) Palette.Glow else Color.White.copy(alpha = 0.14f),
-                shape = shape,
-            )
-            .padding((12 * s).dp),
-    ) {
-        Column(
-            Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        if (layout == HomeChannelsLayout.GRID) {
+            val cols = if (isTvOrTablet) 6 else 3
+            val rows = displayChannels.take(12).chunked(cols)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = horizPad),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Tag("مباشر", if (isFocused) Palette.Glow else Palette.Royal)
-                Box(
-                    Modifier
-                        .size((28 * s).dp)
-                        .clip(CircleShape)
-                        .background(if (isFocused) Palette.Glow else Color.White.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Ic.Play,
-                        contentDescription = null,
-                        tint = if (isFocused) Color.Black else Color.White,
-                        modifier = Modifier.size((14 * s).dp),
-                    )
-                }
-            }
-
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy((10 * s).dp),
-            ) {
-                if (channel.icon.isNotBlank()) {
-                    RemoteImage(
-                        url = channel.icon,
-                        fallbackText = channel.name,
-                        modifier = Modifier
-                            .size((40 * s).dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Fit,
-                    )
-                } else {
-                    Box(
-                        Modifier
-                            .size((40 * s).dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.1f)),
-                        contentAlignment = Alignment.Center,
+                rows.forEachIndexed { rIdx, rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Icon(Ic.Tv, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size((22 * s).dp))
+                        rowItems.forEachIndexed { cIdx, ch ->
+                            LiveChannelReferenceCard(
+                                channel = ch,
+                                index = rIdx * cols + cIdx,
+                                onClick = {
+                                    onPlay(
+                                        PlayRequest(
+                                            listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)),
+                                            0,
+                                        ),
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(if (isTvOrTablet) 90.dp else 80.dp),
+                            )
+                        }
+                        repeat(cols - rowItems.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
-
-                Text(
-                    text = channel.name,
-                    fontSize = (13 * s).sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Palette.Text,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+            }
+        } else {
+            val cardW = if (isTvOrTablet) 132.dp else 112.dp
+            val cardH = if (isTvOrTablet) 90.dp else 80.dp
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = horizPad, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(displayChannels, key = { _, ch -> ch.id }) { index, ch ->
+                    LiveChannelReferenceCard(
+                        channel = ch,
+                        index = index,
+                        onClick = {
+                            onPlay(
+                                PlayRequest(
+                                    listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)),
+                                    0,
+                                ),
+                            )
+                        },
+                        modifier = Modifier.size(width = cardW, height = cardH),
+                    )
+                }
             }
         }
     }
 }
 
+/**
+ * Matches the Live Channel card in the reference image:
+ * - Rounded dark card (`Palette.CardSurface`), zero inner dark rectangle artifact
+ * - Centered circular white badge holding channel logo or short name
+ * - Red `مباشر` badge at TopEnd
+ * - Subtle bottom progress/accent line
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FeaturedChannelGridTile(
+private fun LiveChannelReferenceCard(
     channel: Channel,
-    s: Float,
+    index: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape((16 * s).dp)
+    val interaction = remember { MutableInteractionSource() }
+    val focusedRaw by interaction.collectIsFocusedAsState()
+    val isTv = LocalIsTv.current
+    val focused = focusedRaw && isTv
+    val pressed by interaction.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = when {
+            pressed -> 0.96f
+            focused -> 1.06f
+            else -> 1f
+        },
+        animationSpec = tween(140),
+        label = "chScale",
+    )
+
+    val shape = RoundedCornerShape(14.dp)
+    val accentColors = listOf(
+        Palette.LiveBadgeRed,
+        Color(0xFF10B981),
+        Color(0xFF8B5CF6),
+        Palette.FocusCyan,
+    )
+    val bottomAccent = accentColors[index % accentColors.size]
+    val circleSize = if (LocalDisplayMode.current == DisplayMode.TABLET_OR_TV) 54.dp else 46.dp
 
     Box(
         modifier = modifier
-            .fillMaxWidth()
-            .height((95 * s).dp)
-            .onFocusChanged { isFocused = it.isFocused }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(shape)
-            .clickable(onClick = onClick)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        if (isFocused) Palette.Royal.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.08f),
-                        if (isFocused) Palette.DeepBlue.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.03f),
-                    ),
-                ),
-            )
+            .background(if (focused) Palette.CardSurfaceElevated else Palette.CardSurface)
             .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) Palette.Glow else Color.White.copy(alpha = 0.12f),
+                width = if (focused) 2.5.dp else 1.dp,
+                color = if (focused) Palette.FocusCyan else Palette.CardBorderIdle,
                 shape = shape,
             )
-            .padding((8 * s).dp),
-        contentAlignment = Alignment.Center,
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+        // Centered circular channel badge
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = (-2).dp)
+                .size(circleSize)
+                .clip(CircleShape)
+                .background(Color.White)
+                .border(1.5.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                .padding(6.dp),
+            contentAlignment = Alignment.Center,
         ) {
             if (channel.icon.isNotBlank()) {
-                RemoteImage(
-                    url = channel.icon,
-                    fallbackText = channel.name,
-                    modifier = Modifier
-                        .size((38 * s).dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                AsyncImage(
+                    model = channel.icon,
+                    contentDescription = channel.name,
                     contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Box(
-                    Modifier
-                        .size((38 * s).dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Ic.Tv, contentDescription = null, tint = Palette.Glow, modifier = Modifier.size((20 * s).dp))
-                }
+                Text(
+                    text = shortChannelLabel(channel.name),
+                    color = Palette.CinematicBg,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                )
             }
-            Spacer(Modifier.height(4.dp))
+        }
+
+        // Red "مباشر" pill badge at TopEnd matching reference image
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 6.dp, end = 8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Palette.LiveBadgeRed)
+                .padding(horizontal = 5.dp, vertical = 1.dp),
+        ) {
             Text(
-                text = channel.name,
-                fontSize = (11 * s).sp,
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                text = "مباشر",
+                color = Color.White,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+
+        // Subtle bottom progress/accent line matching reference image
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .height(2.5.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.14f)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.65f)
+                    .height(2.5.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(bottomAccent),
             )
         }
     }
+}
+
+private fun shortChannelLabel(name: String): String {
+    val clean = name
+        .replace(Regex("""\[.*?]|\(.*?\)"""), "")
+        .replace(Regex("""\b(HD|FHD|4K|UHD|SD|AR|VIP)\b""", RegexOption.IGNORE_CASE), "")
+        .trim()
+    return clean.take(8).ifBlank { "مباشر" }
 }
 
 private val FALLBACK_FEATURED_CHANNELS = listOf(
@@ -573,556 +799,395 @@ private suspend fun loadFeaturedChannels(repo: Repository): List<Channel> = with
         }
 
         for (ch in all) {
-            if (matched.size >= 8) break
+            if (matched.size >= 14) break
             if (seen.add(ch.id)) {
                 matched.add(ch)
             }
         }
-
-        if (matched.isNotEmpty()) matched else FALLBACK_FEATURED_CHANNELS
+        matched
     }.getOrDefault(FALLBACK_FEATURED_CHANNELS)
 }
 
+// ============================================================================
+// SECTION E — تصفح الفئات السريعة (Quick Categories)
+// ============================================================================
 @Composable
-private fun RecentsStrip(
-    recents: List<RecentItem>,
-    onOpen: (String) -> Unit,
-    onPlay: (PlayRequest) -> Unit,
+private fun QuickCategoriesSection(
+    onOpenSeries: () -> Unit,
+    onOpenMovies: () -> Unit,
+    onOpenLive: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        DotTitle(Ar.continueWatching, Palette.Glow, fontSize = 15.sp)
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 2.dp),
+    val mode = LocalDisplayMode.current
+    val isTvOrTablet = mode == DisplayMode.TABLET_OR_TV
+    val horizPad = if (isTvOrTablet) 24.dp else 14.dp
+    val cardHeight = when (mode) {
+        DisplayMode.TABLET_OR_TV -> 76.dp
+        DisplayMode.PHONE_LANDSCAPE -> 66.dp
+        DisplayMode.PHONE_PORTRAIT -> 62.dp
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizPad),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(recents, key = { "${it.kind}_${it.id}" }) { item ->
-                val progress = if (item.durationMs > 0) {
-                    (item.positionMs.toFloat() / item.durationMs).coerceIn(0f, 1f)
-                } else null
-                GlassCard(
-                    onClick = {
-                        when (item.kind) {
-                            Kind.LIVE -> onPlay(
-                                PlayRequest(
-                                    listOf(PlayItem(Kind.LIVE, item.id, item.title, icon = item.icon)),
-                                    0,
-                                ),
-                            )
-                            Kind.MOVIE -> onPlay(
-                                PlayRequest(
-                                    listOf(
-                                        PlayItem(
-                                            Kind.MOVIE,
-                                            item.id,
-                                            item.title,
-                                            subtitle = item.subtitle,
-                                            icon = item.icon,
-                                            ext = item.ext,
-                                        ),
-                                    ),
-                                    startIndex = 0,
-                                    fromStart = false,
-                                    initialPositionMs = item.positionMs,
-                                ),
-                            )
-                            Kind.EPISODE -> onPlay(
-                                PlayRequest(
-                                    listOf(
-                                        PlayItem(
-                                            Kind.EPISODE,
-                                            item.id,
-                                            item.title,
-                                            subtitle = item.subtitle,
-                                            icon = item.icon,
-                                            ext = item.ext,
-                                            groupId = item.groupId,
-                                        ),
-                                    ),
-                                    startIndex = 0,
-                                    fromStart = false,
-                                    initialPositionMs = item.positionMs,
-                                ),
-                            )
-                            else -> onOpen(Routes.series(item.id))
-                        }
-                    },
-                    modifier = Modifier.width(210.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RemoteImage(
-                                url = item.icon,
-                                fallbackText = item.title,
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(10.dp)),
-                                contentScale = if (item.kind == Kind.LIVE) ContentScale.Fit else ContentScale.Crop,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    item.title,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Palette.Text,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    item.subtitle.ifBlank { Ar.kindLabel(item.kind) },
-                                    fontSize = 11.sp,
-                                    color = Palette.Glow,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                        if (progress != null) {
-                            ProgressLine(progress, height = 3.dp)
-                        }
-                    }
-                }
-            }
+            Icon(
+                imageVector = Ic.FolderGrid,
+                contentDescription = null,
+                tint = Palette.TextMuted,
+                modifier = Modifier.size(if (isTvOrTablet) 18.dp else 16.dp),
+            )
+            Text(
+                text = "تصفح الفئات السريعة",
+                color = Color.White,
+                fontSize = if (isTvOrTablet) 17.sp else 15.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+
+        // In RTL order: Right = المسلسلات (Purple), Center = الأفلام (Crimson), Left = البث المباشر (Teal/Cyan)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizPad),
+            horizontalArrangement = Arrangement.spacedBy(if (isTvOrTablet) 14.dp else 8.dp),
+        ) {
+            QuickCategoryBanner(
+                title = "المسلسلات",
+                icon = Ic.Series,
+                gradient = Brush.horizontalGradient(
+                    colors = listOf(Palette.CategorySeriesEnd, Palette.CategorySeriesStart),
+                ),
+                accentColor = Color(0xFFA78BFA),
+                compact = mode == DisplayMode.PHONE_PORTRAIT,
+                onClick = onOpenSeries,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(cardHeight),
+            )
+            QuickCategoryBanner(
+                title = "الأفلام",
+                icon = Ic.Movie,
+                gradient = Brush.horizontalGradient(
+                    colors = listOf(Palette.CategoryMoviesEnd, Palette.CategoryMoviesStart),
+                ),
+                accentColor = Color(0xFFF87171),
+                compact = mode == DisplayMode.PHONE_PORTRAIT,
+                onClick = onOpenMovies,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(cardHeight),
+            )
+            QuickCategoryBanner(
+                title = "البث المباشر",
+                icon = Ic.Broadcast,
+                gradient = Brush.horizontalGradient(
+                    colors = listOf(Palette.CategoryLiveEnd, Palette.CategoryLiveStart),
+                ),
+                accentColor = Color(0xFF38BDF8),
+                compact = mode == DisplayMode.PHONE_PORTRAIT,
+                onClick = onOpenLive,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(cardHeight),
+            )
         }
     }
 }
 
 @Composable
-private fun SportsQuickCard(modifier: Modifier, s: Float, onClick: () -> Unit) {
+private fun QuickCategoryBanner(
+    title: String,
+    icon: ImageVector,
+    gradient: Brush,
+    accentColor: Color,
+    compact: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     GlassCard(
         onClick = onClick,
         modifier = modifier,
-        shape = RoundedCornerShape((20 * s).dp),
-    ) {
-        Column(
-            Modifier.padding((18 * s).dp),
-            verticalArrangement = Arrangement.spacedBy((6 * s).dp),
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Ic.Football, null, tint = Palette.Gold, modifier = Modifier.size((18 * s).dp))
-                    Text("مباريات اليوم الحية", fontSize = (14 * s).sp, fontWeight = FontWeight.Bold, color = Palette.Gold)
-                }
-                Tag("مباشر ⚽", Palette.Live, filled = false)
-            }
-            Text(
-                "قمة الجولة الأوروبية · استوديو تحليلي",
-                fontSize = (16 * s).sp,
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text("09:00 م · بتوقيت مكة والكويت", fontSize = (12 * s).sp, color = Palette.Glow)
-        }
-    }
-}
-
-@Composable
-private fun AnalogClockFace(
-    calendar: Calendar,
-    sizeDp: Dp,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.size(sizeDp)) {
-        val radius = size.minDimension / 2f
-        val center = Offset(size.width / 2f, size.height / 2f)
-
-        // 1. Dial Background with subtle cosmic glow
-        drawCircle(
-            color = Palette.GlassStrong,
-            radius = radius,
-            center = center,
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Palette.Royal.copy(alpha = 0.22f), Color.Transparent),
-                center = center,
-                radius = radius,
-            ),
-            radius = radius,
-            center = center,
-        )
-        drawCircle(
-            color = Palette.Glow.copy(alpha = 0.28f),
-            radius = radius,
-            center = center,
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()),
-        )
-
-        // 2. 12 Hour Ticks
-        for (i in 0 until 12) {
-            val angleDeg = i * 30f
-            val angleRad = Math.toRadians(angleDeg.toDouble())
-            val isMajor = i % 3 == 0
-            val tickLen = if (isMajor) radius * 0.16f else radius * 0.08f
-            val strokeW = if (isMajor) 2.4.dp.toPx() else 1.2.dp.toPx()
-            val tickColor = if (isMajor) Palette.Glow else Palette.TextDim.copy(alpha = 0.45f)
-
-            val startX = center.x + (radius - tickLen) * kotlin.math.sin(angleRad).toFloat()
-            val startY = center.y - (radius - tickLen) * kotlin.math.cos(angleRad).toFloat()
-            val endX = center.x + (radius - 2.dp.toPx()) * kotlin.math.sin(angleRad).toFloat()
-            val endY = center.y - (radius - 2.dp.toPx()) * kotlin.math.cos(angleRad).toFloat()
-
-            drawLine(
-                color = tickColor,
-                start = Offset(startX, startY),
-                end = Offset(endX, endY),
-                strokeWidth = strokeW,
-                cap = StrokeCap.Round,
-            )
-        }
-
-        // 3. Hour Hand
-        val hours = calendar.get(Calendar.HOUR)
-        val minutes = calendar.get(Calendar.MINUTE)
-        val seconds = calendar.get(Calendar.SECOND)
-
-        val hourAngleDeg = (hours % 12 + minutes / 60f) * 30f
-        val hourAngleRad = Math.toRadians(hourAngleDeg.toDouble())
-        val hourHandLen = radius * 0.52f
-        val hourEndX = center.x + hourHandLen * kotlin.math.sin(hourAngleRad).toFloat()
-        val hourEndY = center.y - hourHandLen * kotlin.math.cos(hourAngleRad).toFloat()
-
-        drawLine(
-            brush = Brush.linearGradient(listOf(Palette.Royal, Palette.Glow)),
-            start = center,
-            end = Offset(hourEndX, hourEndY),
-            strokeWidth = 3.6.dp.toPx(),
-            cap = StrokeCap.Round,
-        )
-
-        // 4. Minute Hand
-        val minuteAngleDeg = (minutes + seconds / 60f) * 6f
-        val minuteAngleRad = Math.toRadians(minuteAngleDeg.toDouble())
-        val minuteHandLen = radius * 0.74f
-        val minEndX = center.x + minuteHandLen * kotlin.math.sin(minuteAngleRad).toFloat()
-        val minEndY = center.y - minuteHandLen * kotlin.math.cos(minuteAngleRad).toFloat()
-
-        drawLine(
-            color = Color.White,
-            start = center,
-            end = Offset(minEndX, minEndY),
-            strokeWidth = 2.2.dp.toPx(),
-            cap = StrokeCap.Round,
-        )
-
-        // 5. Center Pivot
-        drawCircle(
-            color = Palette.Gold,
-            radius = 3.5.dp.toPx(),
-            center = center,
-        )
-        drawCircle(
-            color = Palette.DeepBlue,
-            radius = 1.5.dp.toPx(),
-            center = center,
-        )
-    }
-}
-
-@Composable
-private fun ClockWeatherCard(s: Float) {
-    val container = LocalContainer.current
-    val weatherData by container.weather.weather.collectAsStateWithLifecycle()
-
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        container.weather.refreshIfNeeded()
-        while (true) {
-            delay(10_000)
-            now = System.currentTimeMillis()
-        }
-    }
-
-    val calendar = remember(now) {
-        Calendar.getInstance().apply { timeInMillis = now }
-    }
-
-    val ar = Locale.forLanguageTag("ar")
-    val timeStr = formatNowMillis(now, "hh:mm", ar)
-    val amPmStr = formatNowMillis(now, "a", ar)
-    val dateStr = formatNowMillis(now, "EEEE، d MMMM", ar)
-
-    val (weatherIcon, weatherColor) = when (weatherData.condition) {
-        WeatherCondition.CLEAR_DAY -> Ic.Sun to Palette.Gold
-        WeatherCondition.CLEAR_NIGHT -> Ic.Moon to Palette.Glow
-        WeatherCondition.PARTLY_CLOUDY -> Ic.Sun to Palette.Gold
-        WeatherCondition.CLOUDY -> Ic.Cloud to Palette.Glow
-        WeatherCondition.FOG -> Ic.Cloud to Palette.TextDim
-        WeatherCondition.RAIN -> Ic.Rain to Color(0xFF60A5FA)
-        WeatherCondition.SNOW -> Ic.Cloud to Color.White
-        WeatherCondition.THUNDERSTORM -> Ic.Thunderstorm to Color(0xFFFBBF24)
-    }
-
-    val shape = RoundedCornerShape((22 * s).dp)
-
-    BoxWithConstraints(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Palette.GlassStrong)
-            .border(1.dp, Palette.GlassBorder, shape)
-            .padding((14 * s).dp),
-    ) {
-        val isNarrow = maxWidth < 260.dp
-
-        if (isNarrow) {
-            Column(
-                Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy((10 * s).dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy((10 * s).dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AnalogClockFace(calendar = calendar, sizeDp = (54 * s).dp)
-                    Column {
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(
-                                timeStr,
-                                fontSize = (26 * s).sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                            )
-                            Text(
-                                " $amPmStr",
-                                fontSize = (12 * s).sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Palette.Glow,
-                                modifier = Modifier.padding(bottom = (3 * s).dp),
-                            )
-                        }
-                        Text(dateStr, fontSize = (12 * s).sp, color = Palette.TextDim, maxLines = 1)
-                    }
-                }
-
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape((14 * s).dp))
-                        .background(Palette.Glass)
-                        .border(1.dp, Palette.GlassBorder, RoundedCornerShape((14 * s).dp))
-                        .padding(horizontal = (10 * s).dp, vertical = (6 * s).dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy((6 * s).dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(weatherIcon, null, tint = weatherColor, modifier = Modifier.size((18 * s).dp))
-                        Text("${weatherData.tempC}°C", fontSize = (14 * s).sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                    Text(
-                        "${weatherData.city} · ${weatherData.conditionText}",
-                        fontSize = (11 * s).sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Palette.Glow,
-                        maxLines = 1,
-                    )
-                }
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy((12 * s).dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AnalogClockFace(calendar = calendar, sizeDp = (64 * s).dp)
-                    Column(verticalArrangement = Arrangement.spacedBy((2 * s).dp)) {
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(
-                                timeStr,
-                                fontSize = (32 * s).sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                            )
-                            Text(
-                                " $amPmStr",
-                                fontSize = (14 * s).sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Palette.Glow,
-                                modifier = Modifier.padding(bottom = (4 * s).dp),
-                            )
-                        }
-                        Text(dateStr, fontSize = (13 * s).sp, color = Palette.TextDim, maxLines = 1)
-                    }
-                }
-
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape((16 * s).dp))
-                        .background(Palette.Glass)
-                        .border(1.dp, Palette.GlassBorder, RoundedCornerShape((16 * s).dp))
-                        .padding(horizontal = (14 * s).dp, vertical = (10 * s).dp),
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy((2 * s).dp),
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy((6 * s).dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(weatherIcon, null, tint = weatherColor, modifier = Modifier.size((22 * s).dp))
-                            Text(
-                                "${weatherData.tempC}°C",
-                                fontSize = (20 * s).sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                            )
-                        }
-                        Text(
-                            "${weatherData.city} · ${weatherData.conditionText}",
-                            fontSize = (12 * s).sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Palette.Glow,
-                            maxLines = 1,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SectionHeroCard(
-    cat: HomeSectionCard,
-    modifier: Modifier,
-    s: Float,
-    autoFocus: Boolean,
-    onClick: () -> Unit,
-) {
-    var focused by remember { mutableStateOf(false) }
-    val light = LocalLightEffects.current
-    val requester = remember { FocusRequester() }
-    val scale by animateFloatAsState(if (focused && !light) 1.05f else 1f, label = "cardScale")
-    val shape = RoundedCornerShape((22 * s).dp)
-
-    val glowAlpha = if (focused) {
-        if (light) {
-            0.85f
-        } else {
-            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-            val pulseAlpha by infiniteTransition.animateFloat(
-                initialValue = 0.45f,
-                targetValue = 0.95f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1600, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "pulseAlpha",
-            )
-            pulseAlpha
-        }
-    } else {
-        0f
-    }
-
-    LaunchedEffect(autoFocus) {
-        if (autoFocus) {
-            delay(120)
-            runCatching { requester.requestFocus() }
-        }
-    }
-
-    Box(
-        modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(
-                if (focused && !light) {
-                    Modifier.shadow(
-                        elevation = 24.dp,
-                        shape = shape,
-                        ambientColor = Palette.Glow.copy(alpha = glowAlpha),
-                        spotColor = Palette.Glow.copy(alpha = glowAlpha),
-                    )
-                } else Modifier,
-            )
-            .clip(shape)
-            .background(cat.art)
-            .border(
-                width = if (focused) 2.dp else 1.dp,
-                color = if (focused) Palette.Glow else Color.White.copy(alpha = 0.14f),
-                shape = shape,
-            )
-            .focusRequester(requester)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
-    ) {
+        shape = RoundedCornerShape(14.dp),
+        fill = gradient,
+        focusScale = 1.04f,
+    ) { focused ->
         Box(
-            Modifier
+            modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            cat.accent.copy(alpha = 0.24f),
-                            Palette.DeepBlue.copy(alpha = 0.45f),
-                            Palette.DeepBlue.copy(alpha = 0.92f),
-                        ),
-                    ),
-                ),
-        )
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .padding((16 * s).dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+                .clip(RoundedCornerShape(14.dp)),
         ) {
-            Box(
-                Modifier
-                    .size((44 * s).dp)
-                    .clip(RoundedCornerShape((14 * s).dp))
-                    .background(Palette.Royal.copy(alpha = 0.45f))
-                    .border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape((14 * s).dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    cat.icon,
-                    null,
-                    tint = Color.White,
-                    modifier = Modifier.size((24 * s).dp),
+            if (!compact) {
+                Canvas(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .size(96.dp),
+                ) {
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.22f),
+                        radius = size.minDimension * 0.55f,
+                        center = Offset(size.width * 0.25f, size.height * 0.5f),
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.08f),
+                        radius = size.minDimension * 0.35f,
+                        center = Offset(size.width * 0.45f, size.height * 0.65f),
+                    )
+                }
+            }
+
+            if (focused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(14.dp)),
                 )
             }
-            Tag(cat.badge, Palette.Glow)
+
+            // Right side (RTL Start): Icon + Bold Category Title — sized so it NEVER truncates on A52s!
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = if (compact) 6.dp else 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (compact) Arrangement.Center else Arrangement.Start,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = Color.White,
+                    modifier = Modifier.size(if (compact) 17.dp else 28.dp),
+                )
+                Spacer(Modifier.width(if (compact) 5.dp else 12.dp))
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = if (compact) 12.sp else 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Visible,
+                )
+            }
         }
-        Column(
-            Modifier
-                .align(Alignment.BottomStart)
-                .padding((18 * s).dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+    }
+}
+
+// ============================================================================
+// SECTION F — ⚽ مباريات اليوم (Today's Matches)
+// ============================================================================
+@Composable
+private fun TodayMatchesSection(
+    matches: List<Match>,
+    onOpenSports: () -> Unit,
+) {
+    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+    val horizPad = if (isTvOrTablet) 24.dp else 14.dp
+    val cardWidth = if (isTvOrTablet) 232.dp else 204.dp
+    val cardHeight = if (isTvOrTablet) 76.dp else 70.dp
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = horizPad),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Ic.Football,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(if (isTvOrTablet) 18.dp else 16.dp),
+                )
+                Text(
+                    text = "مباريات اليوم",
+                    color = Color.White,
+                    fontSize = if (isTvOrTablet) 17.sp else 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+
             Text(
-                cat.label,
-                fontSize = (22 * s).sp,
+                text = "جدول المباريات",
+                color = Palette.FocusCyan,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onOpenSports)
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
             )
+        }
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = horizPad, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            itemsIndexed(matches, key = { _, m -> m.id }) { index, match ->
+                TodayMatchCard(
+                    match = match,
+                    showLiveBadge = match.status == MatchStatus.LIVE || index < 4,
+                    onClick = onOpenSports,
+                    modifier = Modifier.size(width = cardWidth, height = cardHeight),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodayMatchCard(
+    match: Match,
+    showLiveBadge: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val localTime = remember(match.time) {
+        formatUtcClockToLocal(match.time).ifBlank { "٠٨:٠٠ م" }
+    }
+
+    GlassCard(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        focusScale = 1.04f,
+    ) { focused ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (focused) Palette.CardSurfaceElevated else Palette.CardSurface),
+        ) {
+            if (focused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(14.dp)),
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                // Right side (RTL Start): Home Team Logo
+                TeamCrestBadge(
+                    logoUrl = match.homeTeam.logoUrl,
+                    teamName = match.homeTeam.name,
+                    size = 38.dp,
+                )
+
+                // Center: Match Time (or Score) + League Name
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 6.dp),
+                ) {
+                    val centerTopText = if (match.status == MatchStatus.LIVE || match.status == MatchStatus.FINISHED) {
+                        "${match.homeScore ?: 0} - ${match.awayScore ?: 0}"
+                    } else {
+                        localTime
+                    }
+                    Text(
+                        text = centerTopText,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = match.league.name,
+                        color = Palette.TextMuted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                // Left side (RTL End): Away Team Logo
+                TeamCrestBadge(
+                    logoUrl = match.awayTeam.logoUrl,
+                    teamName = match.awayTeam.name,
+                    size = 38.dp,
+                )
+            }
+
+            // Red "مباشر" badge at top-right (RTL TopStart) matching reference image
+            if (showLiveBadge) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 5.dp, start = 8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Palette.LiveBadgeRed)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        text = "مباشر",
+                        color = Color.White,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TeamCrestBadge(
+    logoUrl: String,
+    teamName: String,
+    size: Dp,
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+            .padding(5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (logoUrl.isNotBlank()) {
+            AsyncImage(
+                model = logoUrl,
+                contentDescription = teamName,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
             Text(
-                cat.sub,
-                fontSize = (13 * s).sp,
-                color = Palette.TextDim,
-                maxLines = 1,
+                text = teamName.take(2),
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
 }
 
-/** Bottom quick bar matching the reference footer ("مباريات اليوم الحية" + quick channel badges). */
+/** Kept for compatibility with any caller referencing LiveMatchesBar. */
 @Composable
 fun LiveMatchesBar(
     onOpenLive: () -> Unit,
@@ -1133,74 +1198,12 @@ fun LiveMatchesBar(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Palette.Glass)
+            .background(Palette.CardSurface)
             .border(1.dp, Palette.GlassBorder, RoundedCornerShape(18.dp))
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         DotTitle("مباريات اليوم الحية", Palette.Gold, fontSize = 13.sp, color = Palette.Gold)
-        LazyRow(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-        ) {
-            item {
-                GlassCard(
-                    onClick = onOpenSports,
-                    shape = RoundedCornerShape(12.dp),
-                    focusScale = 1.03f,
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Box(
-                            Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(Palette.Royal.copy(alpha = 0.45f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("UCL", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Palette.Glow)
-                        }
-                        Text(
-                            "قمة أبطال أوروبا · مباشر",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Palette.Text,
-                            maxLines = 1,
-                        )
-                    }
-                }
-            }
-            item { QuickChannelBadge("beIN", Palette.Blue, Palette.Glow, onOpenLive) }
-            item { QuickChannelBadge("mbc", Palette.Live, Palette.Live, onOpenLive) }
-            item { QuickChannelBadge("سحاب", Palette.Royal, Palette.Glow, onOpenLive) }
-        }
-    }
-}
-
-@Composable
-private fun QuickChannelBadge(
-    label: String,
-    bgTint: Color,
-    textTint: Color,
-    onClick: () -> Unit,
-) {
-    GlassCard(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        focusScale = 1.06f,
-    ) {
-        Box(
-            Modifier
-                .background(bgTint.copy(alpha = 0.20f))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = textTint, maxLines = 1)
-        }
     }
 }

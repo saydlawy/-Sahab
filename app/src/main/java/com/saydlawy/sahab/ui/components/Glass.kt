@@ -143,12 +143,12 @@ fun GlassCard(
         else -> IdleGlassFill
     }
     val borderColor = when {
-        focused -> Palette.Glow
-        selected -> if (isTv) Palette.Glow.copy(alpha = 0.65f) else Palette.Royal.copy(alpha = 0.75f)
+        focused -> Palette.FocusCyan
+        selected -> if (isTv) Palette.FocusCyan.copy(alpha = 0.75f) else Palette.Royal.copy(alpha = 0.75f)
         fill != null -> PrimaryBorder
         else -> IdleBorder
     }
-    val borderWidth = if (focused) 2.dp else if (selected) 1.dp else 1.dp
+    val borderWidth = if (focused) 2.5.dp else if (selected) 1.5.dp else 1.dp
 
     Box(
         modifier = modifier
@@ -158,12 +158,12 @@ fun GlassCard(
                 scaleY = scale
             }
             .then(
-                if (focused && !light) {
+                if (focused) {
                     Modifier.shadow(
-                        elevation = 18.dp,
+                        elevation = 16.dp,
                         shape = shape,
-                        ambientColor = Palette.Glow,
-                        spotColor = Palette.Glow,
+                        ambientColor = Palette.FocusCyan,
+                        spotColor = Palette.FocusCyan,
                     )
                 } else Modifier,
             )
@@ -545,85 +545,134 @@ fun PosterCard(
     GlassCard(
         onClick = onClick,
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(14.dp),
         onLongClick = onLongClick,
-        focusScale = 1.06f,
+        focusScale = 1.05f,
     ) { focused ->
         if (focused && onFocused != null) {
             LaunchedEffect(Unit) { onFocused() }
         }
-        Column {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Palette.CardSurface),
+        ) {
+            RemoteImage(
+                url = imageUrl,
+                fallbackText = title,
+                modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
+                contentScale = contentScale,
+            )
+            // Deep bottom gradient matching reference movie cards
             Box(
                 Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(14.dp)),
-            ) {
-                RemoteImage(
-                    url = imageUrl,
-                    fallbackText = title,
-                    modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
-                    contentScale = contentScale,
-                )
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.0f to Color.Transparent,
+                                0.48f to Color(0x330B0D17),
+                                0.76f to Color(0xCC0B0D17),
+                                1.0f to Color(0xF80B0D17),
+                            ),
+                        ),
+                    ),
+            )
+            // Focused inner cyan rim highlight matching reference "سيد الظلام" card
+            if (focused) {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(PosterBottomShade),
+                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(14.dp)),
                 )
-                if (badge.isNotBlank()) {
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(7.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.Black.copy(alpha = 0.65f))
-                            .border(1.dp, Palette.Gold.copy(alpha = 0.35f), RoundedCornerShape(50))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Ic.Star, contentDescription = null, tint = Palette.Gold, modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(3.dp))
-                        Text(badge, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Palette.Gold, maxLines = 1)
-                    }
-                }
-                if (!quality.isNullOrBlank()) {
-                    Tag(
-                        quality,
-                        if (quality == "4K") Palette.Gold else Palette.Glow,
-                        Modifier.align(Alignment.TopEnd).padding(7.dp),
-                        fontSize = 10.sp,
+            }
+
+            // Bottom overlay content: Title, Subtitle, and Bottom Row (Star Rating on right, Quality pill on left)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.sp,
+                        color = Palette.TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (badge.isNotBlank() || !quality.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Right side in RTL: Gold star rating
+                        if (badge.isNotBlank()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Ic.Star,
+                                    contentDescription = null,
+                                    tint = Palette.Gold,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Text(
+                                    text = badge,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Palette.Gold,
+                                    maxLines = 1,
+                                )
+                            }
+                        } else {
+                            Spacer(Modifier.width(1.dp))
+                        }
+
+                        // Left side in RTL: Quality badge (4K / UHD / FHD / HD) - never collides with top-right poster logos!
+                        if (!quality.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xCC1E2336))
+                                    .border(0.8.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                            ) {
+                                Text(
+                                    text = quality,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (quality == "4K" || quality == "UHD") Color.White else Palette.TextDim,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                }
                 if (progress != null) {
+                    Spacer(Modifier.height(4.dp))
                     ProgressLine(
-                        progress,
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        progress = progress,
+                        modifier = Modifier.fillMaxWidth(),
                         height = 3.dp,
                     )
                 }
-            }
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Palette.Text,
-                maxLines = 2,
-                minLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = if (subtitle.isBlank()) 10.dp else 0.dp),
-            )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    fontSize = 12.sp,
-                    color = Palette.Glow,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                )
             }
         }
     }

@@ -74,14 +74,18 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
             ) {
                 // القائمة الجانبية
                 Column(
-                    Modifier.weight(0.3f).fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    Modifier
+                        .weight(0.32f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     SettingsMenuItem("الحساب والاشتراك", "المزامنة السحابية وبيانات Xtream", Ic.Person, selectedCategory == "account") { selectedCategory = "account" }
                     SettingsMenuItem("التخصيص والمظهر", "الشاشة الرئيسية، القنوات، والأداء", Ic.Tv, selectedCategory == "customize") { selectedCategory = "customize" }
                     SettingsMenuItem("الذكاء الاصطناعي", "إدارة مفاتيح Gemini", Ic.Cloud, selectedCategory == "ai") { selectedCategory = "ai" }
                     
-                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.height(8.dp))
                     GlassButton(text = Ar.logout, onClick = { onLoggedOut() }, icon = Ic.Close, modifier = Modifier.fillMaxWidth())
                 }
 
@@ -136,21 +140,21 @@ private fun SettingsMenuItem(title: String, subtitle: String, icon: ImageVector,
         selected = isSelected || focused,
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(20.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                Modifier.size(48.dp).clip(RoundedCornerShape(16.dp))
+                Modifier.size(44.dp).clip(RoundedCornerShape(14.dp))
                     .background(if (isSelected || focused) Palette.Royal.copy(alpha = 0.4f) else Palette.Royal.copy(alpha = 0.2f))
-                    .border(1.dp, Palette.Glow.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                    .border(1.dp, Palette.FocusCyan.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, null, tint = Palette.Glow, modifier = Modifier.size(24.dp))
+                Icon(icon, null, tint = Palette.FocusCyan, modifier = Modifier.size(22.dp))
             }
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                Text(subtitle, fontSize = 13.sp, color = Palette.TextDim)
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+                Text(subtitle, fontSize = 12.sp, color = Palette.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             // سهم التوجيه
             Text("<", fontSize = 22.sp, color = Palette.Glow, fontWeight = FontWeight.Bold)
