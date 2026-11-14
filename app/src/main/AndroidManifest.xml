@@ -25,6 +25,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.Sahab"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|layoutDirection|density"
             android:exported="true"
             android:launchMode="singleTask"
