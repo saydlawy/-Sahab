@@ -43,3 +43,10 @@
 # AndroidX AppCompat
 -keep class androidx.appcompat.** { *; }
 -dontwarn androidx.appcompat.**
+
+# Firebase & DataStore - قواعد إلزامية لمنع R8 من حذف الكلاسات المستخدمة
+-keep class com.google.firebase.** { *; }
+-keep class androidx.datastore.*.** {*;}
+-dontwarn com.google.firebase.**
+-keep class com.google.android.gms.** { *; }
+-keep class androidx.datastore.core.** { *; }
