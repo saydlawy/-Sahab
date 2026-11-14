@@ -82,7 +82,7 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            BrandLogo(Modifier.size(80.dp))
+            BrandLogo(size = 80.dp)
             Text(
                 "حساب سحاب",
                 fontSize = 28.sp,
