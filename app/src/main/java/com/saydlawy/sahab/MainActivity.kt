@@ -8,6 +8,9 @@ import android.Manifest
 import android.os.Build
 import androidx.compose.runtime.LaunchedEffect
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
@@ -53,7 +56,9 @@ class MainActivity : AppCompatActivity() {
                 FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                     if (task.isSuccessful) {
                         val token = task.result
-                        (application as SahabApp).container.userSyncService.saveFcmToken(token)
+                        CoroutineScope(Dispatchers.IO).launch {
+                            (application as SahabApp).container.userSyncService.saveFcmToken(token)
+                        }
                     }
                 }
             }
