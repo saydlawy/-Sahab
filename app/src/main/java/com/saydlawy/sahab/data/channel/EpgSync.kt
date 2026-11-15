@@ -18,7 +18,7 @@ import kotlin.coroutines.resumeWithException
  *
  * Firebase cost & performance:
  *  - Only queries epgIds that actually exist in the local channels table.
- *  - Uses whereIn(FieldPath.documentId(), ...) — 30 IDs per query (Firestore limit).
+ *  - Uses whereIn(FieldPath.documentId(), ...) — 30 IDs per query.
  *  - ~249 epgIds → ~9 queries instead of 249.
  *  - Prunes programmes ending more than 1h ago (keeps the "just ended" row visible).
  *
@@ -51,7 +51,7 @@ class EpgSync(
         val errors = mutableListOf<String>()
         try {
             val nowSec = start / 1000
-            val cutoffSec = nowSec - 3600  // keep programmes ended up to 1h ago
+            val cutoffSec = nowSec - 3600
 
             // 1) Distinct epgIds from channels (populated by ChannelSync)
             val epgIds = try {
@@ -87,7 +87,7 @@ class EpgSync(
                 errors.add("Room program upsert failed: ${e.message ?: e.javaClass.simpleName}")
             }
 
-            // 4) Prune old programmes (safe: only deletes end < cutoff)
+            // 4) Prune old programmes
             var deleted = 0
             try {
                 deleted = dao.deleteOldPrograms(cutoffSec)
@@ -131,7 +131,7 @@ class EpgSync(
             try {
                 val docs = queryByIds(chunk)
                 docs.forEach { doc ->
-                    out.addAll(docToPrograms(doc, cutoffSec, start))
+                    out.addAll(docToPrograms(doc, cutoffSec))
                 }
             } catch (e: Exception) {
                 failedBatches++
@@ -158,16 +158,13 @@ class EpgSync(
                 }
         }
 
-    private fun docToPrograms(
-        doc: DocumentSnapshot,
-        cutoffSec: Long,
-        updatedAtMs: Long,
-    ): List<EpgProgramEntity> {
+    private fun docToPrograms(doc: DocumentSnapshot, cutoffSec: Long): List<EpgProgramEntity> {
         if (!doc.exists()) return emptyList()
         val d = doc.data ?: return emptyList()
         val epgId = doc.id
         @Suppress("UNCHECKED_CAST")
         val raw = d["programs"] as? List<Map<String, Any?>> ?: return emptyList()
+        val now = System.currentTimeMillis()
         val result = ArrayList<EpgProgramEntity>(raw.size)
         raw.forEach { m ->
             val startSec = (m["start"] as? Number)?.toLong() ?: return@forEach
@@ -185,7 +182,7 @@ class EpgSync(
                     title = title,
                     description = desc,
                     category = null,
-                    updatedAt = updatedAtMs,
+                    updatedAt = now,
                 )
             )
         }
