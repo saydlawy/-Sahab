@@ -67,7 +67,12 @@ class PrefsTest {
         val prefs = Prefs(context = null, secureStoreOverride = fakeSecure, dataStoreOverride = ds)
         val loaded = prefs.account.first()
 
-        assertEquals(Account(server = "https://legacy.example.com", user = "legacy_user", pass = "legacy_pass"), loaded)
+        // نتحقق من الحقول الفردية بدلاً من الكائن بالكامل لتجنب اختلاف الـ id العشوائي
+        assertEquals("https://legacy.example.com", loaded?.server)
+        assertEquals("legacy_user", loaded?.user)
+        assertEquals("legacy_pass", loaded?.pass)
+        assertEquals("حسابي القديم", loaded?.name)
+        assertEquals("XTREAM", loaded?.type)
         assertTrue(fakeSecure.contains("enc_server"))
         val after = ds.data.first()
         assertFalse(after.contains(srvKey))
