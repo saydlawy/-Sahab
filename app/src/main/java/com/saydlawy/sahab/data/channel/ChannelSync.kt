@@ -240,7 +240,7 @@ class ChannelSync(
         epgId = fb?.epgId?.takeIf { it.isNotBlank() } ?: prev?.epgId ?: ch.epgId,
         qualityTag = fb?.qualityTag?.takeIf { it.isNotBlank() } ?: prev?.qualityTag ?: "",
         groupId = fb?.groupId?.takeIf { it.isNotBlank() } ?: prev?.groupId ?: "",
-        streamUrlTemplate = STREAM_TEMPLATE,
+        streamUrlTemplate = if (ch.url.isNotBlank()) ch.url else STREAM_TEMPLATE,
         sortOrder = prev?.sortOrder ?: (fb?.channelNumber ?: listIndex),
         isFavorite = prev?.isFavorite ?: false,
         isHidden = prev?.isHidden ?: false,

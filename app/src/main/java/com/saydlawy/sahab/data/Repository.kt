@@ -29,6 +29,8 @@ class Repository(
     private val channelDao: ChannelDao? = null,
 ) {
 
+    private val m3uParser = M3uParser()
+
     @Volatile
     var account: Account? = null
         private set
@@ -91,7 +93,13 @@ class Repository(
 
     private fun diskKey(key: String): String = "${accountTag()}::$key"
 
-    suspend fun login(candidate: Account): UserInfo {
+    suspend fun login(candidate: Account): UserInfo? {
+        if (candidate.type == "M3U") {
+            account = candidate
+            userInfo = null
+            clearCache(clearDisk = false)
+            return null
+        }
         val info = parseUserInfo(api.request(candidate, null))
         account = candidate
         userInfo = info
@@ -182,6 +190,9 @@ class Repository(
     }
 
     fun streamUrl(item: PlayItem, formatAttempt: Int = 0): String {
+        if (item.url.isNotBlank() && item.url.startsWith("http")) {
+            return item.url
+        }
         val a = requireAccount()
         val user = encodeSegment(a.user)
         val pass = encodeSegment(a.pass)
@@ -264,10 +275,16 @@ class Repository(
 
     // Live
 
-    suspend fun liveCategories(): List<Category> =
-        cachedPersistent("live_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+    suspend fun liveCategories(): List<Category> {
+        val acc = requireAccount()
+        if (acc.type == "M3U") {
+            val channels = liveChannels(null)
+            return channels.map { it.categoryId }.filter { it.isNotBlank() }.distinct().map { Category(it, it) }
+        }
+        return cachedPersistent("live_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
             parseCategories(request("get_live_categories"))
         }
+    }
 
     private suspend fun enrichWithLogos(channels: List<Channel>): List<Channel> {
         val dao = channelDao ?: return channels
@@ -284,6 +301,15 @@ class Repository(
         peekCachedList("live:", ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS)?.let { enrichWithLogos(it) }
 
     suspend fun liveChannels(categoryId: String?): List<Channel> {
+        val acc = requireAccount()
+        if (acc.type == "M3U") {
+            val key = "live_m3u"
+            val all = cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS) {
+                m3uParser.fetch(acc.m3uUrl)
+            }
+            return if (categoryId.isNullOrBlank()) all else all.filter { it.categoryId == categoryId }
+        }
+
         val key = "live:${categoryId.orEmpty()}"
         @Suppress("UNCHECKED_CAST")
         (cache[key] as? List<Channel>)?.let { return enrichWithLogos(it) }

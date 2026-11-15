@@ -70,6 +70,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class LoginUiState(
+    val accountType: String = "XTREAM",
     val server: String = "",
     val user: String = "",
     val pass: String = "",
@@ -82,9 +83,13 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState())
     val state = _state.asStateFlow()
 
+    fun onAccountTypeChange(type: String) {
+        _state.update { it.copy(accountType = type, error = null) }
+    }
+
     fun onServer(value: String) {
         // A full playlist link (…/get.php?username=…&password=…) fills in all three fields at once.
-        val parsed = if (value.contains("username=") && value.contains("password=")) {
+        val parsed = if (_state.value.accountType == "XTREAM" && value.contains("username=") && value.contains("password=")) {
             runCatching {
                 val uri = Uri.parse(value.trim())
                 Pair(uri.getQueryParameter("username").orEmpty(), uri.getQueryParameter("password").orEmpty())
@@ -106,6 +111,30 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
     fun submit(onSuccess: () -> Unit) {
         val current = _state.value
         if (current.loading) return
+
+        if (current.accountType == "M3U") {
+            val url = current.server.trim()
+            if (url.isBlank() || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+                _state.update { it.copy(error = "الرجاء إدخال رابط M3U صالح يبدأ بـ http") }
+                return
+            }
+            _state.update { it.copy(loading = true, error = null) }
+            viewModelScope.launch {
+                try {
+                    val account = Account(name = "M3U Playlist", type = "M3U", m3uUrl = url)
+                    container.repo.login(account)
+                    container.prefs.saveAccount(account)
+                    _state.update { it.copy(loading = false) }
+                    onSuccess()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _state.update { it.copy(loading = false, error = e.userMessage()) }
+                }
+            }
+            return
+        }
+
         val server = normalizeServer(current.server)
         if (server == null) {
             _state.update { it.copy(error = Ar.errBadUrl) }
@@ -221,7 +250,45 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
 
                     Spacer(Modifier.height(26.dp))
 
-                    // Three inputs: side-by-side on wide screens, stacked on phones.
+                    // Account Type Tabs
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GlassCard(
+                            onClick = { vm.onAccountTypeChange("XTREAM") },
+                            shape = RoundedCornerShape(12.dp),
+                            selected = state.accountType == "XTREAM",
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Text("Xtream", Modifier.padding(horizontal = 24.dp, vertical = 10.dp), color = if (state.accountType == "XTREAM") Color.White else Palette.TextDim, fontWeight = FontWeight.Bold)
+                        }
+                        GlassCard(
+                            onClick = { vm.onAccountTypeChange("M3U") },
+                            shape = RoundedCornerShape(12.dp),
+                            selected = state.accountType == "M3U",
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Text("رابط M3U", Modifier.padding(horizontal = 24.dp, vertical = 10.dp), color = if (state.accountType == "M3U") Color.White else Palette.TextDim, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (state.accountType == "M3U") {
+                        LabeledInput(
+                            label = "رابط M3U المباشر",
+                            dot = Palette.Glow,
+                            value = state.server,
+                            onValueChange = vm::onServer,
+                            placeholder = "http://example.com/playlist.m3u",
+                            icon = Ic.Link,
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Done,
+                            onImeAction = { vm.submit(onLoggedIn) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        
                     if (wide) {
                         Row(
                             Modifier.fillMaxWidth(),
@@ -294,6 +361,9 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                                 onImeAction = { vm.submit(onLoggedIn) },
                             )
                         }
+                    }
+
+                    
                     }
 
                     val trimmedServer = state.server.trim()

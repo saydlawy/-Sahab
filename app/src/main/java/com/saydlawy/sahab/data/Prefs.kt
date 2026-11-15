@@ -52,6 +52,7 @@ class Prefs @JvmOverloads constructor(
     private val json = Json { ignoreUnknownKeys = true }
     private val favSerializer = ListSerializer(FavItem.serializer())
     private val recentSerializer = ListSerializer(RecentItem.serializer())
+    private val accountSerializer = ListSerializer(Account.serializer())
 
     private object Keys {
         val Server = stringPreferencesKey("server")
@@ -119,48 +120,27 @@ class Prefs @JvmOverloads constructor(
             if (accountInitialized) return
             withContext(Dispatchers.IO) {
                 val sec = securePrefs()
-                var server = sec.getString(SEC_SERVER, null)
-                var user = sec.getString(SEC_USER, null)
-                var pass = sec.getString(SEC_PASS, null)
-
-                // One-time migration from legacy plain DataStore to EncryptedSharedPreferences
-                if (server.isNullOrBlank() || user.isNullOrBlank() || pass == null) {
-                    val legacy = store.data.first()
-                    val oldServer = legacy[Keys.Server]
-                    val oldUser = legacy[Keys.User]
-                    val oldPass = legacy[Keys.Pass]
+                var accountsJson = sec.getString(SEC_ACCOUNTS, null)
+                
+                if (accountsJson.isNullOrBlank()) {
+                    val oldServer = sec.getString(SEC_SERVER, null)
+                    val oldUser = sec.getString(SEC_USER, null)
+                    val oldPass = sec.getString(SEC_PASS, null)
                     if (!oldServer.isNullOrBlank() && !oldUser.isNullOrBlank() && oldPass != null) {
-                        sec.edit()
-                            .putString(SEC_SERVER, oldServer)
-                            .putString(SEC_USER, oldUser)
-                            .putString(SEC_PASS, oldPass)
-                            .commit()
-                        server = oldServer
-                        user = oldUser
-                        pass = oldPass
-                        store.edit {
-                            it.remove(Keys.Server)
-                            it.remove(Keys.User)
-                            it.remove(Keys.Pass)
-                        }
-                    }
-                } else {
-                    // Ensure legacy keys are scrubbed if present
-                    val legacy = store.data.first()
-                    if (legacy.contains(Keys.Server) || legacy.contains(Keys.User) || legacy.contains(Keys.Pass)) {
-                        store.edit {
-                            it.remove(Keys.Server)
-                            it.remove(Keys.User)
-                            it.remove(Keys.Pass)
-                        }
+                        val legacyAccount = Account(name = "حسابي القديم", type = "XTREAM", server = oldServer, user = oldUser, pass = oldPass)
+                        val list = listOf(legacyAccount)
+                        accountsJson = json.encodeToString(accountSerializer, list)
+                        sec.edit().putString(SEC_ACCOUNTS, accountsJson).putString(SEC_ACTIVE_ID, legacyAccount.id).remove(SEC_SERVER).remove(SEC_USER).remove(SEC_PASS).commit()
                     }
                 }
 
-                _accountState.value = if (server.isNullOrBlank() || user.isNullOrBlank() || pass == null) {
-                    null
-                } else {
-                    Account(server, user, pass)
+                var accounts = emptyList<Account>()
+                if (!accountsJson.isNullOrBlank()) {
+                    accounts = runCatching { json.decodeFromString(accountSerializer, accountsJson) }.getOrDefault(emptyList())
                 }
+
+                val activeId = sec.getString(SEC_ACTIVE_ID, null)
+                _accountState.value = accounts.firstOrNull { it.id == activeId } ?: accounts.firstOrNull()
                 accountInitialized = true
             }
         }
@@ -277,18 +257,62 @@ class Prefs @JvmOverloads constructor(
     suspend fun saveAccount(account: Account) {
         accountMutex.withLock {
             withContext(Dispatchers.IO) {
-                securePrefs().edit()
-                    .putString(SEC_SERVER, account.server)
-                    .putString(SEC_USER, account.user)
-                    .putString(SEC_PASS, account.pass)
+                val sec = securePrefs()
+                val accountsJson = sec.getString(SEC_ACCOUNTS, null)
+                val accounts = if (accountsJson.isNullOrBlank()) mutableListOf() else 
+                    runCatching { json.decodeFromString(accountSerializer, accountsJson).toMutableList() }.getOrElse { mutableListOf() }
+                
+                val index = accounts.indexOfFirst { it.id == account.id }
+                if (index >= 0) accounts[index] = account else accounts.add(account)
+                
+                sec.edit()
+                    .putString(SEC_ACCOUNTS, json.encodeToString(accountSerializer, accounts))
+                    .putString(SEC_ACTIVE_ID, account.id)
                     .commit()
-                store.edit {
-                    it.remove(Keys.Server)
-                    it.remove(Keys.User)
-                    it.remove(Keys.Pass)
-                }
+                
                 _accountState.value = account
                 accountInitialized = true
+            }
+        }
+    }
+    
+    suspend fun getAccounts(): List<Account> = withContext(Dispatchers.IO) {
+        ensureAccountLoaded()
+        val accountsJson = securePrefs().getString(SEC_ACCOUNTS, null)
+        if (accountsJson.isNullOrBlank()) emptyList() else 
+            runCatching { json.decodeFromString(accountSerializer, accountsJson) }.getOrDefault(emptyList())
+    }
+
+    suspend fun setActiveAccount(id: String) {
+        accountMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val sec = securePrefs()
+                sec.edit().putString(SEC_ACTIVE_ID, id).commit()
+                val accountsJson = sec.getString(SEC_ACCOUNTS, null)
+                if (!accountsJson.isNullOrBlank()) {
+                    val accounts = runCatching { json.decodeFromString(accountSerializer, accountsJson) }.getOrDefault(emptyList())
+                    _accountState.value = accounts.firstOrNull { it.id == id }
+                }
+            }
+        }
+    }
+
+    suspend fun deleteAccount(id: String) {
+        accountMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val sec = securePrefs()
+                val accountsJson = sec.getString(SEC_ACCOUNTS, null)
+                if (!accountsJson.isNullOrBlank()) {
+                    val accounts = runCatching { json.decodeFromString(accountSerializer, accountsJson).toMutableList() }.getOrElse { mutableListOf() }
+                    accounts.removeAll { it.id == id }
+                    sec.edit().putString(SEC_ACCOUNTS, json.encodeToString(accountSerializer, accounts)).commit()
+                    
+                    if (sec.getString(SEC_ACTIVE_ID, null) == id) {
+                        val newActive = accounts.firstOrNull()
+                        sec.edit().putString(SEC_ACTIVE_ID, newActive?.id ?: "").commit()
+                        _accountState.value = newActive
+                    }
+                }
             }
         }
     }
@@ -300,6 +324,7 @@ class Prefs @JvmOverloads constructor(
                     .remove(SEC_SERVER)
                     .remove(SEC_USER)
                     .remove(SEC_PASS)
+                    .remove(SEC_ACTIVE_ID)
                     .commit()
                 store.edit {
                     it.remove(Keys.Server)
@@ -366,5 +391,7 @@ class Prefs @JvmOverloads constructor(
         const val SEC_SERVER = "enc_server"
         const val SEC_USER = "enc_user"
         const val SEC_PASS = "enc_pass"
+        const val SEC_ACCOUNTS = "enc_accounts_list"
+        const val SEC_ACTIVE_ID = "enc_active_id"
     }
 }

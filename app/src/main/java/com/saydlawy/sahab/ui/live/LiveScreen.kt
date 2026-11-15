@@ -406,10 +406,10 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                 try {
                     val items = if (snapshot.size > 300) {
                         withContext(Dispatchers.Default) {
-                            snapshot.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
+                            snapshot.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon, url = it.url) }
                         }
                     } else {
-                        snapshot.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon) }
+                        snapshot.map { PlayItem(Kind.LIVE, it.id, it.name, icon = it.icon, url = it.url) }
                     }
                     kotlinx.coroutines.delay(300)
                     onPlay(PlayRequest(items, index))
@@ -422,7 +422,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val playChannel: (Channel) -> Unit = { ch ->
         val idx = channels.indexOfFirst { it.id == ch.id }
         if (idx >= 0) playAt(idx)
-        else onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)), 0))
+        else onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url)), 0))
     }
 
     val activePreview = previewChannel?.takeIf { it.id in channelIdSet }
@@ -1201,7 +1201,7 @@ private fun PreviewPanel(
             return@LaunchedEffect
         }
         val url = runCatching {
-            repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon), formatAttempt)
+            repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url), formatAttempt)
         }.getOrNull() ?: return@LaunchedEffect
 
         val exo = previewExo ?: SahabPlayer.create(

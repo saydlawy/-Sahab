@@ -360,6 +360,7 @@ private fun SettingsDetailContent(
             val appCtx = LocalContext.current.applicationContext
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut() })
+                AccountListPanel(container = container)
                 AccountPanel(
                     account = account,
                     info = info,
@@ -1209,5 +1210,74 @@ private fun InfoRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = 14.sp, color = Palette.TextDim, modifier = Modifier.weight(1f))
         Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+    }
+}
+
+
+@Composable
+private fun AccountListPanel(container: AppContainer) {
+    val scope = rememberCoroutineScope()
+    val activeAccount by container.prefs.account.collectAsStateWithLifecycle(initialValue = null)
+    var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
+
+    LaunchedEffect(activeAccount) {
+        accounts = container.prefs.getAccounts()
+    }
+
+    if (accounts.isEmpty()) return
+
+    GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 20.dp) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                    Icon(Ic.Tv, null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("الاشتراكات المتعددة", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
+                    Text("قم بإدارة وتبديل اشتراكات Xtream و M3U", fontSize = 13.sp, color = Palette.TextDim)
+                }
+            }
+
+            accounts.forEach { acc ->
+                val isActive = acc.id == activeAccount?.id
+                GlassCard(
+                    onClick = {
+                        if (!isActive) {
+                            scope.launch {
+                                container.prefs.setActiveAccount(acc.id)
+                                container.repo.setAccount(acc)
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    selected = isActive
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(acc.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(if (acc.type == "M3U") "رابط M3U" else acc.server, fontSize = 12.sp, color = Palette.TextDim)
+                        }
+                        if (isActive) {
+                            Tag("نشط", Palette.Emerald)
+                        } else {
+                            GlassButton(text = "تفعيل", onClick = {
+                                scope.launch {
+                                    container.prefs.setActiveAccount(acc.id)
+                                    container.repo.setAccount(acc)
+                                }
+                            })
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "لإضافة اشتراك جديد، اضغط زر تسجيل الخروج بالأسفل ثم أدخل بيانات الاشتراك الجديد. (لن يتم حذف الاشتراكات السابقة).",
+                fontSize = 12.sp,
+                color = Palette.TextDim
+            )
+        }
     }
 }

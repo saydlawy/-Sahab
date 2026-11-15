@@ -10,7 +10,15 @@ object Kind {
 }
 
 @Serializable
-data class Account(val server: String, val user: String, val pass: String)
+data class Account(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String = "My TV",
+    val type: String = "XTREAM",
+    val server: String = "",
+    val user: String = "",
+    val pass: String = "",
+    val m3uUrl: String = ""
+)
 
 @Serializable
 data class UserInfo(
@@ -32,6 +40,7 @@ data class Channel(
     val icon: String = "",
     val categoryId: String = "",
     val epgId: String = "",
+    val url: String = "",
     val added: Long = 0L,
 )
 
@@ -109,6 +118,7 @@ data class PlayItem(
     val icon: String = "",
     val ext: String = "",
     val groupId: String = "",
+    val url: String = "",
 )
 
 data class PlayRequest(
