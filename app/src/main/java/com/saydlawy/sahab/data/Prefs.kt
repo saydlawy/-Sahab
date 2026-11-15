@@ -70,6 +70,7 @@ class Prefs @JvmOverloads constructor(
         val HomeChannelsCategoryIdKey = stringPreferencesKey("home_channels_category_id")
         val HomeCustomChannelIdsKey = stringPreferencesKey("home_custom_channel_ids")
         val LastSyncTime = longPreferencesKey("last_sync_time")
+        val EpgLastSyncTime = longPreferencesKey("epg_last_sync_time")
     }
 
     private val accountMutex = Mutex()
@@ -265,6 +266,12 @@ class Prefs @JvmOverloads constructor(
 
     suspend fun setLastSyncTime(ms: Long) {
         store.edit { it[Keys.LastSyncTime] = ms }
+    }
+
+    val lastEpgSyncTime: Flow<Long> = store.data.map { it[Keys.EpgLastSyncTime] ?: 0L }
+
+    suspend fun setLastEpgSyncTime(ms: Long) {
+        store.edit { it[Keys.EpgLastSyncTime] = ms }
     }
 
     suspend fun saveAccount(account: Account) {

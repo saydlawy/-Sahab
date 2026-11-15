@@ -52,6 +52,9 @@ interface ChannelDao {
 
     // ═══ EPG ═══
 
+    @Query("SELECT DISTINCT epgId FROM channels WHERE epgId != ''")
+    suspend fun distinctEpgIds(): List<String>
+
     @Query("SELECT * FROM epg_programs WHERE epgId = :epgId AND end > :nowSec ORDER BY start ASC")
     suspend fun programsForChannel(epgId: String, nowSec: Long): List<EpgProgramEntity>
 
@@ -65,7 +68,7 @@ interface ChannelDao {
     suspend fun deleteProgramsForChannel(epgId: String)
 
     @Query("DELETE FROM epg_programs WHERE end < :cutoffSec")
-    suspend fun deleteOldPrograms(cutoffSec: Long)
+    suspend fun deleteOldPrograms(cutoffSec: Long): Int
 
     @Query("DELETE FROM epg_programs")
     suspend fun clearAllPrograms()
