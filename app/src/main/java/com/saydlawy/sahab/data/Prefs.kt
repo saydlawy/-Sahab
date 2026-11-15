@@ -324,6 +324,7 @@ class Prefs @JvmOverloads constructor(
                     .remove(SEC_SERVER)
                     .remove(SEC_USER)
                     .remove(SEC_PASS)
+                    .remove(SEC_ACCOUNTS)
                     .remove(SEC_ACTIVE_ID)
                     .commit()
                 store.edit {

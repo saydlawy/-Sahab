@@ -29,7 +29,7 @@ class PrefsTest {
         )
         val prefs = Prefs(context = null, secureStoreOverride = fakeSecure, dataStoreOverride = ds)
 
-        val account = Account("https://portal.example.com", "user1", "pass1")
+        val account = Account(server = "https://portal.example.com", user = "user1", pass = "pass1")
         prefs.saveAccount(account)
         prefs.toggleFavorite(FavItem(Kind.MOVIE, "42", "فيلم تجريبي"))
         prefs.recordPlayback(RecentItem(Kind.MOVIE, "42", "فيلم تجريبي", positionMs = 15_000L, durationMs = 120_000L))
@@ -67,7 +67,7 @@ class PrefsTest {
         val prefs = Prefs(context = null, secureStoreOverride = fakeSecure, dataStoreOverride = ds)
         val loaded = prefs.account.first()
 
-        assertEquals(Account("https://legacy.example.com", "legacy_user", "legacy_pass"), loaded)
+        assertEquals(Account(server = "https://legacy.example.com", user = "legacy_user", pass = "legacy_pass"), loaded)
         assertTrue(fakeSecure.contains("enc_server"))
         val after = ds.data.first()
         assertFalse(after.contains(srvKey))

@@ -28,7 +28,7 @@ class RepositoryTest {
             disk = null,
         )
         val base = server.url("/").toString().trimEnd('/')
-        repo.setAccount(Account(base, "alice user", "p@ss/1"))
+        repo.setAccount(Account(server = base, user = "alice user", pass = "p@ss/1"))
     }
 
     @After
