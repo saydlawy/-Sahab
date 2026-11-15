@@ -132,6 +132,7 @@ import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
+import com.saydlawy.sahab.util.ChannelLogoResolver
 
 // Design tokens from ExoPlayer/DESIGN.md & media-player/DESIGN.md
 private val OsdSurfaceLowest = Color(0xFF0F0B1E)
@@ -1069,9 +1070,12 @@ private fun PhonePortraitPlayerScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (item.icon.isNotBlank()) {
+                val primaryLogoUrl = remember(item.icon, item.title) {
+                    ChannelLogoResolver.resolvePrimaryUrl(item.icon, item.title)
+                }
+                if (primaryLogoUrl.isNotBlank()) {
                     RemoteImage(
-                        url = item.icon,
+                        url = primaryLogoUrl,
                         fallbackText = item.title,
                         modifier = Modifier
                             .size(46.dp)

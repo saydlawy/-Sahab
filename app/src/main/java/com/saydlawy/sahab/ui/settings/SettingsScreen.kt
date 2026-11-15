@@ -367,7 +367,7 @@ private fun SettingsDetailContent(
                         scope.launch(Dispatchers.IO) {
                             container.repo.syncCatalog(force = true)
                             container.catalogSync.syncMovies(container.repo)
-                            val chStats = container.channelSync.sync(container.repo)
+                            val chStats = container.channelSync.sync(container.repo, forceFullRefresh = true)
                             if (chStats.isSuccess) container.prefs.setLastSyncTime(System.currentTimeMillis())
 
                             // EPG sync after channels so epgIds are present
