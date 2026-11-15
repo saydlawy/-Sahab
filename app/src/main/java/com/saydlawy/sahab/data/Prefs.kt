@@ -123,14 +123,34 @@ class Prefs @JvmOverloads constructor(
                 var accountsJson = sec.getString(SEC_ACCOUNTS, null)
                 
                 if (accountsJson.isNullOrBlank()) {
+                    // 1. Try secure prefs
                     val oldServer = sec.getString(SEC_SERVER, null)
                     val oldUser = sec.getString(SEC_USER, null)
                     val oldPass = sec.getString(SEC_PASS, null)
-                    if (!oldServer.isNullOrBlank() && !oldUser.isNullOrBlank() && oldPass != null) {
-                        val legacyAccount = Account(name = "حسابي القديم", type = "XTREAM", server = oldServer, user = oldUser, pass = oldPass)
+                    
+                    // 2. If not found, try legacy DataStore
+                    var server = oldServer
+                    var user = oldUser
+                    var pass = oldPass
+                    if (server.isNullOrBlank() || user.isNullOrBlank() || pass == null) {
+                        val legacy = store.data.first()
+                        server = legacy[Keys.Server]
+                        user = legacy[Keys.User]
+                        pass = legacy[Keys.Pass]
+                    }
+
+                    if (!server.isNullOrBlank() && !user.isNullOrBlank() && pass != null) {
+                        val legacyAccount = Account(name = "حسابي القديم", type = "XTREAM", server = server, user = user, pass = pass)
                         val list = listOf(legacyAccount)
                         accountsJson = json.encodeToString(accountSerializer, list)
                         sec.edit().putString(SEC_ACCOUNTS, accountsJson).putString(SEC_ACTIVE_ID, legacyAccount.id).remove(SEC_SERVER).remove(SEC_USER).remove(SEC_PASS).commit()
+                        
+                        // Clean up DataStore to prevent future false positives
+                        store.edit {
+                            it.remove(Keys.Server)
+                            it.remove(Keys.User)
+                            it.remove(Keys.Pass)
+                        }
                     }
                 }
 
