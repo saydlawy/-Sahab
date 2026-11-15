@@ -4,6 +4,9 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/** Minimal projection for logo lookups — avoids Room Map return type quirks. */
+data class LogoRow(val streamId: String, val logoUrl: String)
+
 @Entity(
     tableName = "channels",
     indices = [

@@ -23,6 +23,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE epgId = :epgId LIMIT 1")
     suspend fun findByEpgId(epgId: String): ChannelEntity?
 
+    @Query("SELECT streamId, logoUrl FROM channels WHERE logoUrl != ")
+    suspend fun getLogosList(): List<LogoRow>
+
     @Query("SELECT streamId FROM channels")
     suspend fun allStreamIds(): List<String>
 

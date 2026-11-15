@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.data
 
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.data.channel.ChannelDao
 import java.net.URLEncoder
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,7 @@ class Repository(
     private val tmdb: TmdbApi,
     private val disk: DiskCache? = null,
     private val prefs: Prefs? = null,
+    private val channelDao: ChannelDao? = null,
 ) {
 
     @Volatile
@@ -267,13 +269,24 @@ class Repository(
             parseCategories(request("get_live_categories"))
         }
 
+    private suspend fun enrichWithLogos(channels: List<Channel>): List<Channel> {
+        val dao = channelDao ?: return channels
+        val rows = runCatching { dao.getLogosList() }.getOrNull() ?: return channels
+        if (rows.isEmpty()) return channels
+        val logos = rows.associate { it.streamId to it.logoUrl }
+        return channels.map { ch ->
+            val logo = logos[ch.id]
+            if (!logo.isNullOrBlank() && logo != ch.icon) ch.copy(icon = logo) else ch
+        }
+    }
+
     suspend fun peekAllLiveChannels(): List<Channel>? =
-        peekCachedList("live:", ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS)
+        peekCachedList("live:", ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS)?.let { enrichWithLogos(it) }
 
     suspend fun liveChannels(categoryId: String?): List<Channel> {
         val key = "live:${categoryId.orEmpty()}"
         @Suppress("UNCHECKED_CAST")
-        (cache[key] as? List<Channel>)?.let { return it }
+        (cache[key] as? List<Channel>)?.let { return enrichWithLogos(it) }
 
         if (!categoryId.isNullOrBlank()) {
             val all = peekAllLiveChannels()
@@ -286,10 +299,10 @@ class Repository(
             }
         }
 
-        return cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS) {
+        return enrichWithLogos(cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS) {
             val json = request("get_live_streams", categoryParams(categoryId))
             withContext(Dispatchers.Default) { parseChannels(json) }
-        }
+        })
     }
 
     // Movies

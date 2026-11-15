@@ -65,7 +65,7 @@ class AppContainer(context: Context) {
         .build()
 
     val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache)
-    val repo = Repository(XtreamApi(client), tmdb, diskCache, prefs)
+    val repo = Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao())
 
     /** Outlives screens, so progress can still be saved while the player is closing. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
