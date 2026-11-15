@@ -106,6 +106,17 @@ fun AppRoot(container: AppContainer) {
                 if (sync is Repository.SyncResult.Success || sync is Repository.SyncResult.Failure) {
                     container.catalogSync.syncMovies(container.repo)
                 }
+
+                // 3. Channel sync — only if 24h elapsed since last run
+                val lastChSync = container.prefs.lastSyncTime.first()
+                if (System.currentTimeMillis() - lastChSync > 24L * 3600_000L) {
+                    val chStats = container.channelSync.sync(container.repo)
+                    Log.d("SahabChannelSync",
+                        "auto: total=${chStats.total} enriched=${chStats.enriched} errors=${chStats.errors.size}")
+                    if (chStats.isSuccess) {
+                        container.prefs.setLastSyncTime(System.currentTimeMillis())
+                    }
+                }
             }
         }
         start = if (account != null) Routes.HOME else Routes.CLOUD_LOGIN
@@ -192,7 +203,8 @@ fun AppRoot(container: AppContainer) {
 
                     val repoSyncing by container.repo.syncing.collectAsStateWithLifecycle()
                     val catalogSyncing by container.catalogSync.syncing.collectAsStateWithLifecycle()
-                    val syncing = repoSyncing || catalogSyncing
+                    val channelSyncing by container.channelSync.syncing.collectAsStateWithLifecycle()
+                    val syncing = repoSyncing || catalogSyncing || channelSyncing
                     Box(
                         Modifier.fillMaxSize(),
                         contentAlignment = Alignment.BottomCenter,

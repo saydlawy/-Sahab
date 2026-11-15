@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.ui.settings
 
 import android.content.Context
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -356,6 +357,7 @@ private fun SettingsDetailContent(
 
     when (category) {
         "account" -> {
+            val appCtx = LocalContext.current.applicationContext
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 CloudAccountPanel(cloudUser?.email, onLogout = { container.authManager.signOut() })
                 AccountPanel(
@@ -365,6 +367,16 @@ private fun SettingsDetailContent(
                         scope.launch(Dispatchers.IO) {
                             container.repo.syncCatalog(force = true)
                             container.catalogSync.syncMovies(container.repo)
+                            val chStats = container.channelSync.sync(container.repo)
+                            if (chStats.isSuccess) container.prefs.setLastSyncTime(System.currentTimeMillis())
+                            val msg = when {
+                                chStats.isSuccess && chStats.total > 0 -> "تم تحديث ${chStats.total} قناة (${chStats.enriched} بـ EPG)"
+                                chStats.hasPartialFailure -> "تحديث جزئي: ${chStats.errors.size} خطأ"
+                                else -> "فشل: ${chStats.errors.firstOrNull() ?: "خطأ غير معروف"}"
+                            }
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(appCtx, msg, Toast.LENGTH_LONG).show()
+                            }
                         }
                     },
                 )
