@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.ui.live
 
+import com.saydlawy.sahab.data.channel.EpgProgramEntity
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -897,35 +898,22 @@ private fun ChannelRow(
     onActivate: () -> Unit,
     onToggleFavorite: () -> Unit,
 ) {
-    val repo = LocalContainer.current.repo
-    val cachedPrograms = remember(channel.id) {
-        if (channel.epgId.isBlank()) null else repo.peekShortEpg(channel.id, 2)
-    }
-    val initialProgram = remember(cachedPrograms) {
-        val t = System.currentTimeMillis() / 1000
-        cachedPrograms?.firstOrNull { t in it.start until it.end }
-    }
-    val now by produceState<Program?>(initialValue = initialProgram, channel.id) {
-        if (channel.epgId.isBlank()) {
-            value = null
-            return@produceState
-        }
-        val memHit = repo.peekShortEpg(channel.id, 2)
-        if (memHit != null) {
+    val container = LocalContainer.current
+    val dao = remember(container) { container.channelDb.channelDao() }
+    val programs by produceState<Pair<EpgProgramEntity?, EpgProgramEntity?>>(
+        initialValue = null to null,
+        channel.id,
+    ) {
+        while (true) {
             val t = System.currentTimeMillis() / 1000
-            value = memHit.firstOrNull { t in it.start until it.end }
-            return@produceState
-        }
-        delay(300) // Wait for scroll to settle before hitting disk/network EPG
-        value = try {
-            val t = System.currentTimeMillis() / 1000
-            repo.shortEpg(channel.id, 2).firstOrNull { t in it.start until it.end }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
+            val cur = runCatching { dao.currentProgramFor(channel.id, t) }.getOrNull()
+            val nxt = runCatching { dao.nextProgramFor(channel.id, t) }.getOrNull()
+            value = cur to nxt
+            kotlinx.coroutines.delay(60_000L)
         }
     }
+    val program = programs.first
+    val next = programs.second
     var focused by remember { mutableStateOf(false) }
     val active = focused || isPreviewed
     val shape = RoundedCornerShape(appDp(16))
@@ -1027,7 +1015,6 @@ private fun ChannelRow(
                     modifier = Modifier.weight(1f, fill = false),
                 )
             }
-            val program = now
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(appDp(6)),
@@ -1049,6 +1036,15 @@ private fun ChannelRow(
                     text = if (program != null && program.title.isNotBlank()) program.title else "بث مباشر",
                     fontSize = appSp(11),
                     color = if (program != null) Palette.FocusCyan else Palette.TextDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (next != null && next.title.isNotBlank()) {
+                Text(
+                    text = "${Ar.nextProgramLabel} ${next.title}",
+                    fontSize = appSp(10),
+                    color = Palette.TextDim,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

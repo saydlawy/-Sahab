@@ -58,6 +58,26 @@ interface ChannelDao {
     @Query("SELECT * FROM epg_programs WHERE epgId = :epgId AND end > :nowSec ORDER BY start ASC")
     suspend fun programsForChannel(epgId: String, nowSec: Long): List<EpgProgramEntity>
 
+    @Query("""
+        SELECT p.* FROM epg_programs p
+        INNER JOIN channels c ON c.epgId = p.epgId
+        WHERE c.streamId = :streamId
+          AND p.start <= :nowSec AND p.end > :nowSec
+        ORDER BY p.start ASC
+        LIMIT 1
+    """)
+    suspend fun currentProgramFor(streamId: String, nowSec: Long): EpgProgramEntity?
+
+    @Query("""
+        SELECT p.* FROM epg_programs p
+        INNER JOIN channels c ON c.epgId = p.epgId
+        WHERE c.streamId = :streamId
+          AND p.start > :nowSec
+        ORDER BY p.start ASC
+        LIMIT 1
+    """)
+    suspend fun nextProgramFor(streamId: String, nowSec: Long): EpgProgramEntity?
+
     @Query("SELECT * FROM epg_programs WHERE start <= :nowSec AND end > :nowSec ORDER BY start ASC")
     fun observeNowPlaying(nowSec: Long): Flow<List<EpgProgramEntity>>
 

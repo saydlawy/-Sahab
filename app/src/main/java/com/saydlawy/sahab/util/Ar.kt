@@ -121,6 +121,7 @@ object Ar {
     const val lightModeHint = "يوقف حركة الخلفية والتكبير، مفيد للأجهزة الضعيفة"
     const val refreshData = "تحديث القوائم"
     const val refreshed = "تم التحديث"
+    const val nextProgramLabel = "التالي:"
     const val logout = "تسجيل الخروج"
     const val logoutQuestion = "هل تريد تسجيل الخروج؟"
     const val logoutHint = "ستحتاج إلى إدخال بيانات الدخول مرة أخرى"
