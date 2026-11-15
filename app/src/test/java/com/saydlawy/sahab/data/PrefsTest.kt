@@ -43,9 +43,8 @@ class PrefsTest {
         assertNull(prefs.account.first())
         assertTrue(prefs.favorites.first().isEmpty())
         assertTrue(prefs.recents.first().isEmpty())
-        assertFalse(fakeSecure.contains("enc_server"))
-        assertFalse(fakeSecure.contains("enc_user"))
-        assertFalse(fakeSecure.contains("enc_pass"))
+        assertFalse(fakeSecure.contains("enc_accounts_list"))
+        assertFalse(fakeSecure.contains("enc_active_id"))
     }
 
     @Test
@@ -73,7 +72,8 @@ class PrefsTest {
         assertEquals("legacy_pass", loaded?.pass)
         assertEquals("حسابي القديم", loaded?.name)
         assertEquals("XTREAM", loaded?.type)
-        assertTrue(fakeSecure.contains("enc_server"))
+        assertTrue(fakeSecure.contains("enc_accounts_list"))
+        assertTrue(fakeSecure.contains("enc_active_id"))
         val after = ds.data.first()
         assertFalse(after.contains(srvKey))
         assertFalse(after.contains(usrKey))
