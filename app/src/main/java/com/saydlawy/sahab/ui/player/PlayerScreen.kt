@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.ui.player
 
+import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.data.channel.EpgProgramEntity
 import android.content.pm.ActivityInfo
 import androidx.compose.foundation.lazy.rememberLazyListState
 import android.view.ViewGroup
@@ -566,9 +568,27 @@ private fun PlayerContent(container: AppContainer, request: PlayRequest, onBack:
         }
     }
 
-    val nowSec = if (isLive && epg.isNotEmpty()) rememberNow(30_000L) / 1000L else 0L
-    val currentProgram = if (isLive) epg.firstOrNull { nowSec in it.start until it.end } else null
-    val nextProgram = if (isLive) epg.firstOrNull { it.start >= (currentProgram?.end ?: nowSec) } else null
+    val container = LocalContainer.current
+    val dao = remember(container) { container.channelDb.channelDao() }
+    val livePrograms by produceState<Pair<EpgProgramEntity?, EpgProgramEntity?>>(
+        initialValue = null to null,
+        item.id,
+        isLive,
+    ) {
+        if (!isLive) {
+            value = null to null
+            return@produceState
+        }
+        while (true) {
+            val t = System.currentTimeMillis() / 1000
+            val cur = runCatching { dao.currentProgramFor(item.id, t) }.getOrNull()
+            val nxt = runCatching { dao.nextProgramFor(item.id, t) }.getOrNull()
+            value = cur to nxt
+            kotlinx.coroutines.delay(60_000L)
+        }
+    }
+    val currentProgram = livePrograms.first?.let { Program(it.title, it.description, it.start, it.end) }
+    val nextProgram = livePrograms.second?.let { Program(it.title, it.description, it.start, it.end) }
 
     val textOff = remember(tracks, exo.trackSelectionParameters) {
         exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
