@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         ChannelListEntity::class,
         ChannelListItemEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class ChannelDatabase : RoomDatabase() {

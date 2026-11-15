@@ -4,14 +4,6 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/**
- * Local channel database — offline mirror of the user's Xtream subscription,
- * enriched with Firestore metadata (displayName, logo, epgId, quality, groupId).
- *
- * streamUrlTemplate: relative path with placeholders {USER}, {PASS}, {ext}.
- *   e.g. "/live/{USER}/{PASS}/2224.{ext}"
- *   Real URL is built at playback time from Prefs (never stored in DB for security).
- */
 @Entity(
     tableName = "channels",
     indices = [
@@ -21,6 +13,7 @@ import androidx.room.PrimaryKey
         Index(value = ["sortOrder"]),
         Index(value = ["isHidden"]),
         Index(value = ["isFavorite"]),
+        Index(value = ["lastFirebaseCheckAt"]),
     ],
 )
 data class ChannelEntity(
@@ -40,13 +33,14 @@ data class ChannelEntity(
     val isHidden: Boolean = false,
     val lastWatchedAt: Long = 0L,
     val updatedAt: Long,
+    /**
+     * Unix millis of last Firebase lookup for this channel.
+     * 0 = never checked. Used with a 7-day TTL to avoid re-querying channels
+     * that don't yet exist in global_channels.
+     */
+    val lastFirebaseCheckAt: Long = 0L,
 )
 
-/**
- * EPG programmes for all channels with epgId.
- * id = "{epgId}_{start}" (globally unique).
- * Index (start, end) powers "what's on now" queries.
- */
 @Entity(
     tableName = "epg_programs",
     indices = [
@@ -65,10 +59,6 @@ data class EpgProgramEntity(
     val updatedAt: Long,
 )
 
-/**
- * User-defined channel lists (e.g. "My Sports", "Kids").
- * Empty in MVP; populated when the customization screen ships.
- */
 @Entity(tableName = "channel_lists")
 data class ChannelListEntity(
     @PrimaryKey val listId: String,
@@ -80,10 +70,6 @@ data class ChannelListEntity(
     val updatedAt: Long,
 )
 
-/**
- * Membership of channels in lists. One channel can belong to multiple lists.
- * position = order within the list.
- */
 @Entity(
     tableName = "channel_list_items",
     primaryKeys = ["listId", "streamId"],
