@@ -117,6 +117,17 @@ fun AppRoot(container: AppContainer) {
                         container.prefs.setLastSyncTime(System.currentTimeMillis())
                     }
                 }
+
+                // 4. EPG sync — after ChannelSync so epgId fields are populated
+                val lastEpgSync = container.prefs.lastEpgSyncTime.first()
+                if (System.currentTimeMillis() - lastEpgSync > 24L * 3600_000L) {
+                    val epgStats = container.epgSync.sync()
+                    Log.d("SahabEpgSync",
+                        "auto: epgIds=${epgStats.epgIdsProcessed} upserted=${epgStats.programsUpserted} deleted=${epgStats.programsDeleted} errors=${epgStats.errors.size}")
+                    if (epgStats.isSuccess) {
+                        container.prefs.setLastEpgSyncTime(System.currentTimeMillis())
+                    }
+                }
             }
         }
         start = if (account != null) Routes.HOME else Routes.CLOUD_LOGIN
@@ -204,7 +215,8 @@ fun AppRoot(container: AppContainer) {
                     val repoSyncing by container.repo.syncing.collectAsStateWithLifecycle()
                     val catalogSyncing by container.catalogSync.syncing.collectAsStateWithLifecycle()
                     val channelSyncing by container.channelSync.syncing.collectAsStateWithLifecycle()
-                    val syncing = repoSyncing || catalogSyncing || channelSyncing
+                    val epgSyncing by container.epgSync.syncing.collectAsStateWithLifecycle()
+                    val syncing = repoSyncing || catalogSyncing || channelSyncing || epgSyncing
                     Box(
                         Modifier.fillMaxSize(),
                         contentAlignment = Alignment.BottomCenter,

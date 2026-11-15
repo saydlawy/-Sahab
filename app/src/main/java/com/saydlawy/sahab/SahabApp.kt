@@ -18,6 +18,7 @@ import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.channel.ChannelDatabase
 import com.saydlawy.sahab.data.channel.ChannelSync
+import com.saydlawy.sahab.data.channel.EpgSync
 import com.saydlawy.sahab.data.TmdbApi
 import com.saydlawy.sahab.data.XtreamApi
 import com.saydlawy.sahab.data.sports.SyncScheduler
@@ -46,6 +47,7 @@ class AppContainer(context: Context) {
     val catalogSync by lazy { CatalogSync(catalogDb.movieDao(), firebaseCatalog) }
     val channelDb by lazy { ChannelDatabase.getInstance(context.applicationContext) }
     val channelSync by lazy { ChannelSync(channelDb.channelDao()) }
+    val epgSync by lazy { EpgSync(channelDb.channelDao()) }
     val firebaseCatalog by lazy { com.saydlawy.sahab.data.catalog.FirebaseCatalogService() }
     val authManager by lazy { com.saydlawy.sahab.data.auth.AuthManager() }
     val userSyncService by lazy { com.saydlawy.sahab.data.auth.UserSyncService() }

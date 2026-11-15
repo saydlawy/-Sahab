@@ -369,10 +369,26 @@ private fun SettingsDetailContent(
                             container.catalogSync.syncMovies(container.repo)
                             val chStats = container.channelSync.sync(container.repo)
                             if (chStats.isSuccess) container.prefs.setLastSyncTime(System.currentTimeMillis())
-                            val msg = when {
-                                chStats.isSuccess && chStats.total > 0 -> "تم تحديث ${chStats.total} قناة (${chStats.enriched} بـ EPG)"
-                                chStats.hasPartialFailure -> "تحديث جزئي: ${chStats.errors.size} خطأ"
-                                else -> "فشل: ${chStats.errors.firstOrNull() ?: "خطأ غير معروف"}"
+
+                            // EPG sync after channels so epgIds are present
+                            val epgStats = container.epgSync.sync()
+                            if (epgStats.isSuccess) container.prefs.setLastEpgSyncTime(System.currentTimeMillis())
+
+                            val msg = buildString {
+                                append("القنوات: ")
+                                when {
+                                    chStats.isSuccess && chStats.total > 0 ->
+                                        append("${chStats.total} قناة (${chStats.enriched} بـ EPG)")
+                                    chStats.hasPartialFailure -> append("جزئي (${chStats.errors.size} خطأ)")
+                                    else -> append("فشل")
+                                }
+                                append("\nالبرامج: ")
+                                when {
+                                    epgStats.isSuccess && epgStats.programsUpserted > 0 ->
+                                        append("${epgStats.programsUpserted} برنامج")
+                                    epgStats.hasPartialFailure -> append("جزئي (${epgStats.errors.size} خطأ)")
+                                    else -> append("فشل")
+                                }
                             }
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(appCtx, msg, Toast.LENGTH_LONG).show()
