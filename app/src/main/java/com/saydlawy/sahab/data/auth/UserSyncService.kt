@@ -42,6 +42,32 @@ class UserSyncService {
     private val favSerializer = ListSerializer(FavItem.serializer())
     private val recentSerializer = ListSerializer(RecentItem.serializer())
 
+
+    private val accountsSerializer = ListSerializer(Account.serializer())
+
+    suspend fun saveAccounts(accounts: List<Account>) = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+        val jsonStr = json.encodeToString(accountsSerializer, accounts)
+        db.collection("users").document(uid).collection("data").document("accounts_list")
+            .set(mapOf("json" to jsonStr))
+            .addOnSuccessListener { cont.resume(Unit) }
+            .addOnFailureListener { cont.resume(Unit) }
+    }
+
+    suspend fun getAccounts(): List<Account>? = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
+        db.collection("users").document(uid).collection("data").document("accounts_list")
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val jsonStr = snapshot.getString("json")
+                if (jsonStr != null) {
+                    val list = runCatching { json.decodeFromString(accountsSerializer, jsonStr) }.getOrDefault(emptyList())
+                    cont.resume(list)
+                } else cont.resume(null)
+            }
+            .addOnFailureListener { cont.resume(null) }
+    }
+
     suspend fun saveFavorites(favs: List<FavItem>) = suspendCancellableCoroutine { cont ->
         val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
         val jsonStr = json.encodeToString(favSerializer, favs)
