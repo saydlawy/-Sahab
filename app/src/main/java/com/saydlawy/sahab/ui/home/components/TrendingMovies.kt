@@ -154,8 +154,8 @@ private fun TrendingMovieCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val qualityTag = qualityOf(movie.titleAr) ?: if (movie.rating >= "8.0") "4K" else "UHD"
-    val ratingText = movie.rating.ifBlank { "4.8" }
+    val qualityTag = qualityOf(movie.titleAr)
+    val ratingText = movie.rating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
     val subtitleText = when {
         movie.genre.isNotBlank() -> movie.genre
         movie.plot.isNotBlank() -> movie.plot
@@ -255,39 +255,45 @@ private fun TrendingMovieCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Right side in RTL: Gold star + rating
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        Icon(
-                            imageVector = Ic.Star,
-                            contentDescription = null,
-                            tint = Palette.Gold,
-                            modifier = Modifier.size(11.dp),
-                        )
-                        Text(
-                            text = ratingText,
-                            color = Palette.Gold,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
+                    // Right side in RTL: Gold star + rating (only when real rating exists)
+                    if (ratingText != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(
+                                imageVector = Ic.Star,
+                                contentDescription = null,
+                                tint = Palette.Gold,
+                                modifier = Modifier.size(11.dp),
+                            )
+                            Text(
+                                text = ratingText,
+                                color = Palette.Gold,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.width(1.dp))
                     }
 
-                    // Left side in RTL: Quality badge (4K / UHD / HD) - never collides with top-right poster logos!
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xCC1E2336))
-                            .border(0.8.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                    ) {
-                        Text(
-                            text = qualityTag,
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
+                    // Left side in RTL: Quality badge (only when real quality tag exists in title)
+                    if (qualityTag != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xCC1E2336))
+                                .border(0.8.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        ) {
+                            Text(
+                                text = qualityTag,
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
             }

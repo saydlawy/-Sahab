@@ -231,10 +231,10 @@ class FirebaseCatalogService {
         val bestRating = fb?.rating?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
             ?: room?.rating?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
             ?: poster.rating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
-            ?: "8.1"
+            ?: ""
         val bestYear = fb?.year?.ifBlank { null }
             ?: room?.year?.ifBlank { null }
-            ?: poster.year.ifBlank { "2026" }
+            ?: poster.year
         val bestGenre = fb?.genre?.ifBlank { null }
             ?: room?.genre?.ifBlank { null }
             ?: "أحدث الإضافات"
