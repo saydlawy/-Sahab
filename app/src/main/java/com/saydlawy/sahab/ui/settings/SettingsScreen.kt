@@ -27,7 +27,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicatorDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -1237,9 +1239,11 @@ private fun SourcesPanel(container: AppContainer) {
     val activeAccount by container.prefs.account.collectAsStateWithLifecycle(initialValue = null)
     var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var isSwitching by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeAccount) {
         accounts = container.prefs.getAccounts()
+        isSwitching = false
     }
 
     GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 20.dp) {
@@ -1285,13 +1289,18 @@ private fun SourcesPanel(container: AppContainer) {
                         }
                         
                         if (!isActive) {
-                            GlassButton(text = "تفعيل", onClick = {
-                                scope.launch {
-                                    container.prefs.setActiveAccount(acc.id)
-                                    container.repo.setAccount(acc)
-                                    container.userSyncService.saveAccounts(accounts)
-                                }
-                            })
+                            if (isSwitching) {
+                                CircularProgressIndicator(color = Palette.Glow, modifier = Modifier.size(24.dp))
+                            } else {
+                                GlassButton(text = "تفعيل", onClick = {
+                                    isSwitching = true
+                                    scope.launch(Dispatchers.IO) {
+                                        // التبديل الذكي: مسح الكاش ثم تفعيل الحساب الجديد
+                                        container.switchAccount(acc)
+                                        withContext(Dispatchers.Main) { isSwitching = false }
+                                    }
+                                })
+                            }
                             Spacer(Modifier.width(8.dp))
                         } else {
                             Tag("نشط", Palette.Emerald)
@@ -1465,235 +1474,3 @@ private fun ActiveSourceDetailsPanel(
 }
 
 
-@Composable
-private fun SourcesPanel(container: AppContainer) {
-    val scope = rememberCoroutineScope()
-    val activeAccount by container.prefs.account.collectAsStateWithLifecycle(initialValue = null)
-    var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
-    var showAddDialog by remember { mutableStateOf(false) }
-
-    LaunchedEffect(activeAccount) {
-        accounts = container.prefs.getAccounts()
-    }
-
-    GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 20.dp) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
-                        Icon(Ic.Tv, null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("المصادر والاشتراكات", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                        Text("اختر المصدر النشط أو أضف مصدراً جديداً", fontSize = 13.sp, color = Palette.TextDim)
-                    }
-                }
-                GlassButton(
-                    text = "+ إضافة",
-                    onClick = { showAddDialog = true },
-                    primary = true,
-                    icon = Ic.Cloud
-                )
-            }
-
-            accounts.forEach { acc ->
-                val isActive = acc.id == activeAccount?.id
-                GlassCard(
-                    onClick = {
-                        if (!isActive) {
-                            scope.launch {
-                                container.prefs.setActiveAccount(acc.id)
-                                container.repo.setAccount(acc)
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    selected = isActive
-                ) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(acc.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Text(if (acc.type == "M3U") "رابط M3U مباشر" else acc.server, fontSize = 12.sp, color = Palette.TextDim)
-                        }
-                        
-                        if (!isActive) {
-                            GlassButton(text = "تفعيل", onClick = {
-                                scope.launch {
-                                    container.prefs.setActiveAccount(acc.id)
-                                    container.repo.setAccount(acc)
-                                    container.userSyncService.saveAccounts(accounts)
-                                }
-                            })
-                            Spacer(Modifier.width(8.dp))
-                        } else {
-                            Tag("نشط", Palette.Emerald)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        
-                        GlassButton(text = "حذف", onClick = {
-                            scope.launch {
-                                container.prefs.deleteAccount(acc.id)
-                                val newList = container.prefs.getAccounts()
-                                accounts = newList
-                                container.userSyncService.saveAccounts(newList)
-                                if (acc.id == activeAccount?.id) {
-                                    val next = newList.firstOrNull()
-                                    if (next != null) {
-                                        container.prefs.setActiveAccount(next.id)
-                                        container.repo.setAccount(next)
-                                    } else {
-                                        container.repo.setAccount(null)
-                                    }
-                                }
-                            }
-                        })
-                    }
-                }
-            }
-        }
-    }
-
-    if (showAddDialog) {
-        AddSourceDialog(
-            container = container,
-            onDismiss = { showAddDialog = false },
-            onAdded = { newAcc ->
-                scope.launch {
-                    accounts = container.prefs.getAccounts()
-                    container.userSyncService.saveAccounts(accounts)
-                    container.prefs.setActiveAccount(newAcc.id)
-                    container.repo.setAccount(newAcc)
-                    showAddDialog = false
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onAdded: (Account) -> Unit) {
-    val scope = rememberCoroutineScope()
-    var selectedTab by remember { mutableStateOf("XTREAM") }
-    var name by remember { mutableStateOf("") }
-    var server by remember { mutableStateOf("") }
-    var user by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
-    var m3uUrl by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("إضافة مصدر جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GlassCard(onClick = { selectedTab = "XTREAM" }, modifier = Modifier.weight(1f), selected = selectedTab == "XTREAM") {
-                        Text("سيرفر Xtream", modifier = Modifier.fillMaxWidth().padding(12.dp), textAlign = TextAlign.Center, color = if (selectedTab == "XTREAM") Color.White else Palette.TextDim)
-                    }
-                    GlassCard(onClick = { selectedTab = "M3U" }, modifier = Modifier.weight(1f), selected = selectedTab == "M3U") {
-                        Text("رابط M3U", modifier = Modifier.fillMaxWidth().padding(12.dp), textAlign = TextAlign.Center, color = if (selectedTab == "M3U") Color.White else Palette.TextDim)
-                    }
-                }
-
-                GlassTextField(value = name, onValueChange = { name = it }, placeholder = "اسم المصدر (مثال: اشتراكي)", modifier = Modifier.fillMaxWidth())
-                
-                if (selectedTab == "XTREAM") {
-                    GlassTextField(value = server, onValueChange = { server = it }, placeholder = "عنوان السيرفر (http://...)", modifier = Modifier.fillMaxWidth())
-                    GlassTextField(value = user, onValueChange = { user = it }, placeholder = "اسم المستخدم", modifier = Modifier.fillMaxWidth())
-                    GlassTextField(value = pass, onValueChange = { pass = it }, placeholder = "كلمة المرور", password = true, modifier = Modifier.fillMaxWidth())
-                } else {
-                    GlassTextField(value = m3uUrl, onValueChange = { m3uUrl = it }, placeholder = "رابط M3U المباشر (http://...)", modifier = Modifier.fillMaxWidth())
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GlassButton(
-                        text = if (loading) "جاري الحفظ..." else "حفظ",
-                        onClick = {
-                            if (loading) return@GlassButton
-                            loading = true
-                            scope.launch(Dispatchers.IO) {
-                                try {
-                                    val acc = if (selectedTab == "XTREAM") {
-                                        Account(name = name.ifBlank { "Xtream Server" }, type = "XTREAM", server = server, user = user, pass = pass)
-                                    } else {
-                                        Account(name = name.ifBlank { "M3U List" }, type = "M3U", m3uUrl = m3uUrl)
-                                    }
-                                    container.repo.login(acc)
-                                    container.prefs.saveAccount(acc)
-                                    withContext(Dispatchers.Main) {
-                                        loading = false
-                                        onAdded(acc)
-                                    }
-                                } catch (e: Exception) {
-                                    withContext(Dispatchers.Main) { loading = false }
-                                }
-                            }
-                        },
-                        primary = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    GlassButton(text = "إلغاء", onClick = onDismiss, modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActiveSourceDetailsPanel(
-    container: AppContainer,
-    account: Account?,
-    info: UserInfo?,
-    onSyncNow: () -> Unit,
-) {
-    if (account == null) return
-
-    GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 20.dp) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Palette.Royal.copy(alpha = 0.28f)).border(1.dp, Palette.Glow.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Ic.Person, null, tint = Palette.Glow, modifier = Modifier.size(22.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("تفاصيل المصدر النشط", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
-                    Text(if (account.type == "M3U") "رابط M3U" else account.server, fontSize = 13.sp, color = Palette.Glow)
-                }
-            }
-            if (account.type == "XTREAM" && info != null) {
-                Tag(info.status.ifBlank { "Active" }, Palette.Emerald)
-            }
-        }
-        Spacer(Modifier.height(14.dp))
-        
-        if (account.type == "XTREAM") {
-            InfoRow("الخادم", hostOf(account.server))
-            InfoRow("اسم المستخدم", account.user)
-            if (info != null) {
-                InfoRow("الحالة", if (info.status.isBlank()) "Active" else info.status)
-                val expiry = info.expiry
-                InfoRow("ينتهي الاشتراك", if (expiry == null || expiry <= 0L) Ar.subscriptionOpenShort else formatDate(expiry))
-                if (info.maxConnections.isNotBlank()) {
-                    val maxText = if (info.maxConnections == "0") "غير محدود" else info.maxConnections
-                    InfoRow("الأجهزة المتصلة", "${info.activeConnections.ifBlank { "0" }} / $maxText")
-                }
-            }
-        } else {
-            InfoRow("الرابط", account.m3uUrl.take(40) + "...")
-        }
-        
-        Spacer(Modifier.height(12.dp))
-        GlassButton(
-            text = "تحديث ومزامنة القنوات الآن",
-            onClick = onSyncNow,
-            icon = Ic.Refresh,
-            primary = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}

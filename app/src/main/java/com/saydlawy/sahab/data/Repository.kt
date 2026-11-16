@@ -27,9 +27,10 @@ class Repository(
     private val disk: DiskCache? = null,
     private val prefs: Prefs? = null,
     private val channelDao: ChannelDao? = null,
+    okHttpClient: okhttp3.OkHttpClient? = null,
 ) {
 
-    private val m3uParser = M3uParser()
+    private val m3uParser = M3uParser(okHttpClient ?: okhttp3.OkHttpClient())
 
     @Volatile
     var account: Account? = null

@@ -6,8 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.UUID
 
-class M3uParser {
-    private val client = OkHttpClient()
+class M3uParser(private val client: OkHttpClient) {
 
     suspend fun fetch(url: String): List<Channel> = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).build()

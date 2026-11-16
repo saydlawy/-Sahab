@@ -8,6 +8,7 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache as CoilDiskCache
 import coil.memory.MemoryCache
 import com.saydlawy.sahab.data.DiskCache
+import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
@@ -65,7 +66,7 @@ class AppContainer(context: Context) {
         .build()
 
     val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache)
-    val repo = Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao())
+    val repo = Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao(), okHttpClient = client)
 
     /** Outlives screens, so progress can still be saved while the player is closing. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -95,6 +96,31 @@ class AppContainer(context: Context) {
             // مزامنة سجل المشاهدة بعد توقف المشاهدة لمدة 5 ثوانٍ
             prefs.recents.debounce(5000L).collect { recents ->
                 if (authManager.currentUser != null) userSyncService.saveRecents(recents)
+            }
+        }
+    }
+
+    fun switchAccount(acc: Account) {
+        // 1. تحديث الحساب في الـ Prefs
+        appScope.launch { prefs.setActiveAccount(acc.id) }
+        
+        // 2. تفعيل الحساب في الـ Repository
+        repo.setAccount(acc)
+        
+        // 3. مسح القنوات القديمة من Room (لتجنب تداخل القنوات والبطء)
+        appScope.launch(Dispatchers.IO) {
+            try {
+                channelDb.channelDao().clearAll()
+            } catch (e: Exception) {
+                android.util.Log.e("SahabSwitch", "Failed to clear channels: ${e.message}")
+            }
+            
+            // 4. بدء مزامنة الحساب الجديد في الخلفية
+            try {
+                repo.prewarmCatalog()
+                channelSync.sync(repo, forceFullRefresh = true)
+            } catch (e: Exception) {
+                android.util.Log.e("SahabSwitch", "Failed to sync new account: ${e.message}")
             }
         }
     }
