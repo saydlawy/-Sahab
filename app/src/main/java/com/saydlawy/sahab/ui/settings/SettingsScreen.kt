@@ -1376,6 +1376,7 @@ private fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onAd
     var pass by remember { mutableStateOf("") }
     var m3uUrl by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
         GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
@@ -1400,19 +1401,32 @@ private fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onAd
                 } else {
                     GlassTextField(value = m3uUrl, onValueChange = { m3uUrl = it }, placeholder = "رابط M3U المباشر (http://...)", modifier = Modifier.fillMaxWidth())
                 }
+                errorMsg?.let { msg ->
+                    Text(msg, fontSize = 12.sp, color = Palette.Gold)
+                }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     GlassButton(
-                        text = if (loading) "جاري الحفظ..." else "حفظ",
+                        text = if (loading) "جاري الفحص..." else "حفظ",
                         onClick = {
                             if (loading) return@GlassButton
+                            val validUrl = if (selectedTab == "XTREAM") {
+                                server.trim().startsWith("http") && user.isNotBlank() && pass.isNotBlank()
+                            } else {
+                                m3uUrl.trim().startsWith("http")
+                            }
+                            if (!validUrl) {
+                                errorMsg = "تأكد من إدخال رابط صحيح يبدأ بـ http مع كامل البيانات."
+                                return@GlassButton
+                            }
+                            errorMsg = null
                             loading = true
                             scope.launch(Dispatchers.IO) {
                                 try {
                                     val acc = if (selectedTab == "XTREAM") {
-                                        Account(name = name.ifBlank { "Xtream Server" }, type = "XTREAM", server = server, user = user, pass = pass)
+                                        Account(name = name.ifBlank { "Xtream Server" }, type = "XTREAM", server = server.trim(), user = user.trim(), pass = pass)
                                     } else {
-                                        Account(name = name.ifBlank { "M3U List" }, type = "M3U", m3uUrl = m3uUrl)
+                                        Account(name = name.ifBlank { "M3U List" }, type = "M3U", m3uUrl = m3uUrl.trim())
                                     }
                                     container.repo.login(acc)
                                     container.prefs.saveAccount(acc)
@@ -1421,7 +1435,10 @@ private fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onAd
                                         onAdded(acc)
                                     }
                                 } catch (e: Exception) {
-                                    withContext(Dispatchers.Main) { loading = false }
+                                    withContext(Dispatchers.Main) {
+                                        loading = false
+                                        errorMsg = e.message?.take(120) ?: "تعذر الاتصال بالمصدر، تأكد من الرابط والبيانات."
+                                    }
                                 }
                             }
                         },
