@@ -229,12 +229,20 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         onClick = { selectCat("home_channels") },
                     )
                     SettingsMenuItem(
-                        title = "الحساب والاشتراك",
-                        subtitle = "المزامنة السحابية وبيانات Xtream",
-                        icon = Ic.Person,
+                        title = "الحساب السحابي",
+                        subtitle = "تسجيل الدخول ومزامنة البيانات",
+                        icon = Ic.Cloud,
                         isSelected = false,
-                        itemKey = "settings_menu_account",
-                        onClick = { selectCat("account") },
+                        itemKey = "settings_menu_cloud",
+                        onClick = { selectCat("cloud") },
+                    )
+                    SettingsMenuItem(
+                        title = "المصادر والاشتراكات",
+                        subtitle = "إدارة مصادر القنوات (Xtream / M3U)",
+                        icon = Ic.Tv,
+                        isSelected = false,
+                        itemKey = "settings_menu_sources",
+                        onClick = { selectCat("sources") },
                     )
                     SettingsMenuItem(
                         title = "الذكاء الاصطناعي",
