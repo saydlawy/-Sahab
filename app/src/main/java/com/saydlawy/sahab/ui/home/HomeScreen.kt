@@ -284,7 +284,8 @@ fun HomeScreen(
         }
     }
 
-    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+    val currentDisplayMode = LocalDisplayMode.current
+    val isTvOrTablet = currentDisplayMode == DisplayMode.TABLET_OR_TV
     val mainFeedState = rememberRestorableLazyListState("home_main_vertical_feed")
 
     Box(
@@ -345,7 +346,7 @@ fun HomeScreen(
                         )
                     }
                 }
-                if (activeThemeId == "oled_cinema" && themeCustomization.isVisible("home_spotlight") && LocalDisplayMode.current != DisplayMode.PHONE_LANDSCAPE) {
+                if (activeThemeId == "oled_cinema" && themeCustomization.isVisible("home_spotlight") && currentDisplayMode != DisplayMode.PHONE_LANDSCAPE) {
                     trendingMovies.firstOrNull()?.let { spotlight ->
                         item(key = "oled_home_spotlight") {
                             OledHomeSpotlight(

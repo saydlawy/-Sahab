@@ -231,7 +231,7 @@ fun SahabTopBar(
     val adaptiveOledNavigation = LocalThemePreferences.current.selectedThemeId == "oled_cinema" &&
         displayMode != DisplayMode.PHONE_LANDSCAPE
     val showNavigation = showTabs && customization.isVisible("global_navigation") && !adaptiveOledNavigation
-    val navigationPlacement = customization.placement("global_navigation", "center")
+    val navigationPlacement = customization.componentPlacement["global_navigation"] ?: "center"
 
     Box(modifier.fillMaxWidth()) {
         when (displayMode) {

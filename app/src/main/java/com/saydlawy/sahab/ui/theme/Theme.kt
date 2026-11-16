@@ -19,6 +19,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -248,7 +249,7 @@ fun SahabTheme(
     val colors = remember(settings) { resolvedColors(settings) }
     val sourceDensity = LocalDensity.current
     val scaledDensity = remember(sourceDensity, customization.fontScale) {
-        sourceDensity.copy(fontScale = (sourceDensity.fontScale * customization.fontScale).coerceIn(0.7f, 1.6f))
+        Density(density = sourceDensity.density, fontScale = (sourceDensity.fontScale * customization.fontScale).coerceIn(0.7f, 1.6f))
     }
     val selectedFont = remember(customization.fontFamily) {
         when (customization.fontFamily) {

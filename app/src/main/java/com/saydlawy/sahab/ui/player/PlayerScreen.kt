@@ -722,7 +722,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     }
 
                     AnimatedVisibility(
-                        visible = controlsVisible && error == null && themeCustomization.isVisible("player_controls"),
+                        visible = controlsVisible && error == null && LocalThemeCustomization.current.isVisible("player_controls"),
                         enter = fadeIn(tween(220)),
                         exit = fadeOut(tween(180)),
                         modifier = Modifier.fillMaxSize(),

@@ -108,6 +108,7 @@ import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.SahabTopBar
+import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.formatUtcClockToLocal
 
 // Palette derived from sport/DESIGN.md and sport/code.html
