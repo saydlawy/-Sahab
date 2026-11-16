@@ -361,7 +361,7 @@ object TmdbMatcher {
         rawName: String,
         categoryName: String,
         novaYear: Int?,
-        maxQueries: Int = 20,
+        maxQueries: Int = 4,
     ): EnrichResult {
         val (queries, variants) = generateQueries(rawName, categoryName, novaYear)
         if (queries.isEmpty()) {
