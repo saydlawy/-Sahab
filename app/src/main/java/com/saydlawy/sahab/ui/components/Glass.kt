@@ -77,16 +77,16 @@ import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
 
-private val IdleBorder = Palette.GlassBorder
-private val PrimaryBorder = Palette.Glow.copy(alpha = 0.40f)
-private val IdleGlassFill: Brush = SolidColor(Palette.Glass)
-private val PhoneSelectedGlassFill: Brush = Brush.verticalGradient(
+internal val IdleBorder = Palette.GlassBorder
+internal val PrimaryBorder = Palette.Glow.copy(alpha = 0.40f)
+internal val IdleGlassFill: Brush = SolidColor(Palette.Glass)
+internal val PhoneSelectedGlassFill: Brush = Brush.verticalGradient(
     listOf(Palette.Royal.copy(alpha = 0.28f), Palette.Royal.copy(alpha = 0.20f)),
 )
-private val PosterBottomShade: Brush = Brush.verticalGradient(
+internal val PosterBottomShade: Brush = Brush.verticalGradient(
     listOf(Color.Transparent, Color.Transparent, Palette.DeepBlue.copy(alpha = 0.75f)),
 )
-private val HD_REGEX = Regex("\\bHD\\b")
+internal val HD_REGEX = Regex("\\bHD\\b")
 
 /** Asks for keyboard/remote focus once, on televisions only. */
 @Composable
@@ -448,7 +448,7 @@ fun RemoteImage(
 }
 
 @Composable
-private fun FallbackLetter(text: String) {
+internal fun FallbackLetter(text: String) {
     val letter = text.trim().firstOrNull()?.uppercaseChar() ?: return
     val gradient = remember(letter) {
         val palettes = listOf(
@@ -492,210 +492,3 @@ fun ProgressLine(fraction: Float, modifier: Modifier = Modifier, height: Dp = 4.
     }
 }
 
-@Composable
-fun SkeletonGrid(
-    columnWidth: Dp,
-    modifier: Modifier = Modifier,
-    itemCount: Int = 12,
-) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.10f,
-        targetValue = 0.24f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "skeletonAlpha",
-    )
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(columnWidth),
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-        userScrollEnabled = false,
-    ) {
-        items(itemCount, key = { it }) {
-            Column {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(2f / 3f)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Palette.Royal.copy(alpha = alpha)),
-                )
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth(0.7f)
-                        .height(14.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color.White.copy(alpha = alpha * 0.8f)),
-                )
-            }
-        }
-    }
-}
-
-/** Movie / series poster tile: glass frame, rating tag, optional quality tag and progress. */
-@Composable
-fun PosterCard(
-    title: String,
-    imageUrl: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    badge: String = "",
-    onLongClick: (() -> Unit)? = null,
-    contentScale: ContentScale = ContentScale.Crop,
-    quality: String? = null,
-    subtitle: String = "",
-    progress: Float? = null,
-    onFocused: (() -> Unit)? = null,
-) {
-    GlassCard(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        onLongClick = onLongClick,
-        focusScale = 1.05f,
-    ) { focused ->
-        if (focused && onFocused != null) {
-            LaunchedEffect(Unit) { onFocused() }
-        }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Palette.CardSurface),
-        ) {
-            RemoteImage(
-                url = imageUrl,
-                fallbackText = title,
-                modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
-                contentScale = contentScale,
-            )
-            // Deep bottom gradient matching reference movie cards
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color.Transparent,
-                                0.48f to Color(0x330B0D17),
-                                0.76f to Color(0xCC0B0D17),
-                                1.0f to Color(0xF80B0D17),
-                            ),
-                        ),
-                    ),
-            )
-            // Focused inner cyan rim highlight matching reference "سيد الظلام" card
-            if (focused) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(14.dp)),
-                )
-            }
-
-            // Bottom overlay content: Title, Subtitle, and Bottom Row (Star Rating on right, Quality pill on left)
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (subtitle.isNotBlank()) {
-                    Text(
-                        text = subtitle,
-                        fontSize = 11.sp,
-                        color = Palette.TextMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (badge.isNotBlank() || !quality.isNullOrBlank()) {
-                    Spacer(Modifier.height(2.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // Right side in RTL: Gold star rating
-                        if (badge.isNotBlank()) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Ic.Star,
-                                    contentDescription = null,
-                                    tint = Palette.Gold,
-                                    modifier = Modifier.size(12.dp),
-                                )
-                                Text(
-                                    text = badge,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Palette.Gold,
-                                    maxLines = 1,
-                                )
-                            }
-                        } else {
-                            Spacer(Modifier.width(1.dp))
-                        }
-
-                        // Left side in RTL: Quality badge (4K / UHD / FHD / HD) - never collides with top-right poster logos!
-                        if (!quality.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xCC1E2336))
-                                    .border(0.8.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                            ) {
-                                Text(
-                                    text = quality,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (quality == "4K" || quality == "UHD") Color.White else Palette.TextDim,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-                    }
-                }
-                if (progress != null) {
-                    Spacer(Modifier.height(4.dp))
-                    ProgressLine(
-                        progress,
-                        Modifier.fillMaxWidth(),
-                        height = 3.dp,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Guesses a quality tag from a title ("… 4K", "… FHD", "… HD"). */
-fun qualityOf(name: String): String? {
-    val u = name.uppercase()
-    return when {
-        "4K" in u || "UHD" in u -> "4K"
-        "FHD" in u || "1080" in u -> "FHD"
-        HD_REGEX.containsMatchIn(u) -> "HD"
-        else -> null
-    }
-}
