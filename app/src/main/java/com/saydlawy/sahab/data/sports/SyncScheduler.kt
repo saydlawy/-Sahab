@@ -3,10 +3,12 @@ package com.saydlawy.sahab.data.sports
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
 
@@ -40,13 +42,16 @@ object SyncScheduler {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
-        val request = OneTimeWorkRequestBuilder<MonthlySyncWorker>()
+        val request = PeriodicWorkRequestBuilder<MonthlySyncWorker>(
+            MIN_INTERVAL_MS,
+            TimeUnit.MILLISECONDS,
+        )
             .setInitialDelay(MIN_INTERVAL_MS, TimeUnit.MILLISECONDS)
             .setConstraints(constraints)
             .build()
-        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+        WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
             UNIQUE_MONTHLY_WORK,
-            ExistingWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.KEEP,
             request,
         )
     }

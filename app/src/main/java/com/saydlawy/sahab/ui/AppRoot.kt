@@ -64,6 +64,7 @@ import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.saydlawy.sahab.ui.components.SyncOverlay
 import com.saydlawy.sahab.data.Repository
 import androidx.compose.ui.platform.LocalContext
@@ -78,44 +79,60 @@ fun AppRoot(container: AppContainer) {
     LaunchedEffect(Unit) {
         var account = container.prefs.account.first()
         if (account == null && container.authManager.currentUser != null) {
-            // محاولة جلب الاشتراك من السحابة إذا لم يكن موجوداً محلياً
-            val cloudAccount = container.userSyncService.getXtreamAccount()
+            // محاولة جلب الاشتراك من السحابة بمهلة زمنية محددة
+            val cloudAccount = withTimeoutOrNull(5_000L) {
+                container.userSyncService.getXtreamAccount()
+            }
             if (cloudAccount != null) {
                 container.prefs.saveAccount(cloudAccount)
                 account = cloudAccount
             }
         }
-        
-        // دمج المفضلة وسجل المشاهدة مع السحابة بدون تكرار
-        if (container.authManager.currentUser != null) {
-            val localFavs = container.prefs.favorites.first()
-            val cloudFavs = container.userSyncService.getFavorites().orEmpty()
-            if (cloudFavs.isNotEmpty()) {
-                val mergedFavs = (localFavs + cloudFavs).distinctBy { it.kind to it.id }
-                if (mergedFavs != localFavs) container.prefs.restoreFavorites(mergedFavs)
-            }
-            val localRecents = container.prefs.recents.first()
-            val cloudRecents = container.userSyncService.getRecents().orEmpty()
-            if (cloudRecents.isNotEmpty()) {
-                val mergedRecents = (localRecents + cloudRecents).distinctBy { it.kind to it.id }.take(30)
-                if (mergedRecents != localRecents) container.prefs.restoreRecents(mergedRecents)
-            }
-            container.userSyncService.getPreferences()?.let { cp ->
-                container.prefs.setLightEffects(cp.lightEffects)
-                container.prefs.setHomeChannelsLayout(
-                    runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
-                        .getOrDefault(HomeChannelsLayout.CAROUSEL)
-                )
-                container.prefs.setHomeChannelsSource(
-                    runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
-                        .getOrDefault(HomeChannelsSource.AUTO)
-                )
-                container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
-            }
-        }
-        container.cloudMergeDone = true
+
         if (account != null) {
             container.repo.setAccount(account)
+        }
+        start = if (account != null) Routes.HOME else Routes.CLOUD_LOGIN
+
+        // دمج المفضلة وسجل المشاهدة مع السحابة في الخلفية بدون حجب الشاشة
+        if (container.authManager.currentUser != null) {
+            container.appScope.launch {
+                try {
+                    withTimeoutOrNull(8_000L) {
+                        val localFavs = container.prefs.favorites.first()
+                        val cloudFavs = container.userSyncService.getFavorites().orEmpty()
+                        if (cloudFavs.isNotEmpty()) {
+                            val mergedFavs = (localFavs + cloudFavs).distinctBy { it.kind to it.id }
+                            if (mergedFavs != localFavs) container.prefs.restoreFavorites(mergedFavs)
+                        }
+                        val localRecents = container.prefs.recents.first()
+                        val cloudRecents = container.userSyncService.getRecents().orEmpty()
+                        if (cloudRecents.isNotEmpty()) {
+                            val mergedRecents = (localRecents + cloudRecents).distinctBy { it.kind to it.id }.take(30)
+                            if (mergedRecents != localRecents) container.prefs.restoreRecents(mergedRecents)
+                        }
+                        container.userSyncService.getPreferences()?.let { cp ->
+                            container.prefs.setLightEffects(cp.lightEffects)
+                            container.prefs.setHomeChannelsLayout(
+                                runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
+                                    .getOrDefault(HomeChannelsLayout.CAROUSEL)
+                            )
+                            container.prefs.setHomeChannelsSource(
+                                runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
+                                    .getOrDefault(HomeChannelsSource.AUTO)
+                            )
+                            container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
+                        }
+                    }
+                } finally {
+                    container.cloudMergeDone = true
+                }
+            }
+        } else {
+            container.cloudMergeDone = true
+        }
+
+        if (account != null) {
             container.appScope.launch {
                 // 1. Seed population (only if DB empty or no enrichment yet)
                 val stats = container.catalogSync.populateFromSeed(context)
@@ -151,7 +168,6 @@ fun AppRoot(container: AppContainer) {
                 }
             }
         }
-        start = if (account != null) Routes.HOME else Routes.CLOUD_LOGIN
     }
 
     val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
