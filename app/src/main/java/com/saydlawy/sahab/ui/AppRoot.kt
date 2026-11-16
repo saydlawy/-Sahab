@@ -80,17 +80,19 @@ fun AppRoot(container: AppContainer) {
             }
         }
         
-        // استعادة المفضلة وسجل المشاهدة من السحابة إذا كانت محلية فارغة
+        // دمج المفضلة وسجل المشاهدة مع السحابة بدون تكرار
         if (container.authManager.currentUser != null) {
             val localFavs = container.prefs.favorites.first()
-            if (localFavs.isEmpty()) {
-                val cloudFavs = container.userSyncService.getFavorites()
-                if (!cloudFavs.isNullOrEmpty()) container.prefs.restoreFavorites(cloudFavs)
+            val cloudFavs = container.userSyncService.getFavorites().orEmpty()
+            if (cloudFavs.isNotEmpty()) {
+                val mergedFavs = (localFavs + cloudFavs).distinctBy { it.kind to it.id }
+                if (mergedFavs != localFavs) container.prefs.restoreFavorites(mergedFavs)
             }
             val localRecents = container.prefs.recents.first()
-            if (localRecents.isEmpty()) {
-                val cloudRecents = container.userSyncService.getRecents()
-                if (!cloudRecents.isNullOrEmpty()) container.prefs.restoreRecents(cloudRecents)
+            val cloudRecents = container.userSyncService.getRecents().orEmpty()
+            if (cloudRecents.isNotEmpty()) {
+                val mergedRecents = (localRecents + cloudRecents).distinctBy { it.kind to it.id }.take(30)
+                if (mergedRecents != localRecents) container.prefs.restoreRecents(mergedRecents)
             }
         }
         if (account != null) {

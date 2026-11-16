@@ -8,9 +8,43 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import com.saydlawy.sahab.data.Account
 import kotlinx.coroutines.suspendCancellableCoroutine
+import android.util.Base64
+import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 
 class UserSyncService {
+    private fun keyFor(uid: String): SecretKeySpec {
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest("sahab_cloud_v1_$uid".toByteArray(Charsets.UTF_8))
+        return SecretKeySpec(hash, "AES")
+    }
+
+    private fun encrypt(plain: String, uid: String): String {
+        if (plain.isEmpty()) return ""
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(Cipher.ENCRYPT_MODE, keyFor(uid), GCMParameterSpec(128, iv))
+        }
+        val out = iv + cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+        return "enc_v1:" + Base64.encodeToString(out, Base64.NO_WRAP)
+    }
+
+    private fun decrypt(value: String, uid: String): String {
+        if (!value.startsWith("enc_v1:")) return value
+        return runCatching {
+            val raw = Base64.decode(value.removePrefix("enc_v1:"), Base64.NO_WRAP)
+            val iv = raw.copyOfRange(0, 12)
+            val ct = raw.copyOfRange(12, raw.size)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+                init(Cipher.DECRYPT_MODE, keyFor(uid), GCMParameterSpec(128, iv))
+            }
+            String(cipher.doFinal(ct), Charsets.UTF_8)
+        }.getOrDefault("")
+    }
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
@@ -20,9 +54,9 @@ class UserSyncService {
     suspend fun saveXtreamAccount(account: Account) = suspendCancellableCoroutine { cont ->
         val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
         val data = mapOf(
-            "server" to account.server,
-            "user" to account.user,
-            "pass" to account.pass
+            "server" to encrypt(account.server, uid),
+            "user" to encrypt(account.user, uid),
+            "pass" to encrypt(account.pass, uid)
         )
         db.collection("users").document(uid).collection("data").document("xtream")
             .set(data)
@@ -49,7 +83,7 @@ class UserSyncService {
         val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
         val jsonStr = json.encodeToString(accountsSerializer, accounts)
         db.collection("users").document(uid).collection("data").document("accounts_list")
-            .set(mapOf("json" to jsonStr))
+            .set(mapOf("enc" to encrypt(jsonStr, uid)))
             .addOnSuccessListener { cont.resume(Unit) }
             .addOnFailureListener { cont.resume(Unit) }
     }
@@ -59,7 +93,9 @@ class UserSyncService {
         db.collection("users").document(uid).collection("data").document("accounts_list")
             .get()
             .addOnSuccessListener { snapshot ->
-                val jsonStr = snapshot.getString("json")
+                val raw = snapshot.getString("enc")?.let { decrypt(it, uid) }
+                    ?: snapshot.getString("json")
+                val jsonStr = raw?.takeIf { it.isNotBlank() }
                 if (jsonStr != null) {
                     val list = runCatching { json.decodeFromString(accountsSerializer, jsonStr) }.getOrDefault(emptyList())
                     cont.resume(list)
@@ -121,9 +157,9 @@ class UserSyncService {
             .addOnSuccessListener { snapshot ->
                 if (snapshot.exists()) {
                     val acc = Account(
-                        server = snapshot.getString("server") ?: "",
-                        user = snapshot.getString("user") ?: "",
-                        pass = snapshot.getString("pass") ?: ""
+                        server = decrypt(snapshot.getString("server") ?: "", uid),
+                        user = decrypt(snapshot.getString("user") ?: "", uid),
+                        pass = decrypt(snapshot.getString("pass") ?: "", uid)
                     )
                     cont.resume(acc)
                 } else {
