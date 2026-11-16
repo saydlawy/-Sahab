@@ -1,47 +1,25 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/app/build
-/captures
-.externalNativeBuild
-.cxx
-
-# Signing — NEVER commit
-*.jks
-*.keystore
-release-keystore.jks
-local.properties
-keystore.b64
-*.b64
-app/release.keystore
-
-# Build & caches
-.kotlin/
-__pycache__/
-*.pyc
-
-# Local DB backups
-sports_db.sqlite.bak_*
-*.bak_*
-
-# Local archives (offline backups & mockups)
-_local_archive/
-images/
-
-_nova_diag/
-nova_diag.py
-test_matcher*.py
-
-# Catalog seed build scripts (diagnostic, not shipped)
-build_catalog_seed.py
-build_catalog_seed_v2.py
-build_seed.log
-build_seed_v2.log
-_nova_diag/
-
+# Firebase Secrets
+google-services.json
 firebase-service-account.json
+
+# Keystores & Certificates (CRITICAL)
+*.keystore
+*.jks
+*.b64
+*.rsa
+app/release.keystore
+keystore.b64
 cert.rsa
-*.apk
+
+# Local config
+local.properties
+
+# Diagnostic and Backup files
+_nova_diag/
+*.sqlite
+*.sqlite.bak*
+*.bak*
+sahab_installed.apk
+
+# Python Scripts (Temporary fix scripts)
+*.py
