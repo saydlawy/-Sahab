@@ -23,3 +23,8 @@ sahab_installed.apk
 
 # Python Scripts (Temporary fix scripts)
 *.py
+
+google-services-b64.txt
+*.log
+package.json
+preview.html
