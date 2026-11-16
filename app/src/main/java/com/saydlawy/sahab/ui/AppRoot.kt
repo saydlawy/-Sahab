@@ -1,5 +1,8 @@
 package com.saydlawy.sahab.ui
 
+import com.saydlawy.sahab.data.HomeChannelsLayout
+import com.saydlawy.sahab.data.HomeChannelsSource
+
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -93,6 +96,18 @@ fun AppRoot(container: AppContainer) {
             if (cloudRecents.isNotEmpty()) {
                 val mergedRecents = (localRecents + cloudRecents).distinctBy { it.kind to it.id }.take(30)
                 if (mergedRecents != localRecents) container.prefs.restoreRecents(mergedRecents)
+            }
+            container.userSyncService.getPreferences()?.let { cp ->
+                container.prefs.setLightEffects(cp.lightEffects)
+                container.prefs.setHomeChannelsLayout(
+                    runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
+                        .getOrDefault(HomeChannelsLayout.CAROUSEL)
+                )
+                container.prefs.setHomeChannelsSource(
+                    runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
+                        .getOrDefault(HomeChannelsSource.AUTO)
+                )
+                container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
             }
         }
         if (account != null) {

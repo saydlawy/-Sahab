@@ -16,6 +16,13 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 
+data class CloudPreferences(
+    val lightEffects: Boolean = false,
+    val homeChannelsLayout: String = "CAROUSEL",
+    val homeChannelsSource: String = "AUTO",
+    val homeChannelsCategoryId: String = "",
+)
+
 class UserSyncService {
     private fun keyFor(uid: String): SecretKeySpec {
         val hash = MessageDigest.getInstance("SHA-256")
@@ -165,6 +172,39 @@ class UserSyncService {
                 } else {
                     cont.resume(null)
                 }
+            }
+            .addOnFailureListener { cont.resume(null) }
+    }
+
+    suspend fun savePreferences(prefs: CloudPreferences) = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+        val data = mapOf(
+            "lightEffects" to prefs.lightEffects,
+            "homeChannelsLayout" to prefs.homeChannelsLayout,
+            "homeChannelsSource" to prefs.homeChannelsSource,
+            "homeChannelsCategoryId" to prefs.homeChannelsCategoryId,
+        )
+        db.collection("users").document(uid).collection("data").document("preferences")
+            .set(data)
+            .addOnSuccessListener { cont.resume(Unit) }
+            .addOnFailureListener { cont.resume(Unit) }
+    }
+
+    suspend fun getPreferences(): CloudPreferences? = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
+        db.collection("users").document(uid).collection("data").document("preferences")
+            .get()
+            .addOnSuccessListener { s ->
+                if (s.exists()) {
+                    cont.resume(
+                        CloudPreferences(
+                            lightEffects = s.getBoolean("lightEffects") ?: false,
+                            homeChannelsLayout = s.getString("homeChannelsLayout") ?: "CAROUSEL",
+                            homeChannelsSource = s.getString("homeChannelsSource") ?: "AUTO",
+                            homeChannelsCategoryId = s.getString("homeChannelsCategoryId") ?: "",
+                        )
+                    )
+                } else cont.resume(null)
             }
             .addOnFailureListener { cont.resume(null) }
     }

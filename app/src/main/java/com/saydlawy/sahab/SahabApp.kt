@@ -28,7 +28,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.saydlawy.sahab.data.auth.CloudPreferences
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -96,6 +99,19 @@ class AppContainer(context: Context) {
             // مزامنة سجل المشاهدة بعد توقف المشاهدة لمدة 5 ثوانٍ
             prefs.recents.debounce(5000L).collect { recents ->
                 if (authManager.currentUser != null) userSyncService.saveRecents(recents)
+            }
+        }
+        appScope.launch {
+            // مزامنة تفضيلات الواجهة بعد ثانيتين من التغيير
+            combine(
+                prefs.lightEffects,
+                prefs.homeChannelsLayout,
+                prefs.homeChannelsSource,
+                prefs.homeChannelsCategoryId,
+            ) { light, layout, source, catId ->
+                CloudPreferences(light, layout.name, source.name, catId)
+            }.drop(1).debounce(2000L).collect { cloudPrefs ->
+                if (authManager.currentUser != null) userSyncService.savePreferences(cloudPrefs)
             }
         }
     }
