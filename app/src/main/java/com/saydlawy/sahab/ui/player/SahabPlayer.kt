@@ -37,7 +37,7 @@ import kotlin.math.roundToInt
 object SahabPlayer {
 
     const val SEEK_STEP_MS = 10_000L
-    private const val MEDIA_CACHE_BYTES = 250L * 1024L * 1024L // 250 MB
+    private const val MEDIA_CACHE_BYTES = 512L * 1024L * 1024L // 512 MB
 
     @Volatile
     private var simpleCache: SimpleCache? = null

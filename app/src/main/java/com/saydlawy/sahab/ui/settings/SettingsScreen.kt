@@ -984,6 +984,22 @@ private fun HomeCustomizationPanel(
                     .fillMaxWidth()
                     .restorableFocus(Routes.SETTINGS, "settings_clear_recents_btn"),
             )
+            val cacheCtx = androidx.compose.ui.platform.LocalContext.current
+            val cacheScope = rememberCoroutineScope()
+            var cacheCleared by remember { mutableStateOf(false) }
+            GlassButton(
+                text = if (cacheCleared) "تم مسح كاش الصور والفيديو" else "مسح كاش الصور والفيديو",
+                onClick = {
+                    cacheScope.launch(Dispatchers.IO) {
+                        com.saydlawy.sahab.ui.player.SahabPlayer.clearMediaCache(cacheCtx)
+                        runCatching { java.io.File(cacheCtx.cacheDir, "image_cache").deleteRecursively() }
+                        withContext(Dispatchers.Main) { cacheCleared = true }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .restorableFocus(Routes.SETTINGS, "settings_clear_media_cache_btn"),
+            )
         }
     }
 }
