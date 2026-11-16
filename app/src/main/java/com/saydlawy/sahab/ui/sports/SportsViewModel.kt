@@ -131,6 +131,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 } else {
                     _uiState.value = SportsUiState.Success(emptyMap())
                 }
+                triggerSilentInitialSync()
             } catch (e: Exception) {
                 android.util.Log.e("SportsDB", "Failed to read DB", e)
                 _uiState.value = SportsUiState.Error("DB read error: ${e.message ?: "unknown"}")
@@ -263,6 +264,25 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshActiveFilter() {
         refreshManually()
+    }
+
+    private fun triggerSilentInitialSync() {
+        val app = getApplication<Application>()
+        if (!hasInternet(app)) return
+        val activeLeagueId = _selectedSubLeague.value
+            ?: defaultLeagueForCategory(_selectedCategory.value)
+        val request = SyncScheduler.enqueueManualSyncNow(app, activeLeagueId)
+        viewModelScope.launch {
+            runCatching {
+                withTimeoutOrNull(60_000L) {
+                    WorkManager.getInstance(app)
+                        .getWorkInfoByIdFlow(request.id)
+                        .firstOrNull { it != null && it.state.isFinished }
+                }
+            }
+            fetchMatchesFromApi(silent = true)
+            fetchStandings()
+        }
     }
 
     fun refreshManually() {
