@@ -254,7 +254,7 @@ class ChannelSync(
         private const val TAG = "ChannelSync"
         private const val ROOM_BATCH_SIZE = 500
         private const val WHERE_IN_LIMIT = 30            // Firestore max per whereIn
-        private const val RETRY_TTL_MS = 7L * 24 * 3600_000L   // 7 days
+        private const val RETRY_TTL_MS = 24L * 3600_000L       // 24 hours
         private const val STREAM_TEMPLATE = "/live/{USER}/{PASS}/{streamId}.{ext}"
 
         fun slug(name: String): String = name.lowercase(Locale.US).trim()

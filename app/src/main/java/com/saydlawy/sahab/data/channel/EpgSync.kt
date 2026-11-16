@@ -43,7 +43,7 @@ class EpgSync(
     private val _syncing = MutableStateFlow(false)
     val syncing: StateFlow<Boolean> = _syncing
 
-    suspend fun sync(): Stats = withContext(Dispatchers.IO) {
+    suspend fun sync(priorityEpgIds: Set<String> = emptySet()): Stats = withContext(Dispatchers.IO) {
         if (!_syncing.compareAndSet(expect = false, update = true)) {
             return@withContext Stats(errors = listOf("EPG sync already in progress — ignored"))
         }
@@ -72,7 +72,9 @@ class EpgSync(
             }
 
             // 2) Fetch from Firebase
-            val fetchResult = fetchFirebase(epgIds, cutoffSec)
+            val orderedIds = if (priorityEpgIds.isEmpty()) epgIds
+                else epgIds.sortedByDescending { it in priorityEpgIds }
+            val fetchResult = fetchFirebase(orderedIds, cutoffSec)
             errors.addAll(fetchResult.errors)
 
             // 3) Upsert programmes into Room (batched)

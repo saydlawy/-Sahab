@@ -298,8 +298,26 @@ class Repository(
         }
     }
 
+    private suspend fun roomChannels(): List<Channel>? {
+        val rows = runCatching { channelDao?.all() }.getOrNull().orEmpty()
+        if (rows.isEmpty()) return null
+        return rows.asSequence()
+            .filter { !it.isHidden }
+            .map {
+                Channel(
+                    id = it.streamId,
+                    name = it.displayName.ifBlank { it.name },
+                    icon = it.logoUrl,
+                    categoryId = it.categoryId,
+                    epgId = it.epgId,
+                )
+            }
+            .toList()
+    }
+
     suspend fun peekAllLiveChannels(): List<Channel>? =
-        peekCachedList("live:", ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS)?.let { enrichWithLogos(it) }
+        roomChannels()
+            ?: peekCachedList("live:", ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS)?.let { enrichWithLogos(it) }
 
     suspend fun liveChannels(categoryId: String?): List<Channel> {
         val acc = requireAccount()
@@ -313,7 +331,15 @@ class Repository(
 
         val key = "live:${categoryId.orEmpty()}"
         @Suppress("UNCHECKED_CAST")
-        (cache[key] as? List<Channel>)?.let { return enrichWithLogos(it) }
+        (cache[key] as? List<Channel>)?.let { return it }
+
+        roomChannels()?.let { all ->
+            val result = if (categoryId.isNullOrBlank()) all else all.filter { it.categoryId == categoryId }
+            if (result.isNotEmpty() || categoryId.isNullOrBlank()) {
+                cache[key] = result
+                return result
+            }
+        }
 
         if (!categoryId.isNullOrBlank()) {
             val all = peekAllLiveChannels()
