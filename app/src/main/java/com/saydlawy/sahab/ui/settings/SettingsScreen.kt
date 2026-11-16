@@ -1153,6 +1153,18 @@ private fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             DotTitle("مفاتيح Gemini", Palette.Glow, fontSize = 16.sp)
             Text("أضف مفاتيح لتوليد قصص الأفلام باللغة العربية عند الحاجة.", fontSize = 12.sp, color = Palette.TextDim)
+            if (!aiKeys.isEncrypted) {
+                Text(
+                    "تنبيه: جهازك لا يدعم التشفير الآمن للمفاتيح، تم الحفظ في وضع احتياطي غير مشفر.",
+                    fontSize = 12.sp,
+                    color = Palette.Gold,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Palette.Gold.copy(alpha = 0.12f))
+                        .padding(10.dp),
+                )
+            }
             keys.forEach { key ->
                 Row(
                     Modifier

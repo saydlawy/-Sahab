@@ -18,6 +18,9 @@ data class ApiKey(
 
 class ApiKeyManager(context: Context) {
 
+    var isEncrypted: Boolean = true
+        private set
+
     private val prefs: SharedPreferences = try {
         val mk = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -28,6 +31,7 @@ class ApiKeyManager(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
     } catch (e: Exception) {
+        isEncrypted = false
         context.getSharedPreferences("sahab_ai_keys_fb", Context.MODE_PRIVATE)
     }
 
