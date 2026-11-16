@@ -14,6 +14,7 @@ import com.saydlawy.sahab.data.sports.SyncScheduler
 import com.saydlawy.sahab.data.sports.toMatch
 import com.saydlawy.sahab.data.sports.toStanding
 import com.saydlawy.sahab.util.formatDayOffsetYmd
+import com.saydlawy.sahab.util.utcDateToLocalYmd
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -445,22 +446,23 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 inCategory && matchesSearch
             }
 
+            val localDates = byCategoryAndQuery.associate { it.id to utcDateToLocalYmd(it.date, it.time) }
             val counts = EnumMap<DateFilter, Int>(DateFilter::class.java)
             DateFilter.values().forEach { df ->
                 counts[df] = if (df.isRange) {
                     val endDate = dateOfOffset(df.rangeDays)
-                    byCategoryAndQuery.count { it.date in todayDate..endDate }
+                    byCategoryAndQuery.count { (localDates[it.id] ?: it.date) in todayDate..endDate }
                 } else {
                     val d = dateOfOffset(df.offsetDays)
-                    byCategoryAndQuery.count { it.date == d }
+                    byCategoryAndQuery.count { (localDates[it.id] ?: it.date) == d }
                 }
             }
 
             val exactMatches = if (filter.isRange) {
                 val endDate = dateOfOffset(filter.rangeDays)
-                byCategoryAndQuery.filter { it.date in todayDate..endDate }
+                byCategoryAndQuery.filter { (localDates[it.id] ?: it.date) in todayDate..endDate }
             } else {
-                byCategoryAndQuery.filter { it.date == targetDate }
+                byCategoryAndQuery.filter { (localDates[it.id] ?: it.date) == targetDate }
             }
 
             // Strictly show only the matches for the selected date/range (or all matching dates when searching).

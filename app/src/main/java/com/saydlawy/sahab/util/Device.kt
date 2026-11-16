@@ -75,9 +75,27 @@ fun formatDayOffsetYmd(offsetDays: Int): String {
     return cachedDateFormat("yyyy-MM-dd", Locale.US).format(calendar.time)
 }
 
+fun utcDateToLocalYmd(utcDate: String, utcTime: String): String {
+    val cleanDate = utcDate.trim().take(10)
+    if (cleanDate.length < 10) return utcDate
+    val hm = utcTime.trim().take(5)
+    if (hm.length < 5 || hm == "null") return cleanDate
+    return try {
+        val utc = java.util.TimeZone.getTimeZone("UTC")
+        val parsed = cachedDateFormat("yyyy-MM-dd HH:mm", Locale.US, utc).parse("$cleanDate $hm")
+        if (parsed != null) {
+            cachedDateFormat("yyyy-MM-dd", Locale.US, java.util.TimeZone.getDefault()).format(parsed)
+        } else {
+            cleanDate
+        }
+    } catch (_: Exception) {
+        cleanDate
+    }
+}
+
 fun formatUtcClockToLocal(rawTime: String, dateStr: String = ""): String {
     val clean = rawTime.trim()
-    if (clean.isBlank() || clean == "null" || clean == "00:00" || clean.startsWith("00:00:")) {
+    if (clean.isBlank() || clean == "null") {
         return ""
     }
     val hm = clean.take(5)
