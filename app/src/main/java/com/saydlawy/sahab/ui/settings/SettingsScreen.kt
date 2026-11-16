@@ -150,6 +150,14 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         onClick = { selectCat("customize") },
                     )
                     SettingsMenuItem(
+                        title = "الثيمات وتخصيصها",
+                        subtitle = "اختيار ثيم وتعديل تفاصيل مظهره",
+                        icon = Ic.Settings,
+                        isSelected = selectedCategory == "themes",
+                        itemKey = "settings_menu_themes",
+                        onClick = { selectCat("themes") },
+                    )
+                    SettingsMenuItem(
                         title = "قنوات الشاشة الرئيسية",
                         subtitle = "اختيار وتحديد القنوات المعروضة بالرئيسية",
                         icon = Ic.Tv,
@@ -219,6 +227,14 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         isSelected = false,
                         itemKey = "settings_menu_customize",
                         onClick = { selectCat("customize") },
+                    )
+                    SettingsMenuItem(
+                        title = "الثيمات وتخصيصها",
+                        subtitle = "اختيار ثيم وتعديل تفاصيل مظهره",
+                        icon = Ic.Settings,
+                        isSelected = false,
+                        itemKey = "settings_menu_themes",
+                        onClick = { selectCat("themes") },
                     )
                     SettingsMenuItem(
                         title = "قنوات الشاشة الرئيسية",
@@ -373,6 +389,7 @@ private fun SettingsDetailContent(
     val homeCustomChannelIds by container.prefs.homeCustomChannelIds.collectAsStateWithLifecycle(initialValue = emptySet())
 
     when (category) {
+        "themes" -> ThemeCustomizationPanel(container.prefs)
         "cloud" -> {
             CloudAccountPanel(
                 email = cloudUser?.email,

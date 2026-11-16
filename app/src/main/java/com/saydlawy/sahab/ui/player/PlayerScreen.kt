@@ -44,7 +44,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -125,6 +125,8 @@ import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.components.rememberNow
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.findActivity
 import com.saydlawy.sahab.util.formatDuration
@@ -135,20 +137,20 @@ import java.util.Locale
 import com.saydlawy.sahab.util.ChannelLogoResolver
 
 // Design tokens from ExoPlayer/DESIGN.md & media-player/DESIGN.md
-internal val OsdSurfaceLowest = Color(0xFF0F0B1E)
-internal val OsdSurfaceLow = Color(0xFF1D192C)
-internal val OsdSurfaceContainer = Color(0xFF211D31)
-internal val OsdSurfaceHigh = Color(0xFF2B273C)
-internal val OsdSurfaceHighest = Color(0xFF363247)
-internal val OsdPrimary = Color(0xFFDCB8FF)
-internal val OsdPrimaryContainer = Color(0xFF8A2BE2)
-internal val OsdOnPrimary = Color(0xFF480081)
-internal val OsdCyan = Color(0xFF00FBFB)
-internal val OsdTertiary = Color(0xFFC4C1FB)
-internal val OsdOnSurface = Color(0xFFE7DEFA)
-internal val OsdOnSurfaceVariant = Color(0xFFCFC2D7)
-internal val OsdOutline = Color(0xFF988CA0)
-internal val OsdOutlineVariant = Color(0xFF4C4354)
+internal val OsdSurfaceLowest get() = Palette.color("OsdSurfaceLowest")
+internal val OsdSurfaceLow get() = Palette.color("OsdSurfaceLow")
+internal val OsdSurfaceContainer get() = Palette.color("OsdSurfaceContainer")
+internal val OsdSurfaceHigh get() = Palette.color("OsdSurfaceHigh")
+internal val OsdSurfaceHighest get() = Palette.color("OsdSurfaceHighest")
+internal val OsdPrimary get() = Palette.color("OsdPrimary")
+internal val OsdPrimaryContainer get() = Palette.color("OsdPrimaryContainer")
+internal val OsdOnPrimary get() = Palette.color("OsdOnPrimary")
+internal val OsdCyan get() = Palette.color("OsdCyan")
+internal val OsdTertiary get() = Palette.color("OsdTertiary")
+internal val OsdOnSurface get() = Palette.color("OsdOnSurface")
+internal val OsdOnSurfaceVariant get() = Palette.color("OsdOnSurfaceVariant")
+internal val OsdOutline get() = Palette.color("OsdOutline")
+internal val OsdOutlineVariant get() = Palette.color("OsdOutlineVariant")
 
 internal val ResizeModes = intArrayOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -160,10 +162,11 @@ internal val PlaybackSpeeds = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
 
 internal const val SEEK_STEP_MS = 10_000L
 internal const val CONTROLS_HIDE_MS = 2_000L
-internal val TimelineProgressBrush = Brush.horizontalGradient(listOf(OsdPrimaryContainer, OsdPrimary, OsdCyan))
+internal val TimelineProgressBrush get() = Brush.horizontalGradient(listOf(OsdPrimaryContainer, OsdPrimary, OsdCyan))
 
 @Composable
 fun PlayerScreen(container: AppContainer, onBack: () -> Unit) {
+    val themeCustomization = LocalThemeCustomization.current
     val request = remember { container.playback }
     if (request == null || request.items.isEmpty()) {
         LaunchedEffect(Unit) { onBack() }
@@ -719,7 +722,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     }
 
                     AnimatedVisibility(
-                        visible = controlsVisible && error == null,
+                        visible = controlsVisible && error == null && themeCustomization.isVisible("player_controls"),
                         enter = fadeIn(tween(220)),
                         exit = fadeOut(tween(180)),
                         modifier = Modifier.fillMaxSize(),

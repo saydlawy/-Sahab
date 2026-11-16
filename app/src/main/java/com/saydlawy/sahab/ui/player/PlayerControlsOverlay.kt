@@ -44,7 +44,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -125,6 +125,8 @@ import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.components.rememberNow
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.findActivity
 import com.saydlawy.sahab.util.formatDuration
@@ -247,13 +249,15 @@ internal fun UnifiedFullscreenPlayerOsd(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FullscreenTimelineSection(
-                progressFlow = progressFlow,
-                isLive = isLive,
-                currentProgram = currentProgram,
-                onSeekTo = onSeekTo,
-                onSeekBy = onSeekBy,
-            )
+            if (LocalThemeCustomization.current.isVisible("player_timeline")) {
+                FullscreenTimelineSection(
+                    progressFlow = progressFlow,
+                    isLive = isLive,
+                    currentProgram = currentProgram,
+                    onSeekTo = onSeekTo,
+                    onSeekBy = onSeekBy,
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

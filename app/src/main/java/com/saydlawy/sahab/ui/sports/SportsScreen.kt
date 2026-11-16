@@ -53,7 +53,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -111,28 +111,28 @@ import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.util.formatUtcClockToLocal
 
 // Palette derived from sport/DESIGN.md and sport/code.html
-internal val SportSurface = Color(0xFF0C0919)
-internal val SportContainer = Color(0xFF151026)
-internal val SportContainerHigh = Color(0xFF1F1838)
-internal val SportContainerHighest = Color(0xFF2B224C)
-internal val SportPrimary = Color(0xFFDCB8FF)
-internal val SportViolet = Color(0xFF8A2BE2)
-internal val SportVioletDark = Color(0xFF7928CA)
-internal val SportCyan = Color(0xFF00FBFB)
-internal val SportLiveRed = Color(0xFFFF334B)
-internal val SportGold = Color(0xFFF5A623)
-internal val SportEmerald = Color(0xFF34D399)
-internal val SportTextMuted = Color(0xFFA9AEC7)
+internal val SportSurface get() = Palette.color("SportSurface")
+internal val SportContainer get() = Palette.color("SportContainer")
+internal val SportContainerHigh get() = Palette.color("SportContainerHigh")
+internal val SportContainerHighest get() = Palette.color("SportContainerHighest")
+internal val SportPrimary get() = Palette.color("SportPrimary")
+internal val SportViolet get() = Palette.color("SportViolet")
+internal val SportVioletDark get() = Palette.color("SportVioletDark")
+internal val SportCyan get() = Palette.color("SportCyan")
+internal val SportLiveRed get() = Palette.color("SportLiveRed")
+internal val SportGold get() = Palette.color("SportGold")
+internal val SportEmerald get() = Palette.color("SportEmerald")
+internal val SportTextMuted get() = Palette.color("SportTextMuted")
 
-internal val SportVioletGradient: Brush = Brush.horizontalGradient(listOf(SportViolet, SportVioletDark))
-internal val SportFocusedCategoryGradient: Brush = Brush.horizontalGradient(listOf(SportContainerHighest, SportContainerHigh))
-internal val SportIdleCategoryBrush: Brush = SolidColor(SportContainer)
-internal val SportActiveMatchBrush: Brush = Brush.linearGradient(
+internal val SportVioletGradient: Brush get() = Brush.horizontalGradient(listOf(SportViolet, SportVioletDark))
+internal val SportFocusedCategoryGradient: Brush get() = Brush.horizontalGradient(listOf(SportContainerHighest, SportContainerHigh))
+internal val SportIdleCategoryBrush: Brush get() = SolidColor(SportContainer)
+internal val SportActiveMatchBrush: Brush get() = Brush.linearGradient(
     listOf(SportViolet.copy(alpha = 0.24f), SportContainer.copy(alpha = 0.96f)),
 )
-internal val SportIdleMatchBrush: Brush = SolidColor(SportContainer.copy(alpha = 0.90f))
-internal val SportHighlightedPillBrush: Brush = Brush.horizontalGradient(listOf(SportViolet.copy(alpha = 0.28f), SportContainerHigh))
-internal val SportIdlePillBrush: Brush = Brush.horizontalGradient(listOf(SportContainerHigh, SportContainer))
+internal val SportIdleMatchBrush: Brush get() = SolidColor(SportContainer.copy(alpha = 0.90f))
+internal val SportHighlightedPillBrush: Brush get() = Brush.horizontalGradient(listOf(SportViolet.copy(alpha = 0.28f), SportContainerHigh))
+internal val SportIdlePillBrush: Brush get() = Brush.horizontalGradient(listOf(SportContainerHigh, SportContainer))
 
 @Composable
 fun SportsScreen(

@@ -75,6 +75,8 @@ import androidx.compose.runtime.LaunchedEffect
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
@@ -375,16 +377,20 @@ private fun SeriesInfoPanel(
     onPlay: (PlayRequest) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val themeCustomization = LocalThemeCustomization.current
+    val showMetadata = themeCustomization.isVisible("details_metadata")
+    val showActions = themeCustomization.isVisible("details_actions")
     Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text(
-            details.name,
-            style = TextStyle(brush = Palette.BrandText, fontSize = 30.sp, fontWeight = FontWeight.Bold),
-        )
+        if (showMetadata) {
+            Text(
+                details.name,
+                style = TextStyle(brush = Palette.BrandText, fontSize = 30.sp, fontWeight = FontWeight.Bold),
+            )
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
             val q = qualityOf(details.name) ?: "HD"
             Tag(q, if (q == "4K") Palette.Gold else Palette.Glow)
             if (details.year.isNotBlank()) {
@@ -407,17 +413,18 @@ private fun SeriesInfoPanel(
                     Text(details.rating, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Gold)
                 }
             }
-        }
+            }
 
-        if (details.genre.isNotBlank()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                details.genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(4).forEach { g ->
-                    Tag(g, Palette.Glow, fontSize = 12.sp)
+            if (details.genre.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    details.genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(4).forEach { g ->
+                        Tag(g, Palette.Glow, fontSize = 12.sp)
+                    }
                 }
             }
         }
 
-        Row(
+        if (showActions) Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -455,7 +462,7 @@ private fun SeriesInfoPanel(
             )
         }
 
-        if (details.plot.isNotBlank() || details.cast.isNotBlank()) {
+        if (showMetadata && (details.plot.isNotBlank() || details.cast.isNotBlank())) {
             GlassPanel(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),

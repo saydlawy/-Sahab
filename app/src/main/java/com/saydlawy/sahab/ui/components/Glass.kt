@@ -40,7 +40,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,14 +76,15 @@ import coil.request.ImageRequest
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
 
-internal val IdleBorder = Palette.GlassBorder
-internal val PrimaryBorder = Palette.Glow.copy(alpha = 0.40f)
-internal val IdleGlassFill: Brush = SolidColor(Palette.Glass)
-internal val PhoneSelectedGlassFill: Brush = Brush.verticalGradient(
+internal val IdleBorder get() = Palette.GlassBorder
+internal val PrimaryBorder get() = Palette.Glow.copy(alpha = 0.40f)
+internal val IdleGlassFill: Brush get() = SolidColor(Palette.Glass)
+internal val PhoneSelectedGlassFill: Brush get() = Brush.verticalGradient(
     listOf(Palette.Royal.copy(alpha = 0.28f), Palette.Royal.copy(alpha = 0.20f)),
 )
-internal val PosterBottomShade: Brush = Brush.verticalGradient(
+internal val PosterBottomShade: Brush get() = Brush.verticalGradient(
     listOf(Color.Transparent, Color.Transparent, Palette.DeepBlue.copy(alpha = 0.75f)),
 )
 internal val HD_REGEX = Regex("\\bHD\\b")
@@ -113,7 +114,7 @@ fun Modifier.initialFocus(enabled: Boolean): Modifier {
 fun GlassCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape? = null,
     onLongClick: (() -> Unit)? = null,
     selected: Boolean = false,
     fill: Brush? = null,
@@ -121,6 +122,7 @@ fun GlassCard(
     focusScale: Float = 1.04f,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
+    val resolvedShape = shape ?: RoundedCornerShape(LocalThemeCustomization.current.cornerRadius.dp)
     val interaction = remember { MutableInteractionSource() }
     val focusedRaw by interaction.collectIsFocusedAsState()
     val isTv = LocalIsTv.current
@@ -161,15 +163,15 @@ fun GlassCard(
                 if (focused) {
                     Modifier.shadow(
                         elevation = 16.dp,
-                        shape = shape,
+                        shape = resolvedShape,
                         ambientColor = Palette.FocusCyan,
                         spotColor = Palette.FocusCyan,
                     )
                 } else Modifier,
             )
-            .clip(shape)
+            .clip(resolvedShape)
             .background(background)
-            .border(borderWidth, borderColor, shape)
+            .border(borderWidth, borderColor, resolvedShape)
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
@@ -185,16 +187,17 @@ fun GlassCard(
 @Composable
 fun GlassPanel(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(24.dp),
+    shape: Shape? = null,
     strong: Boolean = false,
     padding: Dp = 18.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val resolvedShape = shape ?: RoundedCornerShape(LocalThemeCustomization.current.cornerRadius.dp)
     Column(
         modifier = modifier
-            .clip(shape)
+            .clip(resolvedShape)
             .background(if (strong) Palette.GlassStrong else Palette.Glass)
-            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), resolvedShape)
             .padding(padding),
         content = content,
     )

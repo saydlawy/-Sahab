@@ -53,7 +53,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -188,6 +190,7 @@ internal fun MatchesGrid(
     scale: Float,
     onMatchClick: (Match) -> Unit,
 ) {
+    val visibleMatches = if (LocalThemeCustomization.current.isVisible("sports_scores")) groupedMatches else emptyMap()
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         state = gridState,
@@ -195,7 +198,7 @@ internal fun MatchesGrid(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(bottom = 18.dp),
     ) {
-        groupedMatches.forEach { (league, matches) ->
+        visibleMatches.forEach { (league, matches) ->
             item(key = "ghdr_${league.id}_${league.name}", span = { GridItemSpan(2) }) {
                 LeagueGroupHeader(league = league, count = matches.size, scale = scale)
             }
@@ -224,13 +227,14 @@ internal fun MatchesList(
     suppressLeagueHeaderIfSingle: Boolean = false,
     onMatchClick: (Match) -> Unit,
 ) {
-    val showHeaders = !suppressLeagueHeaderIfSingle || groupedMatches.size > 1
+    val visibleMatches = if (LocalThemeCustomization.current.isVisible("sports_scores")) groupedMatches else emptyMap()
+    val showHeaders = !suppressLeagueHeaderIfSingle || visibleMatches.size > 1
     LazyColumn(
         state = listState,
         verticalArrangement = Arrangement.spacedBy((10 * scale).dp),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        groupedMatches.forEach { (league, matches) ->
+        visibleMatches.forEach { (league, matches) ->
             if (showHeaders) {
                 stickyHeader(key = "hdr_${league.id}_${league.name}") {
                     LeagueGroupHeader(league = league, count = matches.size, scale = scale)

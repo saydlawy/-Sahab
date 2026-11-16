@@ -45,6 +45,7 @@ import com.saydlawy.sahab.ui.browse.BrowseScreen
 import com.saydlawy.sahab.ui.components.DreamyBackground
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.SahabTopBar
+import com.saydlawy.sahab.ui.components.OledNavigationChrome
 import com.saydlawy.sahab.ui.detail.MovieDetailScreen
 import com.saydlawy.sahab.ui.detail.SeriesDetailScreen
 import com.saydlawy.sahab.ui.home.FavoritesScreen
@@ -58,6 +59,8 @@ import androidx.activity.compose.BackHandler
 import com.saydlawy.sahab.ui.focus.FocusNavigationController
 import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -151,6 +154,7 @@ fun AppRoot(container: AppContainer) {
     }
 
     val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
+    val themePreferences by container.prefs.themePreferences.collectAsStateWithLifecycle(initialValue = com.saydlawy.sahab.data.ThemePreferences())
     val entry by nav.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
     val onPlayer = currentRoute == Routes.PLAYER
@@ -224,9 +228,33 @@ fun AppRoot(container: AppContainer) {
                         }
                         else -> Modifier.fillMaxSize().safeDrawingPadding()
                     }
-                    Box(contentModifier) {
+                    val oledPhoneNavigation = themePreferences.selectedThemeId == "oled_cinema" && windowInfo.mode == DisplayMode.PHONE_PORTRAIT
+                    val oledWideNavigation = themePreferences.selectedThemeId == "oled_cinema" && windowInfo.mode == DisplayMode.TABLET_OR_TV
+                    val navigationVisible = LocalThemeCustomization.current.isVisible("global_navigation")
+                    val adjustedContentModifier = when {
+                        oledPhoneNavigation && navigationVisible -> contentModifier.padding(bottom = 76.dp)
+                        oledWideNavigation && navigationVisible -> contentModifier.padding(start = 84.dp)
+                        else -> contentModifier
+                    }
+                    Box(adjustedContentModifier) {
                         val startRoute = start
                         if (startRoute != null) AppNavHost(nav, container, startRoute)
+                    }
+
+                    if (!onPlayer && navigationVisible && (oledPhoneNavigation || oledWideNavigation)) {
+                        val navigationPlacement = LocalThemeCustomization.current.componentPlacement["global_navigation"] ?: "center"
+                        val chromeAlignment = when {
+                            oledPhoneNavigation -> Alignment.BottomCenter
+                            navigationPlacement == "start" -> Alignment.TopStart
+                            navigationPlacement == "end" -> Alignment.BottomStart
+                            else -> Alignment.CenterStart
+                        }
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(safeInsets),
+                            contentAlignment = chromeAlignment,
+                        ) {
+                            OledNavigationChrome(currentRoute, onTab, windowInfo.mode)
+                        }
                     }
 
                     val repoSyncing by container.repo.syncing.collectAsStateWithLifecycle()

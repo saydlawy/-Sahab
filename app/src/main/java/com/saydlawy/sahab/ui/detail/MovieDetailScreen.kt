@@ -62,6 +62,8 @@ import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import androidx.compose.runtime.remember
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatDuration
 import com.saydlawy.sahab.util.userMessage
@@ -457,17 +459,21 @@ private fun MovieInfoPanel(
     refreshingMetadata: Boolean = false,
     onRefreshMetadata: () -> Unit = {},
 ) {
+    val themeCustomization = LocalThemeCustomization.current
+    val showMetadata = themeCustomization.isVisible("details_metadata")
+    val showActions = themeCustomization.isVisible("details_actions")
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(
-            details.name,
-            style = TextStyle(brush = Palette.BrandText, fontSize = 32.sp, fontWeight = FontWeight.Bold),
-        )
+        if (showMetadata) {
+            Text(
+                details.name,
+                style = TextStyle(brush = Palette.BrandText, fontSize = 32.sp, fontWeight = FontWeight.Bold),
+            )
 
-        // Metadata badges row
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+            // Metadata badges row
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
             val q = qualityOf(details.name) ?: "FHD"
             Tag(q, if (q == "4K") Palette.Gold else Palette.Glow)
             if (details.year.isNotBlank()) {
@@ -493,24 +499,25 @@ private fun MovieInfoPanel(
             if (details.ext.isNotBlank()) {
                 Tag(details.ext.uppercase(), Palette.TextDim)
             }
-        }
+            }
 
-        // Genre tags
-        if (details.genre.isNotBlank()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                details.genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(4).forEach { g ->
-                    Tag(g, Palette.Glow, fontSize = 12.sp)
+            // Genre tags
+            if (details.genre.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    details.genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(4).forEach { g ->
+                        Tag(g, Palette.Glow, fontSize = 12.sp)
+                    }
                 }
             }
-        }
 
-        if (resumeMs > 10_000 && durationMs > 0) {
-            ProgressLine((resumeMs.toFloat() / durationMs).coerceIn(0f, 1f), Modifier.fillMaxWidth(0.6f), height = 5.dp)
+            if (resumeMs > 10_000 && durationMs > 0) {
+                ProgressLine((resumeMs.toFloat() / durationMs).coerceIn(0f, 1f), Modifier.fillMaxWidth(0.6f), height = 5.dp)
+            }
         }
 
         // Actions
         val screenKey = remember(details.id) { "movie/${details.id}" }
-        Row(
+        if (showActions) Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -564,7 +571,7 @@ private fun MovieInfoPanel(
         }
 
         // Plot & cast inside a glass panel
-        GlassPanel(
+        if (showMetadata) GlassPanel(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
             padding = 20.dp,

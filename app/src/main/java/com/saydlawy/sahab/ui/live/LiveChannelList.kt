@@ -36,7 +36,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -118,6 +118,8 @@ import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatClock
@@ -270,6 +272,30 @@ internal fun ChannelRow(
     val (badgeText, _) = remember(channel.name) {
         ChannelLogoResolver.resolveBrandStyle(channel.name)
     }
+    val logoPlacement = LocalThemeCustomization.current.componentPlacement["channel_logo"] ?: "start"
+    val channelLogo: @Composable () -> Unit = {
+        Box(
+            modifier = Modifier
+                .size(appDp(44))
+                .clip(CircleShape)
+                .background(Color.White)
+                .border(
+                    width = if (focused) appDp(2) else appDp(1),
+                    color = if (focused) Palette.FocusCyan else Color.White.copy(alpha = 0.85f),
+                    shape = CircleShape,
+                )
+                .padding(appDp(4)),
+            contentAlignment = Alignment.Center,
+        ) {
+            RemoteImage(
+                url = primaryLogoUrl,
+                fallbackUrl = internetFallbackLogoUrl,
+                fallbackText = badgeText,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Fit,
+            )
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -301,30 +327,8 @@ internal fun ChannelRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(appDp(10)),
     ) {
-        // Reference-style Circular White Logo Badge with Internet Logo Resolution
-        Box(
-            modifier = Modifier
-                .size(appDp(44))
-                .clip(CircleShape)
-                .background(Color.White)
-                .border(
-                    width = if (focused) appDp(2) else appDp(1),
-                    color = if (focused) Palette.FocusCyan else Color.White.copy(alpha = 0.85f),
-                    shape = CircleShape,
-                )
-                .padding(appDp(4)),
-            contentAlignment = Alignment.Center,
-        ) {
-            RemoteImage(
-                url = primaryLogoUrl,
-                fallbackUrl = internetFallbackLogoUrl,
-                fallbackText = badgeText,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape),
-                contentScale = ContentScale.Fit,
-            )
-        }
+        val showLogo = LocalThemeCustomization.current.isVisible("channel_logo")
+        if (showLogo && logoPlacement == "start") channelLogo()
 
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(appDp(3))) {
             Row(
@@ -382,6 +386,8 @@ internal fun ChannelRow(
                 )
             }
         }
+
+        if (showLogo && logoPlacement != "start") channelLogo()
 
         if (isFavorite) {
             Icon(

@@ -36,7 +36,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -118,6 +118,8 @@ import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatClock
@@ -136,11 +138,11 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import androidx.compose.runtime.Immutable
 
-internal val IdleChannelRowFill: Brush = SolidColor(Palette.Glass)
-internal val PreviewShadeBrush: Brush = Brush.verticalGradient(
+internal val IdleChannelRowFill: Brush get() = SolidColor(Palette.Glass)
+internal val PreviewShadeBrush: Brush get() = Brush.verticalGradient(
     listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Black.copy(alpha = 0.65f)),
 )
-internal val PreviewPlaceholderBrush: Brush = Brush.radialGradient(
+internal val PreviewPlaceholderBrush: Brush get() = Brush.radialGradient(
     listOf(Palette.Royal.copy(alpha = 0.32f), Palette.DeepBlue, Color.Black),
 )
 
@@ -317,6 +319,7 @@ internal fun WideLiveLayout(
     onBack: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    val themeCustomization = LocalThemeCustomization.current
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Column(Modifier.fillMaxSize()) {
             SahabTopBar(current = Routes.LIVE, onBack = onBack)
@@ -371,13 +374,13 @@ internal fun WideLiveLayout(
                 )
 
                 // Column 3 (Left in RTL): Video Preview & EPG Schedule
-                PreviewPanel(
+                if (themeCustomization.isVisible("live_preview")) PreviewPanel(
                     channel = previewChannel,
                     isFavorite = previewChannel?.id in favoriteIds,
                     onPlay = { previewChannel?.let(onPlayChannel) },
                     onToggleFavorite = { previewChannel?.let(onToggleFavorite) },
                     onGuide = onGuide,
-                    showEpg = true,
+                    showEpg = themeCustomization.isVisible("live_epg"),
                     modifier = Modifier
                         .weight(0.37f)
                         .fillMaxHeight(),
@@ -403,6 +406,7 @@ internal fun PhoneLandscapeLiveLayout(
     onBack: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    val themeCustomization = LocalThemeCustomization.current
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Column(Modifier.fillMaxSize()) {
             SahabTopBar(current = Routes.LIVE, onBack = onBack)
@@ -460,7 +464,7 @@ internal fun PhoneLandscapeLiveLayout(
                 }
 
                 // Left pane in RTL: Compact Live Video Preview without EPG card overflow
-                PreviewPanel(
+                if (themeCustomization.isVisible("live_preview")) PreviewPanel(
                     channel = previewChannel,
                     isFavorite = previewChannel?.id in favoriteIds,
                     onPlay = { previewChannel?.let(onPlayChannel) },
@@ -492,10 +496,11 @@ internal fun PhonePortraitLiveLayout(
     onBack: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    val themeCustomization = LocalThemeCustomization.current
     Column(Modifier.fillMaxSize()) {
         SahabTopBar(current = Routes.LIVE, onBack = onBack)
 
-        if (previewChannel != null) {
+        if (previewChannel != null && themeCustomization.isVisible("live_preview")) {
             PreviewPanel(
                 channel = previewChannel,
                 isFavorite = previewChannel.id in favoriteIds,

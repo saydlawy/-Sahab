@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -25,6 +26,7 @@ import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.components.BrandLogo
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.SahabTheme
+import com.saydlawy.sahab.data.ThemePreferences
 import com.saydlawy.sahab.util.isTelevision
 import kotlinx.coroutines.delay
 
@@ -46,7 +48,8 @@ class MainActivity : AppCompatActivity() {
         val tv = isTelevision(this)
 
         setContent {
-            SahabTheme {
+            val themeSettings by container.prefs.themePreferences.collectAsState(initial = ThemePreferences())
+            SahabTheme(settings = themeSettings) {
                 if (showSplash) {
                     SplashScreenContent {
                         showSplash = false

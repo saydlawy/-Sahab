@@ -27,9 +27,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +86,9 @@ import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.home.components.TrendingMoviesSection
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.LocalThemePreferences
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.formatDayOffsetYmd
@@ -103,6 +107,8 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focusNav = LocalFocusNavigation.current
+    val themeCustomization = LocalThemeCustomization.current
+    val activeThemeId = LocalThemePreferences.current.selectedThemeId
 
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
     val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -305,23 +311,62 @@ fun HomeScreen(
                 contentPadding = PaddingValues(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(if (isTvOrTablet) 14.dp else 12.dp),
             ) {
-                // B. تابع المشاهدة (Continue Watching)
-                if (showRecents && continueWatchingItems.isNotEmpty()) {
-                    item(key = "section_continue_watching") {
-                        ContinueWatchingSection(
-                            items = continueWatchingItems,
-                            hasRealRecents = recents.isNotEmpty(),
-                            onClearRecents = {
-                                scope.launch { container.prefs.restoreRecents(emptyList()) }
-                            },
+                val sectionDefaultOrder = listOf(
+                    "section_continue_watching", "section_live_channels", "section_trending_movies",
+                    "section_quick_categories", "section_today_matches",
+                )
+                val orderedHomeSections = when (themeCustomization.componentPlacement["home_sections"]) {
+                    "live_first" -> listOf("section_live_channels", "section_continue_watching", "section_trending_movies", "section_quick_categories", "section_today_matches")
+                    "movies_first" -> listOf("section_trending_movies", "section_continue_watching", "section_live_channels", "section_quick_categories", "section_today_matches")
+                    "matches_first" -> listOf("section_today_matches", "section_continue_watching", "section_live_channels", "section_trending_movies", "section_quick_categories")
+                    else -> sectionDefaultOrder
+                }
+                val visibleHomeSections = orderedHomeSections.filter { section ->
+                    when (section) {
+                        "section_continue_watching" -> showRecents && themeCustomization.isVisible("home_continue") && continueWatchingItems.isNotEmpty()
+                        "section_live_channels" -> showLiveChannels && themeCustomization.isVisible("home_live_channels")
+                        "section_trending_movies" -> showRecommended && themeCustomization.isVisible("home_recommendations")
+                        "section_quick_categories" -> showQuickCategories && themeCustomization.isVisible("home_categories")
+                        "section_today_matches" -> showMatches && themeCustomization.isVisible("home_matches")
+                        else -> false
+                    }
+                }
+                if (activeThemeId == "dynamic_bento" && themeCustomization.isVisible("home_highlights")) {
+                    item(key = "bento_home_highlights") {
+                        BentoHomeHighlights(
+                            vertical = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT,
+                            channelCount = featuredChannels.size,
+                            movieCount = trendingMovies.size,
+                            matchCount = todayMatches.size,
+                            placement = themeCustomization.componentPlacement["home_highlights"] ?: "start",
+                            onLive = { onOpen(Routes.LIVE) },
+                            onMovies = { onOpen(Routes.MOVIES) },
+                            onSports = { onOpen(Routes.SPORTS) },
                         )
                     }
                 }
+                if (activeThemeId == "oled_cinema" && themeCustomization.isVisible("home_spotlight") && LocalDisplayMode.current != DisplayMode.PHONE_LANDSCAPE) {
+                    trendingMovies.firstOrNull()?.let { spotlight ->
+                        item(key = "oled_home_spotlight") {
+                            OledHomeSpotlight(
+                                title = spotlight.titleAr,
+                                subtitle = spotlight.year,
+                                imageUrl = spotlight.posterUrl,
+                                compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT,
+                                onClick = { onOpen(Routes.movie(spotlight.novaStreamId.ifEmpty { spotlight.sahabId })) },
+                            )
+                        }
+                    }
+                }
 
-                // C. القنوات المباشرة (Live Channels)
-                if (showLiveChannels) {
-                    item(key = "section_live_channels") {
-                        FeaturedChannelsSection(
+                items(visibleHomeSections, key = { it }) { section ->
+                    when (section) {
+                        "section_continue_watching" -> ContinueWatchingSection(
+                            items = continueWatchingItems,
+                            hasRealRecents = recents.isNotEmpty(),
+                            onClearRecents = { scope.launch { container.prefs.restoreRecents(emptyList()) } },
+                        )
+                        "section_live_channels" -> FeaturedChannelsSection(
                             layout = homeChannelsLayout,
                             channels = featuredChannels,
                             onPlay = onPlay,
@@ -330,51 +375,20 @@ fun HomeScreen(
                                 onOpen(Routes.LIVE)
                             },
                         )
-                    }
-                }
-
-                // D. 🔥 أفلام مقترحة لك (Recommended Movies — Newest Additions from Xtream + Firebase)
-                if (showRecommended) {
-                    item(key = "section_trending_movies") {
-                        TrendingMoviesSection(
+                        "section_trending_movies" -> TrendingMoviesSection(
                             preloadedMovies = trendingMovies,
-                            onMovieClick = { movie ->
-                                onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
-                            },
+                            onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
                         )
-                    }
-                }
-
-                // E. تصفح الفئات السريعة (Quick Categories: البث المباشر - الأفلام - المسلسلات from Right to Left)
-                if (showQuickCategories) {
-                    item(key = "section_quick_categories") {
-                        QuickCategoriesSection(
-                            onOpenLive = {
-                                focusNav.markNavigateFrom(Routes.HOME, "home_quick_live")
-                                onOpen(Routes.LIVE)
-                            },
-                            onOpenMovies = {
-                                focusNav.markNavigateFrom(Routes.HOME, "home_quick_movies")
-                                onOpen(Routes.MOVIES)
-                            },
-                            onOpenSeries = {
-                                focusNav.markNavigateFrom(Routes.HOME, "home_quick_series")
-                                onOpen(Routes.SERIES)
-                            },
+                        "section_quick_categories" -> QuickCategoriesSection(
+                            onOpenLive = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_live"); onOpen(Routes.LIVE) },
+                            onOpenMovies = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_movies"); onOpen(Routes.MOVIES) },
+                            onOpenSeries = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_series"); onOpen(Routes.SERIES) },
                         )
-                    }
-                }
-
-                // F. ⚽ مباريات اليوم (Today's Matches)
-                if (showMatches) {
-                    item(key = "section_today_matches") {
-                        TodayMatchesSection(
+                        "section_today_matches" -> TodayMatchesSection(
                             matches = todayMatches,
-                            onOpenSports = { matchKey ->
-                                focusNav.markNavigateFrom(Routes.HOME, matchKey)
-                                onOpen(Routes.SPORTS)
-                            },
+                            onOpenSports = { matchKey -> focusNav.markNavigateFrom(Routes.HOME, matchKey); onOpen(Routes.SPORTS) },
                         )
+                        else -> Unit
                     }
                 }
             }
@@ -390,4 +404,83 @@ internal data class ContinueCardModel(
     val progress: Float,
     val onClick: () -> Unit,
 )
+
+@Composable
+private fun BentoHomeHighlights(
+    vertical: Boolean,
+    channelCount: Int,
+    movieCount: Int,
+    matchCount: Int,
+    placement: String,
+    onLive: () -> Unit,
+    onMovies: () -> Unit,
+    onSports: () -> Unit,
+) {
+    val live = Triple("البث المباشر", "$channelCount قناة", onLive)
+    val movies = Triple("أفلام مقترحة", "$movieCount عملاً", onMovies)
+    val sports = Triple("مباريات اليوم", "$matchCount مباراة", onSports)
+    val highlights = when (placement) {
+        "center" -> listOf(movies, live, sports)
+        "end" -> listOf(sports, movies, live)
+        else -> listOf(live, movies, sports)
+    }
+    if (vertical) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            highlights.forEach { (title, subtitle, action) -> BentoHighlightCard(title, subtitle, action, Modifier.fillMaxWidth()) }
+        }
+    } else {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            highlights.forEach { (title, subtitle, action) ->
+                BentoHighlightCard(title, subtitle, action, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun BentoHighlightCard(title: String, subtitle: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    GlassCard(onClick = onClick, modifier = modifier.height(104.dp)) { focused ->
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(title, color = if (focused) Palette.FocusCyan else Palette.Text, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(subtitle, color = Palette.TextDim, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun OledHomeSpotlight(
+    title: String,
+    subtitle: String,
+    imageUrl: String,
+    compact: Boolean,
+    onClick: () -> Unit,
+) {
+    GlassCard(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(if (compact) 168.dp else 250.dp)) { focused ->
+        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp))) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))),
+                ),
+            )
+            Column(
+                Modifier.align(Alignment.BottomStart).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text("مقترح لك", color = Palette.FocusCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(title, color = Color.White, fontSize = if (compact) 19.sp else 25.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (subtitle.isNotBlank()) Text(subtitle, color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+                if (focused) Text("تشغيل", color = Palette.FocusCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
 

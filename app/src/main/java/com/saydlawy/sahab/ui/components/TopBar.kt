@@ -29,7 +29,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,6 +67,9 @@ import com.saydlawy.sahab.ui.LocalWindowInfo
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.home.components.CompactTopBarInfo
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.LocalThemePreferences
+import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.delay
@@ -224,6 +227,11 @@ fun SahabTopBar(
     val onTab = LocalTabNavigator.current
     val displayMode = LocalDisplayMode.current
     val maxWidth = LocalWindowInfo.current.widthDp
+    val customization = LocalThemeCustomization.current
+    val adaptiveOledNavigation = LocalThemePreferences.current.selectedThemeId == "oled_cinema" &&
+        displayMode != DisplayMode.PHONE_LANDSCAPE
+    val showNavigation = showTabs && customization.isVisible("global_navigation") && !adaptiveOledNavigation
+    val navigationPlacement = customization.placement("global_navigation", "center")
 
     Box(modifier.fillMaxWidth()) {
         when (displayMode) {
@@ -244,16 +252,22 @@ fun SahabTopBar(
                         logoSize = 40.dp,
                         titleSize = 20,
                     )
-                    if (showTabs) {
-                        Spacer(Modifier.width(24.dp))
+                    if (showNavigation) {
+                        if (navigationPlacement == "center" || navigationPlacement == "end") {
+                            Spacer(Modifier.weight(1f))
+                        } else {
+                            Spacer(Modifier.width(24.dp))
+                        }
                         CinematicNavTabsRow(
                             current = current,
                             onTab = onTab,
                             compact = false,
                             scrollable = false,
                         )
+                        if (navigationPlacement == "center") Spacer(Modifier.weight(1f))
+                        if (navigationPlacement == "start") Spacer(Modifier.weight(1f))
                     }
-                    Spacer(Modifier.weight(1f))
+                    if (!showNavigation || navigationPlacement == "end") Spacer(Modifier.weight(1f))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -282,7 +296,7 @@ fun SahabTopBar(
                         GlassIconButton(Ic.Back, Ar.back, onBack, size = 36.dp)
                     }
                     BrandMark(subtitle = null, logoSize = 32.dp, titleSize = 16)
-                    if (showTabs) {
+                    if (showNavigation) {
                         CinematicNavTabsRow(
                             current = current,
                             onTab = onTab,
@@ -333,7 +347,7 @@ fun SahabTopBar(
                             )
                         }
                     }
-                    if (showTabs) {
+                    if (showNavigation) {
                         CinematicNavTabsRow(
                             current = current,
                             onTab = onTab,

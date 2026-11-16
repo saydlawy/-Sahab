@@ -61,6 +61,7 @@ class Prefs @JvmOverloads constructor(
         val Favs = stringPreferencesKey("favorites")
         val Recents = stringPreferencesKey("recents")
         val LightEffects = booleanPreferencesKey("light_effects")
+        val ThemePreferencesKey = stringPreferencesKey("theme_preferences")
         val ShowRecents = booleanPreferencesKey("show_recents")
         val ShowLiveChannelsOnHome = booleanPreferencesKey("show_live_channels_on_home")
         val ShowRecommendedOnHome = booleanPreferencesKey("show_recommended_on_home")
@@ -176,6 +177,12 @@ class Prefs @JvmOverloads constructor(
     val recents: Flow<List<RecentItem>> = store.data.map { decodeRecents(it[Keys.Recents]) }
 
     val lightEffects: Flow<Boolean> = store.data.map { it[Keys.LightEffects] ?: false }
+
+    val themePreferences: Flow<ThemePreferences> = store.data.map { preferences ->
+        preferences[Keys.ThemePreferencesKey]
+            ?.let { raw -> runCatching { json.decodeFromString(ThemePreferences.serializer(), raw) }.getOrNull() }
+            ?: ThemePreferences()
+    }
 
     val showRecents: Flow<Boolean> = store.data.map { it[Keys.ShowRecents] ?: true }
 
@@ -362,6 +369,46 @@ class Prefs @JvmOverloads constructor(
 
     suspend fun setLightEffects(enabled: Boolean) {
         store.edit { it[Keys.LightEffects] = enabled }
+    }
+
+    suspend fun saveThemePreferences(value: ThemePreferences) {
+        store.edit { it[Keys.ThemePreferencesKey] = json.encodeToString(ThemePreferences.serializer(), value) }
+    }
+
+    suspend fun setSelectedTheme(themeId: String) {
+        store.edit { preferences ->
+            val current = preferences[Keys.ThemePreferencesKey]
+                ?.let { raw -> runCatching { json.decodeFromString(ThemePreferences.serializer(), raw) }.getOrNull() }
+                ?: ThemePreferences()
+            preferences[Keys.ThemePreferencesKey] = json.encodeToString(
+                ThemePreferences.serializer(),
+                current.copy(selectedThemeId = themeId),
+            )
+        }
+    }
+
+    suspend fun setThemeCustomization(themeId: String, customization: ThemeCustomization) {
+        store.edit { preferences ->
+            val current = preferences[Keys.ThemePreferencesKey]
+                ?.let { raw -> runCatching { json.decodeFromString(ThemePreferences.serializer(), raw) }.getOrNull() }
+                ?: ThemePreferences()
+            preferences[Keys.ThemePreferencesKey] = json.encodeToString(
+                ThemePreferences.serializer(),
+                current.copy(customizations = current.customizations + (themeId to customization)),
+            )
+        }
+    }
+
+    suspend fun resetThemeCustomization(themeId: String) {
+        store.edit { preferences ->
+            val current = preferences[Keys.ThemePreferencesKey]
+                ?.let { raw -> runCatching { json.decodeFromString(ThemePreferences.serializer(), raw) }.getOrNull() }
+                ?: ThemePreferences()
+            preferences[Keys.ThemePreferencesKey] = json.encodeToString(
+                ThemePreferences.serializer(),
+                current.copy(customizations = current.customizations - themeId),
+            )
+        }
     }
 
     suspend fun toggleFavorite(item: FavItem) {
