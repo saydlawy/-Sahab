@@ -43,6 +43,44 @@ class WeatherService(
 
     private var lastFetchMs: Long = 0L
 
+    fun getManualCity(): String = prefs.getString("manual_city", "") ?: ""
+
+    suspend fun setManualCity(cityName: String): Boolean {
+        val trimmed = cityName.trim()
+        if (trimmed.isEmpty()) {
+            prefs.edit().remove("manual_city").remove("manual_lat").remove("manual_lon").apply()
+            refreshIfNeeded(force = true)
+            return true
+        }
+        val geo = withContext(Dispatchers.IO) {
+            runCatching {
+                val encoded = java.net.URLEncoder.encode(trimmed, "UTF-8")
+                val req = Request.Builder()
+                    .url("https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=1&language=ar")
+                    .build()
+                client.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string().orEmpty()
+                    val arr = JSONObject(body).optJSONArray("results")
+                    if (arr != null && arr.length() > 0) {
+                        val item = arr.getJSONObject(0)
+                        Triple(
+                            item.getDouble("latitude").toFloat(),
+                            item.getDouble("longitude").toFloat(),
+                            item.optString("name", trimmed).ifBlank { trimmed },
+                        )
+                    } else null
+                }
+            }.getOrNull()
+        } ?: return false
+        prefs.edit()
+            .putString("manual_city", geo.third)
+            .putFloat("manual_lat", geo.first)
+            .putFloat("manual_lon", geo.second)
+            .apply()
+        refreshIfNeeded(force = true)
+        return true
+    }
+
     suspend fun refreshIfNeeded(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastFetchMs < 30 * 60 * 1000L && _weather.value.isLoaded) {
@@ -51,11 +89,13 @@ class WeatherService(
 
         withContext(Dispatchers.IO) {
             try {
-                // 1. IP geolocation (zero runtime permissions, works on TV and phone)
-                val loc = fetchIpLocation()
-                val lat = loc?.first ?: 29.37
-                val lon = loc?.second ?: 47.98
-                val rawCity = loc?.third ?: "Kuwait City"
+                // 1. Manual city override first, else IP geolocation
+                val manualCity = prefs.getString("manual_city", "").orEmpty()
+                val hasManual = manualCity.isNotBlank() && prefs.contains("manual_lat") && prefs.contains("manual_lon")
+                val loc = if (hasManual) null else fetchIpLocation()
+                val lat = if (hasManual) prefs.getFloat("manual_lat", 29.37f).toDouble() else (loc?.first ?: 29.37)
+                val lon = if (hasManual) prefs.getFloat("manual_lon", 47.98f).toDouble() else (loc?.second ?: 47.98)
+                val rawCity = if (hasManual) manualCity else (loc?.third ?: "Kuwait City")
 
                 // 2. Real-time weather from Open-Meteo
                 val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code,is_day&timezone=auto"

@@ -1000,6 +1000,32 @@ private fun HomeCustomizationPanel(
                     .fillMaxWidth()
                     .restorableFocus(Routes.SETTINGS, "settings_clear_media_cache_btn"),
             )
+            val weatherSvc = com.saydlawy.sahab.ui.LocalContainer.current.weatherService
+            var cityInput by remember { mutableStateOf(weatherSvc.getManualCity()) }
+            var cityStatus by remember { mutableStateOf<String?>(null) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassTextField(
+                    value = cityInput,
+                    onValueChange = { cityInput = it; cityStatus = null },
+                    placeholder = "مدينة الطقس (اتركه فارغاً للتلقائي)",
+                    modifier = Modifier.weight(1f),
+                )
+                GlassButton(
+                    text = "حفظ",
+                    onClick = {
+                        cacheScope.launch {
+                            val ok = weatherSvc.setManualCity(cityInput)
+                            cityStatus = if (ok) {
+                                if (cityInput.isBlank()) "تم التفعيل التلقائي" else "تم تثبيت المدينة"
+                            } else "لم يتم العثور على المدينة"
+                        }
+                    },
+                    modifier = Modifier.restorableFocus(Routes.SETTINGS, "settings_save_weather_city_btn"),
+                )
+            }
+            cityStatus?.let { st ->
+                Text(st, fontSize = 11.sp, color = Palette.Gold)
+            }
         }
     }
 }
