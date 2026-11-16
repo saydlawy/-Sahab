@@ -242,7 +242,7 @@ internal fun HomeCustomizationPanel(
                     .fillMaxWidth()
                     .restorableFocus(Routes.SETTINGS, "settings_clear_media_cache_btn"),
             )
-            val weatherSvc = com.saydlawy.sahab.ui.LocalContainer.current.weatherService
+            val weatherSvc = com.saydlawy.sahab.ui.LocalContainer.current.weather
             var cityInput by remember { mutableStateOf(weatherSvc.getManualCity()) }
             var cityStatus by remember { mutableStateOf<String?>(null) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
