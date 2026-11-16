@@ -57,18 +57,13 @@ jobs:
           format: HTML
           out: reports
           args: >
-            --enableRetired
+            --enableRetired          echo "✅ File created. Size: $(wc -c < app/google-services.json) bytes"
 
-      # Decode Google Services JSON from GitHub Secrets
       - name: Create google-services.json from Secret
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
-            echo "❌ Error: GOOGLE_SERVICES_JSON secret is empty!"
-            exit 1
-          fi
-          echo "$GOOGLE_SERVICES_JSON" | base64 -di > app/google-services.json
+          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
           echo "✅ File created. Size: $(wc -c < app/google-services.json) bytes"
 
       # Firebase dependency diagnostics
