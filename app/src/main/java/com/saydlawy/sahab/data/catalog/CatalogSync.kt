@@ -196,39 +196,42 @@ class CatalogSync(
         repo: Repository,
         tmdb: com.saydlawy.sahab.data.TmdbApi,
         streamId: String,
+        force: Boolean = false,
     ): com.saydlawy.sahab.data.catalog.TmdbMatcher.EnrichResult? {
         val existing = dao.findByStreamId(streamId) ?: return null
-        if (existing.needsEnrichment == 0 || existing.needsEnrichment == -1) return null
+        if (!force && (existing.needsEnrichment == 0 || existing.needsEnrichment == -1)) return null
 
         val now = System.currentTimeMillis()
         // WEAK match retry gate: if we tried in the last 24h, skip (avoid re-hitting TMDB on every reopen)
-        if (existing.needsEnrichment == 1 && existing.lastEnriched > 0L &&
+        if (!force && existing.needsEnrichment == 1 && existing.lastEnriched > 0L &&
             (now - existing.lastEnriched) < 24L * 3600_000L
         ) {
             return null
         }
 
-        // 1. البحث في السحابة (Firebase) أولاً
-        val cloudData = firebaseCatalog.getCatalogItem(existing.sahabId)
-        if (cloudData != null && cloudData.plot.isNotBlank()) {
-            dao.applyEnrichment(
-                streamId = streamId,
-                newId = cloudData.sahabId,
-                tmdbId = cloudData.tmdbId,
-                titleEn = cloudData.titleEn,
-                year = cloudData.year,
-                plot = cloudData.plot,
-                cast = cloudData.cast,
-                director = cloudData.director,
-                genre = cloudData.genre,
-                runtime = cloudData.runtime,
-                rating = cloudData.rating,
-                backdropUrl = cloudData.backdropUrl,
-                voteCount = cloudData.tmdbVoteCount,
-                status = 0,
-                now = now
-            )
-            return null // تم الإثراء من السحابة بنجاح
+        // 1. البحث في السحابة (Firebase) أولاً (إلا عند طلب التحديث اليدوي القسري)
+        if (!force) {
+            val cloudData = firebaseCatalog.getCatalogItem(existing.sahabId)
+            if (cloudData != null && cloudData.plot.isNotBlank()) {
+                dao.applyEnrichment(
+                    streamId = streamId,
+                    newId = cloudData.sahabId,
+                    tmdbId = cloudData.tmdbId,
+                    titleEn = cloudData.titleEn,
+                    year = cloudData.year,
+                    plot = cloudData.plot,
+                    cast = cloudData.cast,
+                    director = cloudData.director,
+                    genre = cloudData.genre,
+                    runtime = cloudData.runtime,
+                    rating = cloudData.rating,
+                    backdropUrl = cloudData.backdropUrl,
+                    voteCount = cloudData.tmdbVoteCount,
+                    status = 0,
+                    now = now
+                )
+                return null // تم الإثراء من السحابة بنجاح
+            }
         }
         val catName = runCatching {
             repo.movieCategories().firstOrNull { it.id == existing.categoryId }?.name ?: ""

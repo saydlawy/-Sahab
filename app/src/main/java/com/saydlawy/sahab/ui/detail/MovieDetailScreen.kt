@@ -89,6 +89,9 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
     private val _aiState = MutableStateFlow<com.saydlawy.sahab.data.ai.AiGenerationState>(com.saydlawy.sahab.data.ai.AiGenerationState.Idle)
     val aiState = _aiState.asStateFlow()
 
+    private val _refreshingMetadata = MutableStateFlow(false)
+    val refreshingMetadata = _refreshingMetadata.asStateFlow()
+
     fun generateAiStory() {
         viewModelScope.launch {
             _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Loading
@@ -255,6 +258,31 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             container.prefs.toggleFavorite(FavItem(Kind.MOVIE, details.id, details.name, details.image, details.ext))
         }
     }
+
+    fun refreshMetadata() {
+        if (_refreshingMetadata.value) return
+        viewModelScope.launch {
+            _refreshingMetadata.value = true
+            try {
+                container.catalogSync.enrichOne(container.repo, container.tmdb, id, force = true)
+                val updated = withContext(Dispatchers.IO) {
+                    runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                }
+                if (updated != null) {
+                    _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
+                } else {
+                    val details = container.repo.movieDetails(id)
+                    _state.update { DetailUiState(loading = false, data = details) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Keep existing details visible if manual refresh fails
+            } finally {
+                _refreshingMetadata.value = false
+            }
+        }
+    }
 }
 
 @Composable
@@ -262,6 +290,7 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
     val vm = appViewModel { MovieDetailViewModel(it, id) }
     val state by vm.state.collectAsStateWithLifecycle()
     val aiState by vm.aiState.collectAsStateWithLifecycle()
+    val refreshingMetadata by vm.refreshingMetadata.collectAsStateWithLifecycle()
     val container = LocalContainer.current
     val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -330,9 +359,11 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                             item = item,
                                             onPlay = onPlay,
                                             modifier = Modifier.weight(1f),
-            onGenerateStory = { vm.generateAiStory() },
-            aiState = aiState,
-        )
+                                            onGenerateStory = { vm.generateAiStory() },
+                                            aiState = aiState,
+                                            refreshingMetadata = refreshingMetadata,
+                                            onRefreshMetadata = { vm.refreshMetadata() },
+                                        )
                                     }
                                 }
                                 DisplayMode.PHONE_LANDSCAPE -> {
@@ -350,9 +381,11 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                             item = item,
                                             onPlay = onPlay,
                                             modifier = Modifier.weight(1f),
-            onGenerateStory = { vm.generateAiStory() },
-            aiState = aiState,
-        )
+                                            onGenerateStory = { vm.generateAiStory() },
+                                            aiState = aiState,
+                                            refreshingMetadata = refreshingMetadata,
+                                            onRefreshMetadata = { vm.refreshMetadata() },
+                                        )
                                     }
                                 }
                                 DisplayMode.PHONE_PORTRAIT -> {
@@ -371,9 +404,11 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                         item = item,
                                         onPlay = onPlay,
                                         modifier = Modifier.fillMaxWidth(),
-            onGenerateStory = { vm.generateAiStory() },
-            aiState = aiState,
-        )
+                                        onGenerateStory = { vm.generateAiStory() },
+                                        aiState = aiState,
+                                        refreshingMetadata = refreshingMetadata,
+                                        onRefreshMetadata = { vm.refreshMetadata() },
+                                    )
                                 }
                             }
                             Spacer(Modifier.height(48.dp))
@@ -419,6 +454,8 @@ private fun MovieInfoPanel(
     modifier: Modifier,
     onGenerateStory: () -> Unit = {},
     aiState: AiGenerationState = AiGenerationState.Idle,
+    refreshingMetadata: Boolean = false,
+    onRefreshMetadata: () -> Unit = {},
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -510,6 +547,18 @@ private fun MovieInfoPanel(
                 modifier = Modifier.restorableFocus(
                     screenKey = screenKey,
                     itemKey = "movie_fav_btn",
+                ),
+            )
+            GlassIconButton(
+                icon = Ic.Refresh,
+                description = "تحديث المعلومات",
+                onClick = onRefreshMetadata,
+                size = 54.dp,
+                selected = refreshingMetadata,
+                tint = if (refreshingMetadata) Palette.Gold else Palette.Glow,
+                modifier = Modifier.restorableFocus(
+                    screenKey = screenKey,
+                    itemKey = "movie_refresh_btn",
                 ),
             )
         }
