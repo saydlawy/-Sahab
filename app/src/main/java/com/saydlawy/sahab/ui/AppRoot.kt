@@ -113,6 +113,7 @@ fun AppRoot(container: AppContainer) {
                 container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
             }
         }
+        container.cloudMergeDone = true
         if (account != null) {
             container.repo.setAccount(account)
             container.appScope.launch {

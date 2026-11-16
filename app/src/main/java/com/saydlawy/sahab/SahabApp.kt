@@ -88,17 +88,20 @@ class AppContainer(context: Context) {
             return bytes.take(4).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         }
 
+    @Volatile
+    var cloudMergeDone: Boolean = false
+
     fun startAutoSync() {
         appScope.launch {
             // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين
-            prefs.favorites.debounce(2000L).collect { favs ->
-                if (authManager.currentUser != null) userSyncService.saveFavorites(favs)
+            prefs.favorites.drop(1).debounce(2000L).collect { favs ->
+                if (cloudMergeDone && authManager.currentUser != null) userSyncService.saveFavorites(favs)
             }
         }
         appScope.launch {
             // مزامنة سجل المشاهدة بعد توقف المشاهدة لمدة 5 ثوانٍ
-            prefs.recents.debounce(5000L).collect { recents ->
-                if (authManager.currentUser != null) userSyncService.saveRecents(recents)
+            prefs.recents.drop(1).debounce(5000L).collect { recents ->
+                if (cloudMergeDone && authManager.currentUser != null) userSyncService.saveRecents(recents)
             }
         }
         appScope.launch {
@@ -111,7 +114,7 @@ class AppContainer(context: Context) {
             ) { light, layout, source, catId ->
                 CloudPreferences(light, layout.name, source.name, catId)
             }.drop(1).debounce(2000L).collect { cloudPrefs ->
-                if (authManager.currentUser != null) userSyncService.savePreferences(cloudPrefs)
+                if (cloudMergeDone && authManager.currentUser != null) userSyncService.savePreferences(cloudPrefs)
             }
         }
     }

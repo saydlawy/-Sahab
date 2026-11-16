@@ -103,7 +103,8 @@ abstract class SportsDatabase : RoomDatabase() {
                 INSTANCE?.let { return it }
                 val app = context.applicationContext
                 val dbFile = app.getDatabasePath("sports_db")
-                if (needsSeedCopy(dbFile)) {
+                val seedPrefs = app.getSharedPreferences("sahab_sports_seed_prefs", Context.MODE_PRIVATE)
+                if (needsSeedCopy(dbFile, seedPrefs)) {
                     try {
                         dbFile.parentFile?.mkdirs()
                         File(dbFile.path + "-wal").delete()
@@ -114,6 +115,7 @@ abstract class SportsDatabase : RoomDatabase() {
                                 output.flush()
                             }
                         }
+                        seedPrefs.edit().putInt(KEY_SEED_VERSION, CURRENT_SEED_VERSION).apply()
                     } catch (e: Exception) {
                         android.util.Log.e("SportsDB", "Failed to copy pre-packaged sports_db from assets", e)
                         throw RuntimeException("SportsDB seed copy failed: ${e.message}", e)
@@ -132,11 +134,15 @@ abstract class SportsDatabase : RoomDatabase() {
             }
         }
 
-        private fun needsSeedCopy(dbFile: File): Boolean {
+        private const val KEY_SEED_VERSION = "seed_version"
+        private const val CURRENT_SEED_VERSION = 1
+
+        private fun needsSeedCopy(dbFile: File, seedPrefs: android.content.SharedPreferences): Boolean {
             if (!dbFile.exists()) return true
+            if (seedPrefs.getInt(KEY_SEED_VERSION, 0) < CURRENT_SEED_VERSION) return true
             return try {
                 SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqLite ->
-                    isSchemaOutdated(sqLite) || isSeedDataStale(sqLite)
+                    isSchemaOutdated(sqLite)
                 }
             } catch (e: Exception) {
                 true
@@ -167,34 +173,7 @@ abstract class SportsDatabase : RoomDatabase() {
             return !leagueIdNotNull || !standingsPkValid
         }
 
-        private fun isSeedDataStale(sqLite: SQLiteDatabase): Boolean {
-            var hasNewSeedMarker = false
-            sqLite.rawQuery("SELECT count(*) FROM matches WHERE leagueId = 32", null).use { c ->
-                if (c.moveToNext()) hasNewSeedMarker = c.getInt(0) > 0
-            }
-            var hasYouthCupJunk = false
-            sqLite.rawQuery(
-                "SELECT count(*) FROM matches WHERE leagueId = 848 OR leagueName LIKE '%EFL Trophy%' OR homeTeamName LIKE '%U21%' OR awayTeamName LIKE '%U21%'",
-                null,
-            ).use { c ->
-                if (c.moveToNext()) hasYouthCupJunk = c.getInt(0) > 0
-            }
-            var has2026Standings = false
-            sqLite.rawQuery(
-                "SELECT count(*) FROM standings WHERE leagueId = 307 AND played < 34",
-                null,
-            ).use { c ->
-                if (c.moveToNext()) has2026Standings = c.getInt(0) >= 18
-            }
-            var hasCorrectEgyptianStandings = false
-            sqLite.rawQuery(
-                "SELECT points FROM standings WHERE leagueId = 233 AND rank = 1 LIMIT 1",
-                null,
-            ).use { c ->
-                if (c.moveToNext()) hasCorrectEgyptianStandings = c.getInt(0) == 24
-            }
-            return !hasNewSeedMarker || hasYouthCupJunk || !has2026Standings || !hasCorrectEgyptianStandings
-        }
+
     }
 }
 

@@ -53,6 +53,6 @@ class M3uParser(private val client: OkHttpClient) {
                 currentName = ""; currentLogo = ""; currentGroup = ""; currentEpgId = ""
             }
         }
-        channels
+        channels.distinctBy { it.id }
     }
 }

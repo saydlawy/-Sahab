@@ -310,6 +310,7 @@ class Repository(
                     icon = it.logoUrl,
                     categoryId = it.categoryId,
                     epgId = it.epgId,
+                    url = it.streamUrlTemplate.takeIf { u -> u.startsWith("http") }.orEmpty(),
                 )
             }
             .toList()
