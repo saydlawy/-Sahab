@@ -216,9 +216,10 @@ class Repository(
         key: String,
         serializer: KSerializer<T>,
         ttlMs: Long,
+        forceNetwork: Boolean = false,
         load: suspend () -> T,
     ): T {
-        if (!forceRefresh) {
+        if (!forceRefresh && !forceNetwork) {
             (cache[key] as? T)?.let { return it }
         }
         val dKey = diskKey(key)
@@ -228,7 +229,7 @@ class Repository(
             return existing.await() as T
         }
         return try {
-            if (!forceRefresh) {
+            if (!forceRefresh && !forceNetwork) {
                 (cache[key] as? T)?.let { cached ->
                     mine.complete(cached)
                     return cached
@@ -320,40 +321,43 @@ class Repository(
         roomChannels()
             ?: peekCachedList("live:", ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS)?.let { enrichWithLogos(it) }
 
-    suspend fun liveChannels(categoryId: String?): List<Channel> {
+    suspend fun liveChannels(categoryId: String?, forceNetwork: Boolean = false): List<Channel> {
         val acc = requireAccount()
         if (acc.type == "M3U") {
             val key = "live_m3u"
-            val all = cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS) {
+            val all = cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS, forceNetwork = forceNetwork) {
                 m3uParser.fetch(acc.m3uUrl)
             }
             return if (categoryId.isNullOrBlank()) all else all.filter { it.categoryId == categoryId }
         }
 
         val key = "live:${categoryId.orEmpty()}"
-        @Suppress("UNCHECKED_CAST")
-        (cache[key] as? List<Channel>)?.let { return it }
+        val bypassCache = forceRefresh || forceNetwork
+        if (!bypassCache) {
+            @Suppress("UNCHECKED_CAST")
+            (cache[key] as? List<Channel>)?.let { return it }
 
-        roomChannels()?.let { all ->
-            val result = if (categoryId.isNullOrBlank()) all else all.filter { it.categoryId == categoryId }
-            if (result.isNotEmpty() || categoryId.isNullOrBlank()) {
-                cache[key] = result
-                return result
-            }
-        }
-
-        if (!categoryId.isNullOrBlank()) {
-            val all = peekAllLiveChannels()
-            if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
-                val filtered = withContext(Dispatchers.Default) {
-                    all.filter { it.categoryId == categoryId }
+            roomChannels()?.let { all ->
+                val result = if (categoryId.isNullOrBlank()) all else all.filter { it.categoryId == categoryId }
+                if (result.isNotEmpty() || categoryId.isNullOrBlank()) {
+                    cache[key] = result
+                    return result
                 }
-                cache[key] = filtered
-                return filtered
+            }
+
+            if (!categoryId.isNullOrBlank()) {
+                val all = peekAllLiveChannels()
+                if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
+                    val filtered = withContext(Dispatchers.Default) {
+                        all.filter { it.categoryId == categoryId }
+                    }
+                    cache[key] = filtered
+                    return filtered
+                }
             }
         }
 
-        return enrichWithLogos(cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS) {
+        return enrichWithLogos(cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS, forceNetwork = forceNetwork) {
             val json = request("get_live_streams", categoryParams(categoryId))
             withContext(Dispatchers.Default) { parseChannels(json) }
         })
@@ -371,17 +375,19 @@ class Repository(
 
     suspend fun movies(categoryId: String?): List<Poster> {
         val key = "vod:${categoryId.orEmpty()}"
-        @Suppress("UNCHECKED_CAST")
-        (cache[key] as? List<Poster>)?.let { return it }
+        if (!forceRefresh) {
+            @Suppress("UNCHECKED_CAST")
+            (cache[key] as? List<Poster>)?.let { return it }
 
-        if (!categoryId.isNullOrBlank()) {
-            val all = peekAllMovies()
-            if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
-                val filtered = withContext(Dispatchers.Default) {
-                    all.filter { it.categoryId == categoryId }
+            if (!categoryId.isNullOrBlank()) {
+                val all = peekAllMovies()
+                if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
+                    val filtered = withContext(Dispatchers.Default) {
+                        all.filter { it.categoryId == categoryId }
+                    }
+                    cache[key] = filtered
+                    return filtered
                 }
-                cache[key] = filtered
-                return filtered
             }
         }
 
@@ -421,17 +427,19 @@ class Repository(
 
     suspend fun seriesList(categoryId: String?): List<Poster> {
         val key = "series:${categoryId.orEmpty()}"
-        @Suppress("UNCHECKED_CAST")
-        (cache[key] as? List<Poster>)?.let { return it }
+        if (!forceRefresh) {
+            @Suppress("UNCHECKED_CAST")
+            (cache[key] as? List<Poster>)?.let { return it }
 
-        if (!categoryId.isNullOrBlank()) {
-            val all = peekAllSeries()
-            if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
-                val filtered = withContext(Dispatchers.Default) {
-                    all.filter { it.categoryId == categoryId }
+            if (!categoryId.isNullOrBlank()) {
+                val all = peekAllSeries()
+                if (!all.isNullOrEmpty() && all.any { it.categoryId.isNotBlank() }) {
+                    val filtered = withContext(Dispatchers.Default) {
+                        all.filter { it.categoryId == categoryId }
+                    }
+                    cache[key] = filtered
+                    return filtered
                 }
-                cache[key] = filtered
-                return filtered
             }
         }
 

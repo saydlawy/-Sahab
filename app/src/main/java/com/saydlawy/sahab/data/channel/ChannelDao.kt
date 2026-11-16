@@ -50,6 +50,9 @@ interface ChannelDao {
     @Query("UPDATE channels SET lastWatchedAt = :now WHERE streamId = :streamId")
     suspend fun markWatched(streamId: String, now: Long)
 
+    @Query("DELETE FROM channels WHERE streamId IN (:streamIds)")
+    suspend fun deleteByStreamIds(streamIds: List<String>)
+
     @Query("DELETE FROM channels")
     suspend fun clearAll()
 

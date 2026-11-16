@@ -40,7 +40,7 @@ object TmdbMatcher {
         val tried: Int,
     )
 
-    enum class Level { STRONG, WEAK, REJECT, EMPTY }
+    enum class Level { STRONG, WEAK, REJECT, EMPTY, NETWORK_ERROR }
 
     // ─────────────────────────────── Normalization ───────────────────────────────
     private val ARABIC_DIACRITICS = Regex("[\\u064B-\\u065F\\u0670]")
@@ -370,10 +370,20 @@ object TmdbMatcher {
 
         var bestWeak: Pair<TmdbSearchResult, Score>? = null
         var tried = 0
+        var sawNetworkError = false
 
         for (q in queries.take(maxQueries)) {
             tried++
-            val results = tmdb.searchMovieRaw(q.q, q.year, q.lang)
+            val results = when (val out = tmdb.searchMovieOutcome(q.q, q.year, q.lang)) {
+                is TmdbApi.SearchOutcome.Ok -> out.results
+                TmdbApi.SearchOutcome.MissingKey -> {
+                    return EnrichResult(null, null, null, Level.NETWORK_ERROR, q.q, tried)
+                }
+                TmdbApi.SearchOutcome.NetworkError -> {
+                    sawNetworkError = true
+                    continue
+                }
+            }
             if (results.isEmpty()) continue
 
             for (c in results.take(5)) {
@@ -398,6 +408,7 @@ object TmdbMatcher {
             val details = tmdb.getMovieDetailsById(c.id)
             return EnrichResult(c.id, details, s, Level.WEAK, "", tried)
         }
-        return EnrichResult(null, null, null, Level.REJECT, "", tried)
+        val finalLevel = if (sawNetworkError) Level.NETWORK_ERROR else Level.REJECT
+        return EnrichResult(null, null, null, finalLevel, "", tried)
     }
 }

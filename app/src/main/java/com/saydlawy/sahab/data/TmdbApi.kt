@@ -68,8 +68,15 @@ class TmdbApi(
         }
 
         // 3. Network call (only when never queried before)
-        val id = searchMovie(cleanedName, cleanYear)
+        val searchOut = searchMovieOutcome(cleanedName, cleanYear.toIntOrNull(), "ar")
+        if (searchOut is SearchOutcome.NetworkError || searchOut is SearchOutcome.MissingKey) {
+            return null
+        }
+        val id = (searchOut as SearchOutcome.Ok).results.firstOrNull()?.id
         val details = if (id != null) getMovieDetails(id) else null
+        if (id != null && details == null) {
+            return null
+        }
         val envelope = TmdbCacheEnvelope(
             found = details != null,
             savedAt = System.currentTimeMillis(),
@@ -162,26 +169,45 @@ class TmdbApi(
      * Raw search — returns full result objects (not just IDs).
      * Used by TmdbMatcher to score candidates.
      */
-    suspend fun searchMovieRaw(
+    sealed class SearchOutcome {
+        data class Ok(val results: List<TmdbSearchResult>) : SearchOutcome()
+        object NetworkError : SearchOutcome()
+        object MissingKey : SearchOutcome()
+    }
+
+    fun hasApiKey(): Boolean = apiKey.isNotBlank()
+
+    suspend fun searchMovieOutcome(
         query: String,
         year: Int?,
         lang: String = "en-US",
-    ): List<TmdbSearchResult> {
-        if (apiKey.isBlank() || query.isBlank()) return emptyList()
+    ): SearchOutcome {
+        if (apiKey.isBlank()) return SearchOutcome.MissingKey
+        if (query.isBlank()) return SearchOutcome.Ok(emptyList())
         val urlBuilder = "https://api.themoviedb.org/3/search/movie".toHttpUrl().newBuilder()
             .addQueryParameter("query", query)
             .addQueryParameter("language", lang)
             .addQueryParameter("include_adult", "false")
         if (!isBearerV4Token) urlBuilder.addQueryParameter("api_key", trimmedKey)
         if (year != null) urlBuilder.addQueryParameter("primary_release_year", year.toString())
-        val text = execute(urlBuilder.build().toString()) ?: return emptyList()
-        return withContext(Dispatchers.Default) {
+        val text = execute(urlBuilder.build().toString()) ?: return SearchOutcome.NetworkError
+        val list = withContext(Dispatchers.Default) {
             try {
                 json.decodeFromString<RawSearchResponse>(text).results
             } catch (_: Exception) {
-                emptyList()
+                null
             }
-        }
+        } ?: return SearchOutcome.NetworkError
+        return SearchOutcome.Ok(list)
+    }
+
+    suspend fun searchMovieRaw(
+        query: String,
+        year: Int?,
+        lang: String = "en-US",
+    ): List<TmdbSearchResult> = when (val out = searchMovieOutcome(query, year, lang)) {
+        is SearchOutcome.Ok -> out.results
+        else -> emptyList()
     }
 
     /** Public alias for getMovieDetails — used by TmdbMatcher. */

@@ -233,6 +233,8 @@ class CatalogSync(
                 return null // تم الإثراء من السحابة بنجاح
             }
         }
+        if (!tmdb.hasApiKey()) return null
+
         val catName = runCatching {
             repo.movieCategories().firstOrNull { it.id == existing.categoryId }?.name ?: ""
         }.getOrElse { "" }
@@ -285,8 +287,12 @@ class CatalogSync(
                 status = 1,
                 now = now,
             )
-        } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG && movie == null) {
-            // Search matched but details fetch failed — keep needsEnrichment=1 to retry later.
+        } else if (
+            result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.NETWORK_ERROR ||
+            (movie == null && (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG ||
+                result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK))
+        ) {
+            // Transient network/key error or details fetch failed — keep needsEnrichment=1 to retry later.
         } else {
             dao.markFailed(streamId, now)
         }

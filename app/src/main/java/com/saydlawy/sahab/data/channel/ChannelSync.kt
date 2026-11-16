@@ -61,7 +61,7 @@ class ChannelSync(
 
                 // 1) Xtream fetch
                 val remote = try {
-                    repo.liveChannels(null)
+                    repo.liveChannels(null, forceNetwork = true)
                 } catch (e: Exception) {
                     Log.e(TAG, "liveChannels failed", e)
                     return@withContext Stats(
@@ -126,6 +126,11 @@ class ChannelSync(
                             if (existing.containsKey(e.streamId)) updated++ else inserted++
                             if (e.epgId.isNotEmpty()) enriched++
                         }
+                    }
+                    val remoteIds = remote.mapTo(HashSet(remote.size)) { it.id }
+                    val removedIds = existing.keys.filter { it !in remoteIds }
+                    removedIds.chunked(ROOM_BATCH_SIZE).forEach { batch ->
+                        dao.deleteByStreamIds(batch)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Room upsert failed", e)
