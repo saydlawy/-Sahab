@@ -27,9 +27,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicatorDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -1335,8 +1334,8 @@ private fun SourcesPanel(container: AppContainer) {
             container = container,
             onDismiss = { showAddDialog = false },
             onAdded = { newAcc ->
-                accounts = container.prefs.getAccounts()
-                scope.launch {
+                scope.launch(Dispatchers.IO) {
+                    accounts = container.prefs.getAccounts()
                     container.userSyncService.saveAccounts(accounts)
                     container.prefs.setActiveAccount(newAcc.id)
                     container.repo.setAccount(newAcc)
