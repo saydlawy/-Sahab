@@ -21,11 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.ui.DisplayMode
-import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.GlassCard
@@ -52,43 +46,12 @@ import com.saydlawy.sahab.ui.theme.Palette
 
 @Composable
 fun TrendingMoviesSection(
-    preloadedMovies: List<CatalogMovieEntity>? = null,
+    movies: List<CatalogMovieEntity>,
     onMovieClick: (CatalogMovieEntity) -> Unit,
 ) {
-    val container = LocalContainer.current
-    val focusNav = LocalFocusNavigation.current
-    var fetchedMovies by remember {
-        mutableStateOf(container.firebaseCatalog.peekCachedRecommendedMovies())
-    }
-
-    LaunchedEffect(preloadedMovies, container.repo.account) {
-        if (preloadedMovies.isNullOrEmpty()) {
-            val instant = runCatching {
-                container.firebaseCatalog.getInstantRecommendedMovies(
-                    repo = container.repo,
-                    dao = container.catalogDb.movieDao(),
-                    limit = 18,
-                )
-            }.getOrNull().orEmpty()
-            if (instant.isNotEmpty()) {
-                fetchedMovies = instant
-            }
-            val enriched = runCatching {
-                container.firebaseCatalog.getXtreamRecommendedMovies(
-                    repo = container.repo,
-                    dao = container.catalogDb.movieDao(),
-                    limit = 18,
-                )
-            }.getOrNull().orEmpty()
-            if (enriched.isNotEmpty()) {
-                fetchedMovies = enriched
-            }
-        }
-    }
-
-    val movies = if (!preloadedMovies.isNullOrEmpty()) preloadedMovies else fetchedMovies
     if (movies.isEmpty()) return
 
+    val focusNav = LocalFocusNavigation.current
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
     val cardWidth = if (isTvOrTablet) 148.dp else 130.dp

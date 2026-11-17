@@ -380,7 +380,7 @@ fun HomeScreen(
                             },
                         )
                         "section_trending_movies" -> TrendingMoviesSection(
-                            preloadedMovies = trendingMovies,
+                            movies = trendingMovies,
                             onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
                         )
                         "section_quick_categories" -> QuickCategoriesSection(
