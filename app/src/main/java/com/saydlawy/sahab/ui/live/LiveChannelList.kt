@@ -204,7 +204,13 @@ internal fun ChannelColumn(
                     contentPadding = PaddingValues(vertical = appDp(4)),
                     verticalArrangement = Arrangement.spacedBy(appDp(8)),
                 ) {
-                    itemsIndexed(channels, key = { _, c -> c.id }) { index, channel ->
+                    // LIVE-01: index-suffixed key survives duplicate stream ids in huge (10k+) provider lists;
+                    // a single contentType lets Compose recycle row slots while flinging.
+                    itemsIndexed(
+                        channels,
+                        key = { i, c -> "${c.id}_$i" },
+                        contentType = { _, _ -> "live_channel_row" },
+                    ) { index, channel ->
                         ChannelRow(
                             index = index + 1,
                             channel = channel,
@@ -238,6 +244,9 @@ internal fun ChannelRow(
         initialValue = null to null,
         channel.id,
     ) {
+        // LIVE-01: rows that only fly past during a fast scroll leave composition before this
+        // delay ends, so they never hit Room (avoids hundreds of EPG queries/sec on 10k lists).
+        kotlinx.coroutines.delay(EPG_ROW_SETTLE_MS)
         while (true) {
             val t = System.currentTimeMillis() / 1000
             val cur = runCatching { dao.currentProgramFor(channel.id, t) }.getOrNull()
@@ -439,3 +448,6 @@ internal fun LiveBadge() {
     }
 }
 
+
+/** LIVE-01: settle time before a channel row queries EPG (skips rows passed during fast scroll). */
+private const val EPG_ROW_SETTLE_MS = 180L

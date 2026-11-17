@@ -189,7 +189,11 @@ internal fun LiveChannelsDrawer(
                 .focusRequester(drawerFocus),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
+            itemsIndexed(
+                playlist,
+                key = { idx, c -> "${c.id}_$idx" },
+                contentType = { _, _ -> "drawer_channel_row" },
+            ) { idx, ch ->
                 val active = idx == currentIndex
                 var focused by remember { mutableStateOf(false) }
                 Row(

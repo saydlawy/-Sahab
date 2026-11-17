@@ -270,6 +270,21 @@ internal fun PreviewPanel(
         exo.playWhenReady = true
     }
 
+    // LIVE-01: recover the preview from silent hardware-decoder stalls as well.
+    com.saydlawy.sahab.ui.player.LiveVideoStallWatchdog(
+        player = previewExo,
+        enabled = isScreenActive && channel != null,
+        itemKey = channel?.id,
+        onEscalate = {
+            if (formatAttempt + 1 < repo.liveExtensions().size) {
+                formatAttempt += 1
+                true
+            } else {
+                false
+            }
+        },
+    )
+
     val openFullScreen: () -> Unit = {
         // Fully release preview player before opening full-screen player (prevents dual MediaCodec/RAM usage)
         previewExo?.release()

@@ -491,7 +491,11 @@ internal fun PhonePortraitPlayerScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 16.dp),
                 ) {
-                    itemsIndexed(playlist, key = { idx, c -> "${c.id}_$idx" }) { idx, ch ->
+                    itemsIndexed(
+                        playlist,
+                        key = { idx, c -> "${c.id}_$idx" },
+                        contentType = { _, _ -> "portrait_channel_row" },
+                    ) { idx, ch ->
                         val active = idx == currentIndex
                         Row(
                             modifier = Modifier

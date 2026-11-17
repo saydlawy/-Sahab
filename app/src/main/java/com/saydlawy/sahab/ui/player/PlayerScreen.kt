@@ -417,6 +417,14 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         exo.playWhenReady = true
     }
 
+    // LIVE-01: recover from silent hardware-decoder stalls (frozen picture while audio continues).
+    LiveVideoStallWatchdog(
+        player = exo,
+        enabled = isLive,
+        itemKey = item.id,
+        onEscalate = { vm.switchLiveFormatAfterStall() },
+    )
+
     LaunchedEffect(ended) {
         if (ended) {
             ended = false

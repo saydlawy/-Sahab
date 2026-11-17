@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
@@ -37,6 +38,7 @@ import kotlin.math.roundToInt
 object SahabPlayer {
 
     const val SEEK_STEP_MS = 10_000L
+    private const val VIDEO_JOINING_TIME_MS = 3_000L
     private const val MEDIA_CACHE_BYTES = 512L * 1024L * 1024L // 512 MB
 
     @Volatile
@@ -80,6 +82,22 @@ object SahabPlayer {
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            // LIVE-01: let video join the already-running audio clock without dropping the first frames.
+            .setAllowedVideoJoiningTimeMs(VIDEO_JOINING_TIME_MS)
+
+        // LIVE-01: adapt across any quality / fps / codec / audio format the provider sends.
+        val trackSelector = DefaultTrackSelector(
+            context,
+            DefaultTrackSelector.Parameters.Builder(context)
+                .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                .setAllowVideoNonSeamlessAdaptiveness(true)
+                .setAllowAudioMixedMimeTypeAdaptiveness(true)
+                .setAllowAudioMixedSampleRateAdaptiveness(true)
+                .setAllowAudioMixedChannelCountAdaptiveness(true)
+                .setExceedVideoConstraintsIfNecessary(true)
+                .setExceedRendererCapabilitiesIfNecessary(true)
+                .build(),
+        )
 
         val extractors = DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(true)
@@ -88,7 +106,10 @@ object SahabPlayer {
                     DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
             )
 
-        val httpFactory = OkHttpDataSource.Factory(client)
+        // LIVE-01: live segments/playlists must never go through the shared 50 MB OkHttp disk cache
+        // (stale .m3u8 + disk write latency). newBuilder() keeps the shared connection pool/dispatcher.
+        val httpClient = if (isLive) client.newBuilder().cache(null).build() else client
+        val httpFactory = OkHttpDataSource.Factory(httpClient)
             .setUserAgent("Sahab/1.0 (Android)")
 
         val dataSourceFactory: DataSource.Factory = if (!isLive) {
@@ -115,6 +136,14 @@ object SahabPlayer {
         val sources = DefaultMediaSourceFactory(context, extractors)
             .setDataSourceFactory(dataSourceFactory)
             .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(if (isLive) 4 else 3))
+            .apply {
+                if (isLive) {
+                    // LIVE-01: never speed up / slow down live playback to chase the live edge.
+                    // Speed changes skew the AudioTrack clock and trigger video drop-frame storms.
+                    setLiveMinSpeed(1f)
+                    setLiveMaxSpeed(1f)
+                }
+            }
 
         val loadControl = when {
             isPreview -> DefaultLoadControl.Builder()
@@ -128,12 +157,14 @@ object SahabPlayer {
                 .build()
             isLive -> DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                    /* minBufferMs = */ 8_000,
-                    /* maxBufferMs = */ 25_000,
-                    /* bufferForPlaybackMs = */ 550,
-                    /* bufferForPlaybackAfterRebufferMs = */ 1_400,
+                    /* minBufferMs = */ 10_000,
+                    /* maxBufferMs = */ 30_000,
+                    // LIVE-01: fast start but with enough reorder headroom for 50/60fps HEVC/FHD/4K.
+                    /* bufferForPlaybackMs = */ 1_000,
+                    /* bufferForPlaybackAfterRebufferMs = */ 2_500,
                 )
                 .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(0, false)
                 .build()
             else -> DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
@@ -147,6 +178,7 @@ object SahabPlayer {
         }
 
         return ExoPlayer.Builder(context, renderers)
+            .setTrackSelector(trackSelector)
             .setMediaSourceFactory(sources)
             .setLoadControl(loadControl)
             .setAudioAttributes(AudioAttributes.DEFAULT, !isPreview)

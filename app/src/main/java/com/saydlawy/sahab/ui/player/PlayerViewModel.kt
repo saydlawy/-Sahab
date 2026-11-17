@@ -362,6 +362,28 @@ class PlayerViewModel(
 
     fun streamUrl(item: PlayItem, formatAttempt: Int): String = repo.streamUrl(item, formatAttempt)
 
+    /**
+     * LIVE-01: called by [LiveVideoStallWatchdog] after a repeated silent video-decoder stall.
+     * Switches to the next live container (m3u8 <-> ts) if one is available.
+     * Returns true when a switch was scheduled (the prepare effect will reload the stream).
+     */
+    fun switchLiveFormatAfterStall(): Boolean {
+        val s = _state.value
+        if (!s.isLive) return false
+        val formats = repo.liveExtensions().size
+        if (formats < 2) return false
+        retryJob?.cancel()
+        _state.update {
+            it.copy(
+                formatAttempt = (it.formatAttempt + 1) % formats,
+                autoReconnectCount = 0,
+                reconnecting = false,
+                error = null,
+            )
+        }
+        return true
+    }
+
     suspend fun resolveResumePositionMs(item: PlayItem, currentPlayerPositionMs: Long): Long {
         val s = _state.value
         val resume = when {

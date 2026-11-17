@@ -73,3 +73,28 @@
 | `T-M26` | 5 | تم (Run #215/216) | `98289b0` | `FirebaseCrashlytics 19.4.2` مفعّل في `logcat` مع رفع mapping في Release | `FirebaseCrashlytics 19.4.2` مسجّل ومفعّل في `logcat` |
 | `T-M15` | 5 | تم (Run #215/216) | `66847d7` | بوابة `lintRelease` صارمة (`abortOnError = true`) نجحت مع `app/lint-baseline.xml` | بوابة Lint مجتازة بدون أخطاء |
 | `T-M13` | 5 | تم على مرحلتين (35 ثم 36) | `40d7fe5`, `9e2cebf` | `targetSdk=35` (`Run #215`, `TotalTime: 1880ms`) ثم `targetSdk=36` (`Run #216`) + رجوع سليم | `targetSdk=36`, إقلاع بارد `TotalTime: 540ms` مع Edge-to-Edge |
+
+---
+
+## LIVE-01 — إصلاح تجمّد الصورة مع استمرار الصوت في البث المباشر (2026-11-17)
+
+### التشخيص (مُثبت ميدانياً على TCL TV قبل أي تعديل)
+- القناة `1920x1080 video/hevc 50fps` + `AAC 48kHz`، الديكودر `OMX.amlogic.hevc.decoder.awesome2` (`feature-adaptive-playback=0`, `feature-tunneled-playback=0`, `nBufferCountActual ... failed: -1010`).
+- قبل التجمد: `AudioTrack ... device stall time corrected` / `retrograde timestamp time corrected` ثم موجات `r:0, drop frame`.
+- من `16:42:00` إلى `16:52:04`: `VDA` ثابت على `INs=2716/2722, OUTs=2699/2707 {IN=6/8, OUT=4/12[kAtDevice(8) kAtClient(4)]}` بدون أي `PlaybackException`، بينما `c2.android.aac.decoder` و`audio_hw_primary` يواصلان العمل → صورة متجمدة وصوت مستمر. الإيقاف/الاستئناف لم يُصلحه؛ فقط تحرير الـ codec (تبديل القناة).
+
+### القرارات والتعديلات
+| البند | الملف | التعديل | السبب |
+| :--- | :--- | :--- | :--- |
+| مراقب تجمّد الفيديو | `ui/player/LiveVideoStallWatchdog.kt` (جديد) | فحص كل ثانية لـ `videoDecoderCounters.renderedOutputBufferCount`؛ إذا لم يُرسم أي إطار `4.5s` بينما الموضع (ساعة الصوت) تقدّم `≥3s` → `stop()` (يحرر الـ codec العالق) ثم `seekToDefaultPosition()` + `prepare()` على حافة البث. من التعثّر الثاني يُبدَّل `m3u8 ↔ ts`. حد أقصى 3 محاولات/دقيقتين لكل قناة. | الديكودر لا يُطلق خطأ، لذا `onPlayerError` لا يعمل أبداً في هذه الحالة. الحد الأقصى يمنع حلقة إعادة تشغيل في قنوات الصورة الثابتة. |
+| ربط المراقب | `PlayerScreen.kt`, `PlayerViewModel.kt` (`switchLiveFormatAfterStall`), `LivePreviewPanel.kt` | تفعيل المراقب في المشغل الكامل ومعاينة البث المباشر. | تغطية الشاشتين اللتين تشغّلان بثاً مباشراً. |
+| تثبيت سرعة البث | `SahabPlayer.kt` | `setLiveMinSpeed(1f)` + `setLiveMaxSpeed(1f)` للبث المباشر. | تغيير السرعة لملاحقة حافة البث يُربك ساعة `AudioTrack` ويسبب إسقاط إطارات. |
+| مخازن البث المباشر | `SahabPlayer.kt` | `min/max = 10s/30s`، `bufferForPlayback = 1000ms` (كان `550`)، `afterRebuffer = 2500ms` (كان `1400`)، `setBackBuffer(0,false)`. | بدء سريع مع هامش كافٍ لقنوات 50/60fps وHEVC/4K؛ ذاكرة ثابتة في المشاهدة الطويلة. |
+| انضمام الفيديو | `SahabPlayer.kt` | `setAllowedVideoJoiningTimeMs(3000)`. | يسمح للفيديو باللحاق بالصوت عند البدء دون إسقاط إطارات البداية. |
+| اختيار المسارات | `SahabPlayer.kt` | `DefaultTrackSelector` مع السماح بالتكيّف بين أنواع ترميز الفيديو/الصوت، معدلات العينة، وعدد القنوات الصوتية، وتجاوز القيود عند الحاجة. | التعامل الصحيح مع كل الجودات والفريمات والصوتيات. اختيار الجودة اليدوي في الإعدادات ما زال يعمل (`trackSelectionParameters`). |
+| شبكة بلا كاش للبث | `SahabPlayer.kt` | `client.newBuilder().cache(null)` للبث المباشر فقط (نفس الـ connection pool). | منع قراءة `.m3u8` قديمة من كاش القرص `50MB` وتأخير الكتابة على القرص. |
+| قوائم 10,000+ قناة | `LiveChannelList.kt`, `PlayerChannelsDrawer.kt`, `PlayerGestures.kt` | مفتاح `id_index` (يمنع الانهيار عند تكرار المعرّف) + `contentType` ثابت + مهلة `180ms` قبل استعلام EPG لكل صف. | الصفوف العابرة أثناء التمرير السريع لا تستعلم Room. |
+| `FLAG_ALLOW_NON_IDR_KEYFRAMES` | `SahabPlayer.kt` | **أُبقي كما هو (قرار)**. | يؤثر على `H.264` فقط (القناة المعطلة `HEVC`)، وإزالته قد تُظهر شاشة سوداء في قنوات H.264 التي لا ترسل إطارات IDR. |
+
+### الاختبار
+- البناء عبر GitHub Actions فقط. الاختبار على **A52s فقط**؛ **التلفاز ممنوع حتى موافقة المستخدم الصريحة**.
