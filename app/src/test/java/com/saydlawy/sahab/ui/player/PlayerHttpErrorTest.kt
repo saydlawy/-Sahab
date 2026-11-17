@@ -1,6 +1,5 @@
 package com.saydlawy.sahab.ui.player
 
-import android.net.Uri
 import androidx.media3.common.PlaybackException
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
@@ -10,9 +9,17 @@ import org.junit.Test
 
 class PlayerHttpErrorTest {
 
+    private fun dummyDataSpec(): DataSpec {
+        val field = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe")
+        field.isAccessible = true
+        val unsafe = field.get(null)
+        val allocate = unsafe.javaClass.getMethod("allocateInstance", Class::class.java)
+        return allocate.invoke(unsafe, DataSpec::class.java) as DataSpec
+    }
+
     @Test
     fun extractHttpResponseCode_findsNestedInvalidResponseCodeException() {
-        val dataSpec = DataSpec(Uri.EMPTY)
+        val dataSpec = dummyDataSpec()
         val httpEx = HttpDataSource.InvalidResponseCodeException(
             403,
             "Forbidden",
