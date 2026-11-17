@@ -318,12 +318,14 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                 activity.requestedOrientation = previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
             saveNow()
+            vm.flushRecents()
             exo.release()
         }
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         saveNow()
+        vm.flushRecents()
         if (exo.playWhenReady || exo.isPlaying) {
             stoppedByLifecycle = true
             exo.pause()
@@ -348,6 +350,10 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 vm.onIsPlayingChanged(playing)
+                if (!playing && exo.playbackState != Player.STATE_IDLE) {
+                    val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                    vm.onPlaybackPausedOrStopped(exo.currentPosition, total)
+                }
             }
 
             override fun onPlaybackStateChanged(state: Int) {

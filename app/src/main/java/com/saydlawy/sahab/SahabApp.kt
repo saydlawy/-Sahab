@@ -26,14 +26,18 @@ import com.saydlawy.sahab.data.sports.SyncScheduler
 import com.saydlawy.sahab.ui.player.SahabPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.saydlawy.sahab.data.auth.CloudPreferences
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.withContext
 import okhttp3.Cache
 import okhttp3.Interceptor
@@ -104,6 +108,25 @@ class AppContainer(context: Context) {
     val prefsMergeDone: Boolean
         get() = mergeCoordinator.prefsMergeDone
 
+    private val recentsFlushTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    @Volatile
+    private var lastUploadedRecents: List<RecentItem>? = null
+
+    private suspend fun uploadRecentsIfNeeded(recents: List<RecentItem>) {
+        if (!recentsMergeDone || authManager.currentUser == null) return
+        if (recents == lastUploadedRecents) return
+        android.util.Log.d("SahabSync", "saveRecents: count=${recents.size}")
+        userSyncService.saveRecents(recents)
+        lastUploadedRecents = recents
+    }
+
+    /** يُستدعى عند خروج المشغل أو الإيقاف المؤقت أو الانتقال للخلفية لرفع أحدث موضع فوراً. */
+    fun flushRecents() {
+        recentsFlushTrigger.tryEmit(Unit)
+    }
+
+    @OptIn(FlowPreview::class)
     fun startAutoSync() {
         appScope.launch {
             // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين (فقط بعد نجاح الدمج الأولي)
@@ -112,9 +135,15 @@ class AppContainer(context: Context) {
             }
         }
         appScope.launch {
-            // مزامنة سجل المشاهدة بعد توقف المشاهدة لمدة 5 ثوانٍ (فقط بعد نجاح الدمج الأولي)
-            prefs.recents.drop(1).debounce(5000L).collect { recents ->
-                if (recentsMergeDone && authManager.currentUser != null) userSyncService.saveRecents(recents)
+            // خنق رفع سجل المشاهدة أثناء التشغيل المستمر إلى مرة واحدة كل 3 دقائق (180 ثانية)
+            prefs.recents.drop(1).sample(180_000L).collect { recents ->
+                uploadRecentsIfNeeded(recents)
+            }
+        }
+        appScope.launch {
+            // رفع فوري عند خروج المشغل أو الإيقاف المؤقت أو ON_STOP
+            recentsFlushTrigger.collect {
+                uploadRecentsIfNeeded(prefs.recents.first())
             }
         }
         appScope.launch {

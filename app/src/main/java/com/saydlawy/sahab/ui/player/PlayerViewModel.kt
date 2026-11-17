@@ -87,6 +87,15 @@ class PlayerViewModel(
         container.saveProgress(current, positionMs, durationMs)
     }
 
+    fun flushRecents() {
+        container.flushRecents()
+    }
+
+    fun onPlaybackPausedOrStopped(positionMs: Long, durationMs: Long) {
+        saveProgress(positionMs, durationMs)
+        container.flushRecents()
+    }
+
     fun loadSeriesIfNeeded(item: PlayItem) {
         if (item.kind != Kind.EPISODE || item.groupId.isBlank()) return
         if (lastLoadedSeriesGroupId == item.groupId && _state.value.seriesDetails != null) return

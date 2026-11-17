@@ -79,4 +79,9 @@ class MainActivity : AppCompatActivity() {
             Log.w("SahabApp", "Unable to check for App Distribution updates", e)
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        (application as? SahabApp)?.container?.flushRecents()
+    }
 }
