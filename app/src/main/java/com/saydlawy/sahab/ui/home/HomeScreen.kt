@@ -266,21 +266,7 @@ fun HomeScreen(
                 )
             }
         } else {
-            val sampleProgress = listOf(0.70f, 0.70f, 0.70f, 0.70f, 0.70f)
-            trendingMovies.take(6).mapIndexed { idx, movie ->
-                val itemFocusKey = "home_preview_${movie.novaStreamId.ifEmpty { movie.sahabId }}"
-                ContinueCardModel(
-                    id = itemFocusKey,
-                    title = movie.titleAr,
-                    subtitle = movie.year,
-                    imageUrl = movie.posterUrl,
-                    progress = sampleProgress[idx % sampleProgress.size],
-                    onClick = {
-                        focusNav.markNavigateFrom(Routes.HOME, itemFocusKey)
-                        onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId }))
-                    },
-                )
-            }
+            emptyList()
         }
     }
 

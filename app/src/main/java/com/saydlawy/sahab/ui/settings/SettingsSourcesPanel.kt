@@ -142,11 +142,9 @@ internal fun SourcesPanel(container: AppContainer) {
                 val isActive = acc.id == activeAccount?.id
                 GlassCard(
                     onClick = {
-                        if (!isActive) {
-                            scope.launch {
-                                container.prefs.setActiveAccount(acc.id)
-                                container.repo.setAccount(acc)
-                            }
+                        if (!isActive && !isSwitching) {
+                            isSwitching = true
+                            container.switchAccount(acc)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -187,8 +185,7 @@ internal fun SourcesPanel(container: AppContainer) {
                                 if (acc.id == activeAccount?.id) {
                                     val next = newList.firstOrNull()
                                     if (next != null) {
-                                        container.prefs.setActiveAccount(next.id)
-                                        container.repo.setAccount(next)
+                                        container.switchAccount(next)
                                     } else {
                                         container.repo.setAccount(null)
                                     }
@@ -209,8 +206,7 @@ internal fun SourcesPanel(container: AppContainer) {
                 scope.launch(Dispatchers.IO) {
                     accounts = container.prefs.getAccounts()
                     container.userSyncService.saveAccounts(accounts)
-                    container.prefs.setActiveAccount(newAcc.id)
-                    container.repo.setAccount(newAcc)
+                    container.switchAccount(newAcc)
                 }
                 showAddDialog = false
             }

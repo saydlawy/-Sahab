@@ -636,7 +636,7 @@ internal fun TodayMatchesSection(
                 val itemKey = "home_match_${match.id}"
                 TodayMatchCard(
                     match = match,
-                    showLiveBadge = match.status == MatchStatus.LIVE || index < 4,
+                    showLiveBadge = match.status == MatchStatus.LIVE,
                     onClick = { onOpenSports(itemKey) },
                     modifier = Modifier
                         .size(width = cardWidth, height = cardHeight)

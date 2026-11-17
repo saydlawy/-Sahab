@@ -267,13 +267,17 @@ object SahabPlayer {
             ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
         val h = format?.height ?: 0
         val res = when {
-            h >= 2160 -> "4K HDR"
+            h >= 2160 -> "4K"
             h >= 1080 -> "1080p FHD"
             h >= 720 -> "720p HD"
             h > 0 -> "${h}p"
-            else -> "4K HDR"
+            else -> ""
         }
-        return if (hasOverride) res else if (isLive) "تلقائي $res" else "4K تلقائي"
+        return when {
+            res.isBlank() -> if (hasOverride) "الجودة" else "تلقائي"
+            hasOverride -> res
+            else -> "تلقائي $res"
+        }
     }
 
     private fun codecShortName(format: Format): String? {
