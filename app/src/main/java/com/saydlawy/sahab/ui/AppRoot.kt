@@ -102,42 +102,32 @@ fun AppRoot(container: AppContainer) {
         }
         start = if (account != null) Routes.HOME else Routes.CLOUD_LOGIN
 
-        // دمج المفضلة وسجل المشاهدة مع السحابة في الخلفية بدون حجب الشاشة
+        // دمج المفضلة وسجل المشاهدة مع السحابة في الخلفية بدون حجب الشاشة ولا مسح السحابة عند الفشل/المهلة
         if (container.authManager.currentUser != null) {
             container.appScope.launch {
-                try {
-                    withTimeoutOrNull(8_000L) {
-                        val localFavs = container.prefs.favorites.first()
-                        val cloudFavs = container.userSyncService.getFavorites().orEmpty()
-                        if (cloudFavs.isNotEmpty()) {
-                            val mergedFavs = (localFavs + cloudFavs).distinctBy { it.kind to it.id }
-                            if (mergedFavs != localFavs) container.prefs.restoreFavorites(mergedFavs)
-                        }
-                        val localRecents = container.prefs.recents.first()
-                        val cloudRecents = container.userSyncService.getRecents().orEmpty()
-                        if (cloudRecents.isNotEmpty()) {
-                            val mergedRecents = (localRecents + cloudRecents).distinctBy { it.kind to it.id }.take(30)
-                            if (mergedRecents != localRecents) container.prefs.restoreRecents(mergedRecents)
-                        }
-                        container.userSyncService.getPreferences()?.let { cp ->
-                            container.prefs.setLightEffects(cp.lightEffects)
-                            container.prefs.setHomeChannelsLayout(
-                                runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
-                                    .getOrDefault(HomeChannelsLayout.CAROUSEL)
-                            )
-                            container.prefs.setHomeChannelsSource(
-                                runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
-                                    .getOrDefault(HomeChannelsSource.AUTO)
-                            )
-                            container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
-                        }
-                    }
-                } finally {
-                    container.cloudMergeDone = true
-                }
+                container.mergeCoordinator.mergeAllWithRetry(
+                    isSignedIn = { container.authManager.currentUser != null },
+                    localFavs = { container.prefs.favorites.first() },
+                    fetchCloudFavs = { container.userSyncService.fetchFavorites() },
+                    saveMergedFavs = { container.prefs.restoreFavorites(it) },
+                    localRecents = { container.prefs.recents.first() },
+                    fetchCloudRecents = { container.userSyncService.fetchRecents() },
+                    saveMergedRecents = { container.prefs.restoreRecents(it) },
+                    fetchCloudPrefs = { container.userSyncService.fetchPreferences() },
+                    applyPrefs = { cp ->
+                        container.prefs.setLightEffects(cp.lightEffects)
+                        container.prefs.setHomeChannelsLayout(
+                            runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
+                                .getOrDefault(HomeChannelsLayout.CAROUSEL)
+                        )
+                        container.prefs.setHomeChannelsSource(
+                            runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
+                                .getOrDefault(HomeChannelsSource.AUTO)
+                        )
+                        container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
+                    },
+                )
             }
-        } else {
-            container.cloudMergeDone = true
         }
 
         if (account != null) {
@@ -367,7 +357,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             SettingsScreen(
                 onBack = back,
                 onLoggedOut = {
-                    container.cloudMergeDone = false
+                    container.mergeCoordinator.reset()
                     container.authManager.signOut()
                     container.repo.setAccount(null)
                     container.repo.clearCache(clearDisk = true)

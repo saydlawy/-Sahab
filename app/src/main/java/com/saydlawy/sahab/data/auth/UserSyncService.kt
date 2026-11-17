@@ -23,6 +23,12 @@ data class CloudPreferences(
     val homeChannelsCategoryId: String = "",
 )
 
+sealed class CloudFetchResult<out T> {
+    data class Success<T>(val data: T) : CloudFetchResult<T>()
+    data object NotFound : CloudFetchResult<Nothing>()
+    data class Error(val cause: Throwable? = null) : CloudFetchResult<Nothing>()
+}
+
 class UserSyncService {
     private fun keyFor(uid: String): SecretKeySpec {
         val hash = MessageDigest.getInstance("SHA-256")
@@ -120,19 +126,31 @@ class UserSyncService {
             .addOnFailureListener { cont.resume(Unit) }
     }
 
-    suspend fun getFavorites(): List<FavItem>? = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
+    suspend fun fetchFavorites(): CloudFetchResult<List<FavItem>> = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(CloudFetchResult.Error())
         db.collection("users").document(uid).collection("data").document("favorites")
             .get()
             .addOnSuccessListener { snapshot ->
+                if (!snapshot.exists()) {
+                    cont.resume(CloudFetchResult.NotFound)
+                    return@addOnSuccessListener
+                }
                 val jsonStr = snapshot.getString("json")
-                if (jsonStr != null) {
-                    val list = runCatching { json.decodeFromString(favSerializer, jsonStr) }.getOrDefault(emptyList())
-                    cont.resume(list)
-                } else cont.resume(null)
+                if (jsonStr == null) {
+                    cont.resume(CloudFetchResult.NotFound)
+                } else {
+                    val parsed = runCatching { json.decodeFromString(favSerializer, jsonStr) }
+                    parsed.fold(
+                        onSuccess = { cont.resume(CloudFetchResult.Success(it)) },
+                        onFailure = { cont.resume(CloudFetchResult.Error(it)) },
+                    )
+                }
             }
-            .addOnFailureListener { cont.resume(null) }
+            .addOnFailureListener { e -> cont.resume(CloudFetchResult.Error(e)) }
     }
+
+    suspend fun getFavorites(): List<FavItem>? =
+        (fetchFavorites() as? CloudFetchResult.Success)?.data
 
     suspend fun saveRecents(recents: List<RecentItem>) = suspendCancellableCoroutine { cont ->
         val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
@@ -143,19 +161,31 @@ class UserSyncService {
             .addOnFailureListener { cont.resume(Unit) }
     }
 
-    suspend fun getRecents(): List<RecentItem>? = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
+    suspend fun fetchRecents(): CloudFetchResult<List<RecentItem>> = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(CloudFetchResult.Error())
         db.collection("users").document(uid).collection("data").document("recents")
             .get()
             .addOnSuccessListener { snapshot ->
+                if (!snapshot.exists()) {
+                    cont.resume(CloudFetchResult.NotFound)
+                    return@addOnSuccessListener
+                }
                 val jsonStr = snapshot.getString("json")
-                if (jsonStr != null) {
-                    val list = runCatching { json.decodeFromString(recentSerializer, jsonStr) }.getOrDefault(emptyList())
-                    cont.resume(list)
-                } else cont.resume(null)
+                if (jsonStr == null) {
+                    cont.resume(CloudFetchResult.NotFound)
+                } else {
+                    val parsed = runCatching { json.decodeFromString(recentSerializer, jsonStr) }
+                    parsed.fold(
+                        onSuccess = { cont.resume(CloudFetchResult.Success(it)) },
+                        onFailure = { cont.resume(CloudFetchResult.Error(it)) },
+                    )
+                }
             }
-            .addOnFailureListener { cont.resume(null) }
+            .addOnFailureListener { e -> cont.resume(CloudFetchResult.Error(e)) }
     }
+
+    suspend fun getRecents(): List<RecentItem>? =
+        (fetchRecents() as? CloudFetchResult.Success)?.data
 
     suspend fun getXtreamAccount(): Account? = suspendCancellableCoroutine { cont ->
         val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
@@ -190,22 +220,29 @@ class UserSyncService {
             .addOnFailureListener { cont.resume(Unit) }
     }
 
-    suspend fun getPreferences(): CloudPreferences? = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
+    suspend fun fetchPreferences(): CloudFetchResult<CloudPreferences> = suspendCancellableCoroutine { cont ->
+        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(CloudFetchResult.Error())
         db.collection("users").document(uid).collection("data").document("preferences")
             .get()
             .addOnSuccessListener { s ->
                 if (s.exists()) {
                     cont.resume(
-                        CloudPreferences(
-                            lightEffects = s.getBoolean("lightEffects") ?: false,
-                            homeChannelsLayout = s.getString("homeChannelsLayout") ?: "CAROUSEL",
-                            homeChannelsSource = s.getString("homeChannelsSource") ?: "AUTO",
-                            homeChannelsCategoryId = s.getString("homeChannelsCategoryId") ?: "",
+                        CloudFetchResult.Success(
+                            CloudPreferences(
+                                lightEffects = s.getBoolean("lightEffects") ?: false,
+                                homeChannelsLayout = s.getString("homeChannelsLayout") ?: "CAROUSEL",
+                                homeChannelsSource = s.getString("homeChannelsSource") ?: "AUTO",
+                                homeChannelsCategoryId = s.getString("homeChannelsCategoryId") ?: "",
+                            )
                         )
                     )
-                } else cont.resume(null)
+                } else {
+                    cont.resume(CloudFetchResult.NotFound)
+                }
             }
-            .addOnFailureListener { cont.resume(null) }
+            .addOnFailureListener { e -> cont.resume(CloudFetchResult.Error(e)) }
     }
+
+    suspend fun getPreferences(): CloudPreferences? =
+        (fetchPreferences() as? CloudFetchResult.Success)?.data
 }

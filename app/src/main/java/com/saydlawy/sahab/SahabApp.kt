@@ -88,24 +88,32 @@ class AppContainer(context: Context) {
             return bytes.take(4).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         }
 
-    @Volatile
-    var cloudMergeDone: Boolean = false
+    val mergeCoordinator = com.saydlawy.sahab.data.auth.CloudMergeCoordinator()
+
+    val favoritesMergeDone: Boolean
+        get() = mergeCoordinator.favoritesMergeDone
+
+    val recentsMergeDone: Boolean
+        get() = mergeCoordinator.recentsMergeDone
+
+    val prefsMergeDone: Boolean
+        get() = mergeCoordinator.prefsMergeDone
 
     fun startAutoSync() {
         appScope.launch {
-            // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين
+            // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين (فقط بعد نجاح الدمج الأولي)
             prefs.favorites.drop(1).debounce(2000L).collect { favs ->
-                if (cloudMergeDone && authManager.currentUser != null) userSyncService.saveFavorites(favs)
+                if (favoritesMergeDone && authManager.currentUser != null) userSyncService.saveFavorites(favs)
             }
         }
         appScope.launch {
-            // مزامنة سجل المشاهدة بعد توقف المشاهدة لمدة 5 ثوانٍ
+            // مزامنة سجل المشاهدة بعد توقف المشاهدة لمدة 5 ثوانٍ (فقط بعد نجاح الدمج الأولي)
             prefs.recents.drop(1).debounce(5000L).collect { recents ->
-                if (cloudMergeDone && authManager.currentUser != null) userSyncService.saveRecents(recents)
+                if (recentsMergeDone && authManager.currentUser != null) userSyncService.saveRecents(recents)
             }
         }
         appScope.launch {
-            // مزامنة تفضيلات الواجهة بعد ثانيتين من التغيير
+            // مزامنة تفضيلات الواجهة بعد ثانيتين من التغيير (فقط بعد نجاح الدمج الأولي)
             combine(
                 prefs.lightEffects,
                 prefs.homeChannelsLayout,
@@ -114,7 +122,7 @@ class AppContainer(context: Context) {
             ) { light, layout, source, catId ->
                 CloudPreferences(light, layout.name, source.name, catId)
             }.drop(1).debounce(2000L).collect { cloudPrefs ->
-                if (cloudMergeDone && authManager.currentUser != null) userSyncService.savePreferences(cloudPrefs)
+                if (prefsMergeDone && authManager.currentUser != null) userSyncService.savePreferences(cloudPrefs)
             }
         }
     }
