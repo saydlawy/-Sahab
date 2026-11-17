@@ -89,6 +89,7 @@ class AppContainer(context: Context) {
         }
 
     val mergeCoordinator = com.saydlawy.sahab.data.auth.CloudMergeCoordinator()
+    val syncCoordinator by lazy { com.saydlawy.sahab.data.SyncCoordinator(this) }
 
     val favoritesMergeDone: Boolean
         get() = mergeCoordinator.favoritesMergeDone

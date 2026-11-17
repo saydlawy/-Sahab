@@ -14,21 +14,31 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import com.saydlawy.sahab.ui.components.GlassPanel
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -64,7 +74,6 @@ import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import com.saydlawy.sahab.ui.components.SyncOverlay
 import com.saydlawy.sahab.data.Repository
 import androidx.compose.ui.platform.LocalContext
@@ -77,90 +86,27 @@ fun AppRoot(container: AppContainer) {
     var start by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        var account = container.prefs.account.first()
-        if (account == null && container.authManager.currentUser != null) {
-            // محاولة جلب المصادر المتعددة أو الاشتراك من السحابة بمهلة زمنية محددة
-            val cloudAccounts = withTimeoutOrNull(5_000L) {
-                container.userSyncService.getAccounts()
-            }.orEmpty()
-            if (cloudAccounts.isNotEmpty()) {
-                cloudAccounts.forEach { container.prefs.saveAccount(it) }
-                account = cloudAccounts.first()
+        val localAccount = container.prefs.account.first()
+        if (localAccount != null) {
+            container.repo.setAccount(localAccount)
+            start = Routes.HOME
+            if (container.authManager.currentUser != null) {
+                container.appScope.launch {
+                    container.syncCoordinator.performCloudRestoreAndMerge()
+                }
+            }
+            container.syncCoordinator.triggerFullSync(context, forceCatalog = false, reason = "startup_local")
+        } else if (container.authManager.currentUser != null) {
+            val restoredAccount = container.syncCoordinator.performCloudRestoreAndMerge()
+            if (restoredAccount != null) {
+                container.repo.setAccount(restoredAccount)
+                start = Routes.HOME
+                container.syncCoordinator.triggerFullSync(context, forceCatalog = false, reason = "startup_cloud")
             } else {
-                val cloudAccount = withTimeoutOrNull(5_000L) {
-                    container.userSyncService.getXtreamAccount()
-                }
-                if (cloudAccount != null) {
-                    container.prefs.saveAccount(cloudAccount)
-                    account = cloudAccount
-                }
+                start = Routes.CLOUD_LOGIN
             }
-        }
-
-        if (account != null) {
-            container.repo.setAccount(account)
-        }
-        start = if (account != null) Routes.HOME else Routes.CLOUD_LOGIN
-
-        // دمج المفضلة وسجل المشاهدة مع السحابة في الخلفية بدون حجب الشاشة ولا مسح السحابة عند الفشل/المهلة
-        if (container.authManager.currentUser != null) {
-            container.appScope.launch {
-                container.mergeCoordinator.mergeAllWithRetry(
-                    isSignedIn = { container.authManager.currentUser != null },
-                    localFavs = { container.prefs.favorites.first() },
-                    fetchCloudFavs = { container.userSyncService.fetchFavorites() },
-                    saveMergedFavs = { container.prefs.restoreFavorites(it) },
-                    localRecents = { container.prefs.recents.first() },
-                    fetchCloudRecents = { container.userSyncService.fetchRecents() },
-                    saveMergedRecents = { container.prefs.restoreRecents(it) },
-                    fetchCloudPrefs = { container.userSyncService.fetchPreferences() },
-                    applyPrefs = { cp ->
-                        container.prefs.setLightEffects(cp.lightEffects)
-                        container.prefs.setHomeChannelsLayout(
-                            runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
-                                .getOrDefault(HomeChannelsLayout.CAROUSEL)
-                        )
-                        container.prefs.setHomeChannelsSource(
-                            runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
-                                .getOrDefault(HomeChannelsSource.AUTO)
-                        )
-                        container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
-                    },
-                )
-            }
-        }
-
-        if (account != null) {
-            container.appScope.launch {
-                // Standard prewarm + delta sync
-                container.repo.prewarmCatalog()
-                val sync = container.repo.syncCatalog(force = false)
-                if (sync is Repository.SyncResult.Success || sync is Repository.SyncResult.Failure) {
-                    container.catalogSync.syncMovies(container.repo)
-                }
-
-                // 3. Channel sync — only if 24h elapsed since last run
-                val lastChSync = container.prefs.lastSyncTime.first()
-                if (System.currentTimeMillis() - lastChSync > 24L * 3600_000L) {
-                    val chStats = container.channelSync.sync(container.repo)
-                    Log.d("SahabChannelSync",
-                        "auto: total=${chStats.total} enriched=${chStats.enriched} errors=${chStats.errors.size}")
-                    if (chStats.isSuccess) {
-                        container.prefs.setLastSyncTime(System.currentTimeMillis())
-                    }
-                }
-
-                // 4. EPG sync — after ChannelSync so epgId fields are populated
-                val lastEpgSync = container.prefs.lastEpgSyncTime.first()
-                if (System.currentTimeMillis() - lastEpgSync > 24L * 3600_000L) {
-                    val epgStats = container.epgSync.sync()
-                    Log.d("SahabEpgSync",
-                        "auto: epgIds=${epgStats.epgIdsProcessed} upserted=${epgStats.programsUpserted} deleted=${epgStats.programsDeleted} errors=${epgStats.errors.size}")
-                    if (epgStats.isSuccess) {
-                        container.prefs.setLastEpgSyncTime(System.currentTimeMillis())
-                    }
-                }
-            }
+        } else {
+            start = Routes.CLOUD_LOGIN
         }
     }
 
@@ -317,10 +263,67 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         popExitTransition = { fadeOut(tween(100)) },
     ) {
         composable(Routes.CLOUD_LOGIN) {
-            CloudLoginScreen(
-                onSuccess = { nav.navigate(Routes.LOGIN) { popUpTo(Routes.CLOUD_LOGIN) { inclusive = true } } },
-                onSkip = { nav.navigate(Routes.LOGIN) { popUpTo(Routes.CLOUD_LOGIN) { inclusive = true } } }
-            )
+            val scope = rememberCoroutineScope()
+            var restoringCloud by remember { mutableStateOf(false) }
+
+            Box(Modifier.fillMaxSize()) {
+                CloudLoginScreen(
+                    onSuccess = {
+                        if (!restoringCloud) {
+                            restoringCloud = true
+                            scope.launch {
+                                val restoredAccount = runCatching {
+                                    container.syncCoordinator.performCloudRestoreAndMerge()
+                                }.getOrNull()
+                                restoringCloud = false
+                                if (restoredAccount != null) {
+                                    container.prefs.setActiveAccount(restoredAccount.id)
+                                    container.repo.setAccount(restoredAccount)
+                                    container.syncCoordinator.triggerFullSync(
+                                        context = context,
+                                        forceCatalog = false,
+                                        reason = "cloud_login_restore",
+                                    )
+                                    nav.navigate(Routes.HOME) {
+                                        popUpTo(Routes.CLOUD_LOGIN) { inclusive = true }
+                                    }
+                                } else {
+                                    nav.navigate(Routes.LOGIN) {
+                                        popUpTo(Routes.CLOUD_LOGIN) { inclusive = true }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onSkip = {
+                        // مسار التخطي بدون حساب سحابي: لا يتم تفعيل أي رفع سحابي
+                        container.mergeCoordinator.reset()
+                        nav.navigate(Routes.LOGIN) { popUpTo(Routes.CLOUD_LOGIN) { inclusive = true } }
+                    }
+                )
+
+                if (restoringCloud) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.68f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        GlassPanel(shape = RoundedCornerShape(24.dp), strong = true, padding = 28.dp) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = Palette.FocusCyan)
+                                Spacer(Modifier.height(14.dp))
+                                Text(
+                                    text = "جاري استعادة الاشتراك والمفضلة من السحابة...",
+                                    color = Palette.Text,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
