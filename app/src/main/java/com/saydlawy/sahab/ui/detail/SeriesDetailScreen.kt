@@ -117,12 +117,86 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
             )
         }
     }
+
+    private val _aiState = MutableStateFlow<com.saydlawy.sahab.data.ai.AiGenerationState>(
+        com.saydlawy.sahab.data.ai.AiGenerationState.Idle,
+    )
+    val aiState = _aiState.asStateFlow()
+
+    /** O-02: Generate series story using Gemini key rotation and persist to global_catalog. */
+    fun generateAiStory() {
+        viewModelScope.launch {
+            _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Loading
+            val details = _state.value.data
+            if (details == null) {
+                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Error("لا توجد بيانات معروضة")
+                return@launch
+            }
+            val result = generateStoryWithKeyRotation(
+                container = container,
+                rawName = details.name,
+                year = details.year,
+                imdbId = "",
+                posterUrl = details.cover,
+                contentType = com.saydlawy.sahab.data.ai.ContentType.SERIES,
+            )
+            if (result == null) {
+                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.NoKey
+                return@launch
+            }
+            when (result) {
+                is com.saydlawy.sahab.data.ai.GeminiResult.Success -> {
+                    val now = System.currentTimeMillis()
+                    val entity = com.saydlawy.sahab.data.catalog.CatalogMovieEntity(
+                        sahabId = "series_pending:$id",
+                        novaStreamId = id,
+                        mediaType = "series",
+                        titleAr = details.name,
+                        year = details.year,
+                        plot = result.story,
+                        plotSource = "gemini_user_key",
+                        plotConfidence = result.confidence,
+                        identifiedTitle = result.identifiedTitle,
+                        posterUrl = details.cover,
+                        backdropUrl = details.backdrop,
+                        cast = details.cast,
+                        genre = details.genre,
+                        rating = details.rating,
+                        needsEnrichment = 0,
+                        lastEnriched = now,
+                        lastSeen = now,
+                    )
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { container.catalogDb.movieDao().upsert(entity) }
+                    }
+                    container.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        container.firebaseCatalog.saveCatalogItem(entity)
+                    }
+                    _state.update { st ->
+                        val d = st.data
+                        if (d != null) st.copy(data = d.copy(plot = result.story)) else st
+                    }
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Success(result.story, result.sources)
+                }
+                is com.saydlawy.sahab.data.ai.GeminiResult.RateLimited -> {
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.RateLimited
+                }
+                is com.saydlawy.sahab.data.ai.GeminiResult.InvalidKey -> {
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.InvalidKey
+                }
+                is com.saydlawy.sahab.data.ai.GeminiResult.Error -> {
+                    _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Error(result.message)
+                }
+            }
+        }
+    }
 }
 
 @Composable
 fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { SeriesDetailViewModel(it, id) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val aiState by vm.aiState.collectAsStateWithLifecycle()
     val container = LocalContainer.current
     val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
         initialValue = container.prefs.currentActiveAccountId(),
@@ -162,6 +236,8 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                         details = details,
                         recents = recents,
                         isFavorite = isFavorite,
+                        aiState = aiState,
+                        onGenerateStory = { vm.generateAiStory() },
                         onToggleFavorite = { vm.toggleFavorite(details) },
                         onPlay = onPlay,
                     )
@@ -186,6 +262,8 @@ private fun SeriesContent(
     details: SeriesDetails,
     recents: List<RecentItem>,
     isFavorite: Boolean,
+    aiState: com.saydlawy.sahab.data.ai.AiGenerationState,
+    onGenerateStory: () -> Unit,
     onToggleFavorite: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
 ) {
@@ -248,6 +326,8 @@ private fun SeriesContent(
                                 resumePositionMs = resumePosMs,
                                 queue = queue,
                                 isFavorite = isFavorite,
+                                aiState = aiState,
+                                onGenerateStory = onGenerateStory,
                                 onToggleFavorite = onToggleFavorite,
                                 onPlay = onPlay,
                                 modifier = Modifier.weight(1f),
@@ -266,6 +346,8 @@ private fun SeriesContent(
                                 resumePositionMs = resumePosMs,
                                 queue = queue,
                                 isFavorite = isFavorite,
+                                aiState = aiState,
+                                onGenerateStory = onGenerateStory,
                                 onToggleFavorite = onToggleFavorite,
                                 onPlay = onPlay,
                                 modifier = Modifier.weight(1f),
@@ -286,6 +368,8 @@ private fun SeriesContent(
                                 resumePositionMs = resumePosMs,
                                 queue = queue,
                                 isFavorite = isFavorite,
+                                aiState = aiState,
+                                onGenerateStory = onGenerateStory,
                                 onToggleFavorite = onToggleFavorite,
                                 onPlay = onPlay,
                                 modifier = Modifier.fillMaxWidth(),
@@ -381,6 +465,8 @@ private fun SeriesInfoPanel(
     resumePositionMs: Long,
     queue: List<PlayItem>,
     isFavorite: Boolean,
+    aiState: com.saydlawy.sahab.data.ai.AiGenerationState,
+    onGenerateStory: () -> Unit,
     onToggleFavorite: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
     modifier: Modifier = Modifier,
@@ -471,24 +557,22 @@ private fun SeriesInfoPanel(
             )
         }
 
-        if (showMetadata && (details.plot.isNotBlank() || details.cast.isNotBlank())) {
+        if (showMetadata) {
             GlassPanel(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
                 padding = 18.dp,
             ) {
-                if (details.plot.isNotBlank()) {
-                    DotTitle(Ar.plot, Palette.Gold, fontSize = 15.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        details.plot,
-                        fontSize = 14.sp,
-                        lineHeight = 23.sp,
-                        color = Palette.Text.copy(alpha = 0.90f),
-                    )
-                }
+                AiStoryPlotSection(
+                    plot = details.plot,
+                    emptyLabel = "لا توجد قصة متاحة لهذا المسلسل.",
+                    aiState = aiState,
+                    onGenerateStory = onGenerateStory,
+                    plotFontSizeSp = 14,
+                    plotLineHeightSp = 23,
+                )
                 if (details.cast.isNotBlank()) {
-                    if (details.plot.isNotBlank()) Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.Top) {
                         Text(
                             text = Ar.cast,
