@@ -108,7 +108,7 @@ class SyncCoordinator(private val container: AppContainer) {
         if (activeAccount == null) {
             val cloudAccounts = cloudAccountDeferred.await().orEmpty()
             if (cloudAccounts.isNotEmpty()) {
-                cloudAccounts.forEach { container.prefs.saveAccount(it) }
+                cloudAccounts.asReversed().forEach { container.prefs.saveAccount(it) }
                 activeAccount = cloudAccounts.first()
                 container.prefs.setActiveAccount(activeAccount.id)
             }

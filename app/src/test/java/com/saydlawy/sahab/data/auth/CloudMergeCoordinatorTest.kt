@@ -122,4 +122,34 @@ class CloudMergeCoordinatorTest {
         assertFalse(coordinator.recentsMergeDone) // Failed all retries -> stays false -> upload blocked!
         assertTrue(coordinator.prefsMergeDone)
     }
+
+    @Test
+    fun mergeRecents_ordersByUpdatedAtDescBeforeDistinctAndCapsAt30() = runTest {
+        val coordinator = CloudMergeCoordinator()
+        val local = listOf(
+            RecentItem(Kind.MOVIE, "dup", "محلي أقدم", positionMs = 1_000L, updatedAt = 100L),
+            RecentItem(Kind.MOVIE, "onlyLocal", "محلي فقط", positionMs = 2_000L, updatedAt = 500L),
+        ) + (1..20).map { i ->
+            RecentItem(Kind.LIVE, "l_$i", "قناة $i", positionMs = 0L, updatedAt = 1_000L + i)
+        }
+        val cloud = listOf(
+            RecentItem(Kind.MOVIE, "dup", "سحابي أحدث", positionMs = 9_000L, updatedAt = 9_999L),
+        ) + (21..40).map { i ->
+            RecentItem(Kind.SERIES, "s_$i", "مسلسل $i", positionMs = 3_000L, updatedAt = 2_000L + i)
+        }
+
+        var saved: List<RecentItem> = emptyList()
+        val ok = coordinator.mergeRecents(
+            localRecents = { local },
+            fetchCloudRecents = { CloudFetchResult.Success(cloud) },
+            saveMergedRecents = { saved = it },
+        )
+
+        assertTrue(ok)
+        assertEquals(30, saved.size)
+        assertEquals("dup", saved.first().id)
+        assertEquals(9_000L, saved.first().positionMs)
+        assertTrue(saved.zipWithNext().all { (a, b) -> a.updatedAt >= b.updatedAt })
+        assertEquals(1, saved.count { it.kind == Kind.MOVIE && it.id == "dup" })
+    }
 }
