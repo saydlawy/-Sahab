@@ -89,6 +89,12 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
         if (start != null) onReady()
     }
 
+    LaunchedEffect(container.userSyncService) {
+        container.userSyncService.syncWriteErrors.collect { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     LaunchedEffect(Unit) {
         val localAccount = container.prefs.account.first()
         if (localAccount != null) {

@@ -1,20 +1,30 @@
 package com.saydlawy.sahab.data.auth
 
+import android.util.Base64
+import android.util.Log
+import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
+import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.RecentItem
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import com.saydlawy.sahab.data.Account
-import kotlinx.coroutines.suspendCancellableCoroutine
-import android.util.Base64
 import java.security.MessageDigest
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 data class CloudPreferences(
     val lightEffects: Boolean = false,
@@ -64,24 +74,71 @@ class UserSyncService {
     private val currentUid: String?
         get() = auth.currentUser?.uid
 
-    suspend fun saveXtreamAccount(account: Account) = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+    private val _syncWriteErrors = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val syncWriteErrors: SharedFlow<String> = _syncWriteErrors.asSharedFlow()
+
+    @Volatile
+    private var lastErrorEmitMs: Long = 0L
+
+    private suspend fun <T> awaitTask(task: Task<T>): T = suspendCancellableCoroutine { cont ->
+        task.addOnSuccessListener { result -> cont.resume(result) }
+            .addOnFailureListener { e -> cont.resumeWithException(e) }
+    }
+
+    private suspend fun writeWithRetry(
+        label: String,
+        uid: String,
+        ensureRootDoc: Boolean = true,
+        block: () -> Task<Void>,
+    ): Boolean {
+        val backoffs = longArrayOf(1_000L, 2_000L)
+        for (attempt in 0..backoffs.size) {
+            try {
+                if (ensureRootDoc) {
+                    runCatching {
+                        awaitTask(
+                            db.collection("users").document(uid)
+                                .set(mapOf("updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+                        )
+                    }
+                }
+                awaitTask(block())
+                return true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                runCatching { Log.w("SahabSync", "$label write failed (attempt ${attempt + 1}): ${e.message}") }
+                if (attempt < backoffs.size) {
+                    delay(backoffs[attempt])
+                }
+            }
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastErrorEmitMs > 60_000L) {
+            lastErrorEmitMs = now
+            _syncWriteErrors.tryEmit("تعذر مزامنة التغييرات مع السحابة")
+        }
+        return false
+    }
+
+    suspend fun saveXtreamAccount(account: Account) {
+        val uid = currentUid ?: return
         val data = mapOf(
             "server" to encrypt(account.server, uid),
             "user" to encrypt(account.user, uid),
             "pass" to encrypt(account.pass, uid)
         )
-        db.collection("users").document(uid).collection("data").document("xtream")
-            .set(data)
-            .addOnSuccessListener { cont.resume(Unit) }
-            .addOnFailureListener { cont.resume(Unit) }
+        writeWithRetry("xtream", uid) {
+            db.collection("users").document(uid).collection("data").document("xtream").set(data)
+        }
     }
 
-    suspend fun saveFcmToken(token: String) = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
-        db.collection("users").document(uid).update("fcmToken", token)
-            .addOnSuccessListener { cont.resume(Unit) }
-            .addOnFailureListener { cont.resume(Unit) }
+    suspend fun saveFcmToken(token: String) {
+        val uid = currentUid ?: return
+        writeWithRetry("fcmToken", uid, ensureRootDoc = false) {
+            db.collection("users").document(uid)
+                .set(mapOf("fcmToken" to token, "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+        }
     }
 
 
@@ -92,13 +149,13 @@ class UserSyncService {
 
     private val accountsSerializer = ListSerializer(Account.serializer())
 
-    suspend fun saveAccounts(accounts: List<Account>) = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+    suspend fun saveAccounts(accounts: List<Account>) {
+        val uid = currentUid ?: return
         val jsonStr = json.encodeToString(accountsSerializer, accounts)
-        db.collection("users").document(uid).collection("data").document("accounts_list")
-            .set(mapOf("enc" to encrypt(jsonStr, uid)))
-            .addOnSuccessListener { cont.resume(Unit) }
-            .addOnFailureListener { cont.resume(Unit) }
+        writeWithRetry("accounts_list", uid) {
+            db.collection("users").document(uid).collection("data").document("accounts_list")
+                .set(mapOf("enc" to encrypt(jsonStr, uid)))
+        }
     }
 
     suspend fun getAccounts(): List<Account>? = suspendCancellableCoroutine { cont ->
@@ -117,13 +174,13 @@ class UserSyncService {
             .addOnFailureListener { cont.resume(null) }
     }
 
-    suspend fun saveFavorites(favs: List<FavItem>) = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+    suspend fun saveFavorites(favs: List<FavItem>) {
+        val uid = currentUid ?: return
         val jsonStr = json.encodeToString(favSerializer, favs)
-        db.collection("users").document(uid).collection("data").document("favorites")
-            .set(mapOf("json" to jsonStr))
-            .addOnSuccessListener { cont.resume(Unit) }
-            .addOnFailureListener { cont.resume(Unit) }
+        writeWithRetry("favorites", uid) {
+            db.collection("users").document(uid).collection("data").document("favorites")
+                .set(mapOf("json" to jsonStr))
+        }
     }
 
     suspend fun fetchFavorites(): CloudFetchResult<List<FavItem>> = suspendCancellableCoroutine { cont ->
@@ -152,13 +209,13 @@ class UserSyncService {
     suspend fun getFavorites(): List<FavItem>? =
         (fetchFavorites() as? CloudFetchResult.Success)?.data
 
-    suspend fun saveRecents(recents: List<RecentItem>) = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+    suspend fun saveRecents(recents: List<RecentItem>) {
+        val uid = currentUid ?: return
         val jsonStr = json.encodeToString(recentSerializer, recents)
-        db.collection("users").document(uid).collection("data").document("recents")
-            .set(mapOf("json" to jsonStr))
-            .addOnSuccessListener { cont.resume(Unit) }
-            .addOnFailureListener { cont.resume(Unit) }
+        writeWithRetry("recents", uid) {
+            db.collection("users").document(uid).collection("data").document("recents")
+                .set(mapOf("json" to jsonStr))
+        }
     }
 
     suspend fun fetchRecents(): CloudFetchResult<List<RecentItem>> = suspendCancellableCoroutine { cont ->
@@ -206,18 +263,17 @@ class UserSyncService {
             .addOnFailureListener { cont.resume(null) }
     }
 
-    suspend fun savePreferences(prefs: CloudPreferences) = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(Unit)
+    suspend fun savePreferences(prefs: CloudPreferences) {
+        val uid = currentUid ?: return
         val data = mapOf(
             "lightEffects" to prefs.lightEffects,
             "homeChannelsLayout" to prefs.homeChannelsLayout,
             "homeChannelsSource" to prefs.homeChannelsSource,
             "homeChannelsCategoryId" to prefs.homeChannelsCategoryId,
         )
-        db.collection("users").document(uid).collection("data").document("preferences")
-            .set(data)
-            .addOnSuccessListener { cont.resume(Unit) }
-            .addOnFailureListener { cont.resume(Unit) }
+        writeWithRetry("preferences", uid) {
+            db.collection("users").document(uid).collection("data").document("preferences").set(data)
+        }
     }
 
     suspend fun fetchPreferences(): CloudFetchResult<CloudPreferences> = suspendCancellableCoroutine { cont ->
