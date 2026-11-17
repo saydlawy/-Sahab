@@ -66,7 +66,6 @@ import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -125,7 +124,7 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
                     val account = Account(name = "M3U Playlist", type = "M3U", m3uUrl = url)
                     container.repo.login(account)
                     container.prefs.saveAccount(account)
-                    container.userSyncService.saveAccounts(container.prefs.accounts.first())
+                    container.userSyncService.saveAccounts(container.prefs.getAccounts())
                     _state.update { it.copy(loading = false) }
                     onSuccess()
                 } catch (e: CancellationException) {
@@ -154,7 +153,7 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
                 container.prefs.saveAccount(account)
                 // حفظ في السحابة إذا كان المستخدم مسجل دخول
                 container.userSyncService.saveXtreamAccount(account)
-                container.userSyncService.saveAccounts(container.prefs.accounts.first())
+                container.userSyncService.saveAccounts(container.prefs.getAccounts())
                 _state.update { it.copy(loading = false) }
                 onSuccess()
             } catch (e: CancellationException) {
