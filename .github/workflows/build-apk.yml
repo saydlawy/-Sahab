@@ -148,19 +148,25 @@ jobs:
 
       # Prepare Firebase Service Account
       - name: Prepare Firebase Service Account
-        if: secrets.FIREBASE_SERVICE_ACCOUNT != ''
+        id: firebase_sa
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
         run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] || [ -z "$FIREBASE_APP_ID" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | grep -q '^{'; then
             printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > firebase-service-account.json
           else
             printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > firebase-service-account.json
           fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       # Upload to Firebase
       - name: Upload APK to Firebase App Distribution
-        if: secrets.FIREBASE_APP_ID != '' && secrets.FIREBASE_SERVICE_ACCOUNT != ''
+        if: steps.firebase_sa.outputs.ready == 'true'
         uses: wzieba/Firebase-Distribution-Github-Action@bd494989dd4bec0343f78adee87fe66e48279ad6 # @v1
         env:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
