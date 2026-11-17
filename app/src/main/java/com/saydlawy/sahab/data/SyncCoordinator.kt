@@ -126,7 +126,7 @@ class SyncCoordinator(private val container: AppContainer) {
                 .onFailure { Log.w("SahabSync", "[$reason] prewarm failed: ${it.message}") }
 
             val sync = runCatching { container.repo.syncCatalog(force = forceCatalog) }
-                .getOrElse { Repository.SyncResult.Failure(it) }
+                .getOrElse { Repository.SyncResult.Failure(it.message ?: "unknown") }
             if (sync is Repository.SyncResult.Success || sync is Repository.SyncResult.Failure) {
                 runCatching { container.catalogSync.syncMovies(container.repo) }
                     .onFailure { Log.w("SahabSync", "[$reason] syncMovies failed: ${it.message}") }
