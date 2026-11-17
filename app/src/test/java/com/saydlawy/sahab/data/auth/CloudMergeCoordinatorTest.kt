@@ -3,6 +3,8 @@ package com.saydlawy.sahab.data.auth
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.RecentItem
+import com.saydlawy.sahab.data.forAccount
+import com.saydlawy.sahab.data.isFav
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -168,9 +170,9 @@ class CloudMergeCoordinatorTest {
 
         assertTrue(ok)
         assertEquals(2, saved.size)
-        assertTrue(com.saydlawy.sahab.data.run { saved.isFav("acc_1", Kind.MOVIE, "100") })
-        assertTrue(com.saydlawy.sahab.data.run { saved.isFav("acc_2", Kind.MOVIE, "100") })
-        assertEquals(1, com.saydlawy.sahab.data.run { saved.forAccount("acc_1") }.size)
-        assertEquals(1, com.saydlawy.sahab.data.run { saved.forAccount("acc_2") }.size)
+        assertTrue(saved.isFav("acc_1", Kind.MOVIE, "100"))
+        assertTrue(saved.isFav("acc_2", Kind.MOVIE, "100"))
+        assertEquals(1, saved.forAccount("acc_1").size)
+        assertEquals(1, saved.forAccount("acc_2").size)
     }
 }
