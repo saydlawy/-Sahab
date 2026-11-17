@@ -293,6 +293,8 @@ class SahabApp : Application(), ImageLoaderFactory {
         container = AppContainer(this)
         container.startAutoSync()
         container.appScope.launch {
+            // L-05: warm EncryptedSharedPreferences / MasterKey off the main thread.
+            container.aiKeys
             SyncScheduler.scheduleInitialRunIfNeeded(this@SahabApp)
             SahabPlayer.warmUpMediaCache(this@SahabApp)
             container.weather.refreshIfNeeded()
