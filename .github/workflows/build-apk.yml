@@ -20,18 +20,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # @v4
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # @v4
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # @v4
         with:
           gradle-version: "8.14.3"
 
@@ -43,13 +43,13 @@ jobs:
 
       # Security: Scan repository for exposed secrets
       - name: Scan for secrets
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # @v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Dependency vulnerability scanning
       - name: Dependency vulnerability scan
-        uses: dependency-check/Dependency-Check_Action@main
+        uses: dependency-check/Dependency-Check_Action@1e54355a8b4c8abaa8cc7d0b70aa655a3bb15a6c # @main
         continue-on-error: true
         with:
           project: Sahab
@@ -57,14 +57,19 @@ jobs:
           format: HTML
           out: reports
           args: >
-            --enableRetired          echo "✅ File created. Size: $(wc -c < app/google-services.json) bytes"
+            --enableRetired
 
       - name: Create google-services.json from Secret
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
-          echo "✅ File created. Size: $(wc -c < app/google-services.json) bytes"
+          printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+
+      - name: Validate google-services.json
+        run: |
+          test -s app/google-services.json
+          python3 -c "import json; d = json.load(open('app/google-services.json', encoding='utf-8')); assert 'client' in d and len(d['client']) > 0"
+          echo "google-services.json validated ($(wc -c < app/google-services.json) bytes)"
 
       # Firebase dependency diagnostics
       - name: Diagnose Firebase dependencies
@@ -85,12 +90,14 @@ jobs:
       # Build release APK
       - name: Build release APK
         env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release-keystore.jks
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > release-keystore.jks
+          test -s release-keystore.jks
           gradle :app:assembleRelease --no-daemon --stacktrace
 
       # Verify APK exists
@@ -117,7 +124,7 @@ jobs:
       # Upload test and scan reports
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # @v4
         with:
           name: android-test-reports
           path: |
@@ -141,20 +148,20 @@ jobs:
 
       # Prepare Firebase Service Account
       - name: Prepare Firebase Service Account
-        if: env.FIREBASE_SERVICE_ACCOUNT != ''
+        if: secrets.FIREBASE_SERVICE_ACCOUNT != ''
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          if echo "$FIREBASE_SERVICE_ACCOUNT" | grep -q '^{'; then
-            echo "$FIREBASE_SERVICE_ACCOUNT" > firebase-service-account.json
+          if printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | grep -q '^{'; then
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > firebase-service-account.json
           else
-            echo "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > firebase-service-account.json
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | base64 -d > firebase-service-account.json
           fi
 
       # Upload to Firebase
       - name: Upload APK to Firebase App Distribution
-        if: env.FIREBASE_APP_ID != '' && env.FIREBASE_SERVICE_ACCOUNT != ''
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        if: secrets.FIREBASE_APP_ID != '' && secrets.FIREBASE_SERVICE_ACCOUNT != ''
+        uses: wzieba/Firebase-Distribution-Github-Action@bd494989dd4bec0343f78adee87fe66e48279ad6 # @v1
         env:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
