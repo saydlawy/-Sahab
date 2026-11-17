@@ -334,7 +334,9 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 
     fun toggleFavorite(channel: Channel) {
         viewModelScope.launch {
-            container.prefs.toggleFavorite(FavItem(Kind.LIVE, channel.id, channel.name, channel.icon))
+            container.prefs.toggleFavorite(
+                FavItem(Kind.LIVE, channel.id, channel.name, channel.icon, accountId = container.prefs.currentActiveAccountId())
+            )
         }
     }
 }

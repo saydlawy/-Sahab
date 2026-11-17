@@ -60,6 +60,7 @@ import coil.compose.AsyncImage
 import com.saydlawy.sahab.data.Channel
 import com.saydlawy.sahab.data.DEFAULT_VOD_EXT
 import com.saydlawy.sahab.data.FavItem
+import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.HomeChannelsSource
 import com.saydlawy.sahab.data.Kind
@@ -116,8 +117,13 @@ fun HomeScreen(
     val themeCustomization = LocalThemeCustomization.current
     val activeThemeId = LocalThemePreferences.current.selectedThemeId
 
-    val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
-    val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
+        initialValue = container.prefs.currentActiveAccountId(),
+    )
+    val allRecents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allFavorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
+    val recents = remember(allRecents, activeAccountId) { allRecents.forAccount(activeAccountId) }
+    val favorites = remember(allFavorites, activeAccountId) { allFavorites.forAccount(activeAccountId) }
     val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
     val showLiveChannels by container.prefs.showLiveChannelsOnHome.collectAsStateWithLifecycle(initialValue = true)
     val showRecommended by container.prefs.showRecommendedOnHome.collectAsStateWithLifecycle(initialValue = true)
@@ -369,7 +375,7 @@ fun HomeScreen(
                         "section_continue_watching" -> ContinueWatchingSection(
                             items = continueWatchingItems,
                             hasRealRecents = recents.isNotEmpty(),
-                            onClearRecents = { scope.launch { container.prefs.restoreRecents(emptyList()) } },
+                            onClearRecents = { scope.launch { container.prefs.clearRecentsForAccount(activeAccountId) } },
                         )
                         "section_live_channels" -> FeaturedChannelsSection(
                             layout = homeChannelsLayout,

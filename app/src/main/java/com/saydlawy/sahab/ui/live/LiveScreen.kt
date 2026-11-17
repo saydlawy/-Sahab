@@ -90,6 +90,7 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Program
+import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalAppScale
 import com.saydlawy.sahab.ui.LocalContainer
@@ -154,8 +155,13 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val vm = appViewModel { LiveViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     val focusNav = LocalFocusNavigation.current
+    val activeAccountId by LocalContainer.current.prefs.activeAccountId.collectAsStateWithLifecycle(
+        initialValue = LocalContainer.current.prefs.currentActiveAccountId(),
+    )
     val favorites by LocalContainer.current.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
-    val favoriteIds = remember(favorites) { favorites.filter { it.kind == Kind.LIVE }.map { it.id }.toSet() }
+    val favoriteIds = remember(favorites, activeAccountId) {
+        favorites.forAccount(activeAccountId).filter { it.kind == Kind.LIVE }.map { it.id }.toSet()
+    }
     var guideFor by remember { mutableStateOf<Channel?>(null) }
     var previewChannel by remember { mutableStateOf<Channel?>(null) }
 

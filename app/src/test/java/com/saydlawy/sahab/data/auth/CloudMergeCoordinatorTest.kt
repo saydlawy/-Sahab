@@ -152,4 +152,25 @@ class CloudMergeCoordinatorTest {
         assertTrue(saved.zipWithNext().all { (a, b) -> a.updatedAt >= b.updatedAt })
         assertEquals(1, saved.count { it.kind == Kind.MOVIE && it.id == "dup" })
     }
+
+    @Test
+    fun accountIsolation_keepsSameItemSeparateAcrossAccounts() = runTest {
+        val coordinator = CloudMergeCoordinator()
+        val acc1Fav = FavItem(Kind.MOVIE, "100", "فيلم في حساب 1", accountId = "acc_1")
+        val acc2Fav = FavItem(Kind.MOVIE, "100", "فيلم في حساب 2", accountId = "acc_2")
+
+        var saved: List<FavItem> = emptyList()
+        val ok = coordinator.mergeFavorites(
+            localFavs = { listOf(acc1Fav) },
+            fetchCloudFavs = { CloudFetchResult.Success(listOf(acc2Fav)) },
+            saveMergedFavs = { saved = it },
+        )
+
+        assertTrue(ok)
+        assertEquals(2, saved.size)
+        assertTrue(com.saydlawy.sahab.data.run { saved.isFav("acc_1", Kind.MOVIE, "100") })
+        assertTrue(com.saydlawy.sahab.data.run { saved.isFav("acc_2", Kind.MOVIE, "100") })
+        assertEquals(1, com.saydlawy.sahab.data.run { saved.forAccount("acc_1") }.size)
+        assertEquals(1, com.saydlawy.sahab.data.run { saved.forAccount("acc_2") }.size)
+    }
 }

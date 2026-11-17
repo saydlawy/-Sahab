@@ -2,6 +2,7 @@ package com.saydlawy.sahab.data.auth
 
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.RecentItem
+import com.saydlawy.sahab.data.trimPerAccount
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -42,7 +43,7 @@ class CloudMergeCoordinator {
         return when (result) {
             is CloudFetchResult.Success -> {
                 val local = localFavs()
-                val merged = (local + result.data).distinctBy { it.kind to it.id }
+                val merged = (local + result.data).distinctBy { Triple(it.accountId, it.kind, it.id) }
                 if (merged != local) {
                     saveMergedFavs(merged)
                 }
@@ -69,8 +70,8 @@ class CloudMergeCoordinator {
                 val local = localRecents()
                 val merged = (local + result.data)
                     .sortedByDescending { it.updatedAt }
-                    .distinctBy { it.kind to it.id }
-                    .take(MAX_RECENTS)
+                    .distinctBy { Triple(it.accountId, it.kind, it.id) }
+                    .trimPerAccount(MAX_RECENTS)
                 if (merged != local) {
                     saveMergedRecents(merged)
                 }

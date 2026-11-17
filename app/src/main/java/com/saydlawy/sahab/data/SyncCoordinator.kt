@@ -154,6 +154,11 @@ class SyncCoordinator(private val container: AppContainer) {
             }
         }
 
+        val activeId = activeAccount?.id
+        if (!activeId.isNullOrBlank()) {
+            container.prefs.migrateHistoryAccountIdIfNeeded(activeId)
+        }
+
         if (waitForMerge) {
             runMergeAndRetry()
         }

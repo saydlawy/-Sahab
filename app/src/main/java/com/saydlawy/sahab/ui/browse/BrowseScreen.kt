@@ -56,6 +56,7 @@ import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.RecentItem
+import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
@@ -342,7 +343,9 @@ class BrowseViewModel(
     fun toggleFavorite(poster: Poster) {
         val kind = if (series) Kind.SERIES else Kind.MOVIE
         viewModelScope.launch {
-            container.prefs.toggleFavorite(FavItem(kind, poster.id, poster.name, poster.image, poster.ext))
+            container.prefs.toggleFavorite(
+                FavItem(kind, poster.id, poster.name, poster.image, poster.ext, accountId = container.prefs.currentActiveAccountId())
+            )
         }
     }
 }
@@ -364,8 +367,13 @@ fun BrowseScreen(
     val isTv = LocalIsTv.current
     val kind = if (series) Kind.SERIES else Kind.MOVIE
 
-    val favorites by LocalContainer.current.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
-    val recents by LocalContainer.current.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeAccountId by LocalContainer.current.prefs.activeAccountId.collectAsStateWithLifecycle(
+        initialValue = LocalContainer.current.prefs.currentActiveAccountId(),
+    )
+    val allFavorites by LocalContainer.current.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allRecents by LocalContainer.current.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val favorites = remember(allFavorites, activeAccountId) { allFavorites.forAccount(activeAccountId) }
+    val recents = remember(allRecents, activeAccountId) { allRecents.forAccount(activeAccountId) }
     val favoriteIds = remember(favorites, kind) { favorites.filter { it.kind == kind }.map { it.id }.toSet() }
     val screenRecents = remember(recents, series) {
         if (series) recents.filter { it.kind == Kind.SERIES || it.kind == Kind.EPISODE }

@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
+import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
@@ -55,7 +56,11 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
     val isTv = LocalIsTv.current
-    val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
+        initialValue = container.prefs.currentActiveAccountId(),
+    )
+    val allFavorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
+    val favorites = remember(allFavorites, activeAccountId) { allFavorites.forAccount(activeAccountId) }
     var filterKind by remember { mutableStateOf<String?>(null) }
     val filtered = remember(favorites, filterKind) {
         if (filterKind == null) favorites else favorites.filter { it.kind == filterKind }
@@ -120,7 +125,7 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                             Text(Ar.favoritesHint, fontSize = 12.sp, color = Palette.TextDim)
                         }
                     }
-                    items(filtered, key = { "${it.kind}_${it.id}" }) { favorite ->
+                    items(filtered, key = { "${it.accountId}_${it.kind}_${it.id}" }) { favorite ->
                         PosterCard(
                             title = favorite.name,
                             imageUrl = favorite.icon,

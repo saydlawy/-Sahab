@@ -138,6 +138,7 @@ data class FavItem(
     val name: String,
     val icon: String = "",
     val ext: String = "",
+    val accountId: String = "",
 )
 
 @Serializable
@@ -152,4 +153,20 @@ data class RecentItem(
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val updatedAt: Long = 0,
+    val accountId: String = "",
 )
+
+fun List<FavItem>.forAccount(accountId: String): List<FavItem> =
+    if (accountId.isBlank()) filter { it.accountId.isBlank() } else filter { it.accountId == accountId }
+
+fun List<FavItem>.isFav(accountId: String, kind: String, id: String): Boolean =
+    any { it.accountId == accountId && it.kind == kind && it.id == id }
+
+fun List<RecentItem>.forAccount(accountId: String): List<RecentItem> =
+    if (accountId.isBlank()) filter { it.accountId.isBlank() } else filter { it.accountId == accountId }
+
+fun List<RecentItem>.trimPerAccount(maxPerAccount: Int = 30): List<RecentItem> =
+    groupBy { it.accountId }
+        .values
+        .flatMap { group -> group.sortedByDescending { it.updatedAt }.take(maxPerAccount) }
+        .sortedByDescending { it.updatedAt }

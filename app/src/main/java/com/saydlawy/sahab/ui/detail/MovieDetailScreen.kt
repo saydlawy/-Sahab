@@ -42,6 +42,8 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.MovieDetails
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
+import com.saydlawy.sahab.data.forAccount
+import com.saydlawy.sahab.data.isFav
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
@@ -257,7 +259,9 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
 
     fun toggleFavorite(details: MovieDetails) {
         viewModelScope.launch {
-            container.prefs.toggleFavorite(FavItem(Kind.MOVIE, details.id, details.name, details.image, details.ext))
+            container.prefs.toggleFavorite(
+                FavItem(Kind.MOVIE, details.id, details.name, details.image, details.ext, accountId = container.prefs.currentActiveAccountId())
+            )
         }
     }
 
@@ -294,6 +298,9 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
     val aiState by vm.aiState.collectAsStateWithLifecycle()
     val refreshingMetadata by vm.refreshingMetadata.collectAsStateWithLifecycle()
     val container = LocalContainer.current
+    val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
+        initialValue = container.prefs.currentActiveAccountId(),
+    )
     val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
     val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -324,8 +331,8 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                 state.loading -> LoadingBox()
                 details == null -> MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
                 else -> {
-                    val isFavorite = favorites.any { it.kind == Kind.MOVIE && it.id == details.id }
-                    val resume = recents.firstOrNull { it.kind == Kind.MOVIE && it.id == details.id }
+                    val isFavorite = favorites.isFav(activeAccountId, Kind.MOVIE, details.id)
+                    val resume = recents.forAccount(activeAccountId).firstOrNull { it.kind == Kind.MOVIE && it.id == details.id }
                     val resumeMs = resume?.positionMs ?: 0L
                     val durationMs = resume?.durationMs ?: 0L
                     val item = PlayItem(Kind.MOVIE, details.id, details.name, icon = details.image, ext = details.ext)

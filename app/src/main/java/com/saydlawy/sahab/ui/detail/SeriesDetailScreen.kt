@@ -50,6 +50,8 @@ import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.SeriesDetails
+import com.saydlawy.sahab.data.forAccount
+import com.saydlawy.sahab.data.isFav
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
@@ -110,7 +112,9 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
 
     fun toggleFavorite(details: SeriesDetails) {
         viewModelScope.launch {
-            container.prefs.toggleFavorite(FavItem(Kind.SERIES, details.id, details.name, details.cover))
+            container.prefs.toggleFavorite(
+                FavItem(Kind.SERIES, details.id, details.name, details.cover, accountId = container.prefs.currentActiveAccountId())
+            )
         }
     }
 }
@@ -120,8 +124,12 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
     val vm = appViewModel { SeriesDetailViewModel(it, id) }
     val state by vm.state.collectAsStateWithLifecycle()
     val container = LocalContainer.current
+    val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
+        initialValue = container.prefs.currentActiveAccountId(),
+    )
     val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
-    val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allRecents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val recents = remember(allRecents, activeAccountId) { allRecents.forAccount(activeAccountId) }
 
     Box(Modifier.fillMaxSize()) {
         val details = state.data
@@ -149,7 +157,7 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                 state.loading -> LoadingBox()
                 details == null -> MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
                 else -> {
-                    val isFavorite = favorites.any { it.kind == Kind.SERIES && it.id == details.id }
+                    val isFavorite = favorites.isFav(activeAccountId, Kind.SERIES, details.id)
                     SeriesContent(
                         details = details,
                         recents = recents,

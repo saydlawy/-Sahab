@@ -211,6 +211,7 @@ class AppContainer(context: Context) {
 
     fun saveProgress(item: PlayItem, positionMs: Long, durationMs: Long) {
         val live = item.kind == Kind.LIVE
+        val accId = repo.account?.id ?: prefs.currentActiveAccountId()
         val recent = RecentItem(
             kind = item.kind,
             id = item.id,
@@ -222,6 +223,7 @@ class AppContainer(context: Context) {
             positionMs = if (live) 0 else positionMs.coerceAtLeast(0),
             durationMs = if (live) 0 else durationMs.coerceAtLeast(0),
             updatedAt = System.currentTimeMillis(),
+            accountId = accId,
         )
         appScope.launch { prefs.recordPlayback(recent) }
     }

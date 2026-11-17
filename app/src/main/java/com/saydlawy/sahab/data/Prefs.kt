@@ -163,15 +163,52 @@ class Prefs @JvmOverloads constructor(
                 }
 
                 val activeId = sec.getString(SEC_ACTIVE_ID, null)
-                _accountState.value = accounts.firstOrNull { it.id == activeId } ?: accounts.firstOrNull()
+                val resolved = accounts.firstOrNull { it.id == activeId } ?: accounts.firstOrNull()
+                _accountState.value = resolved
                 accountInitialized = true
+                if (resolved != null && resolved.id.isNotBlank()) {
+                    migrateHistoryAccountIdIfNeeded(resolved.id)
+                }
             }
         }
     }
 
+    fun currentActiveAccountId(): String = _accountState.value?.id.orEmpty()
+
     val account: Flow<Account?> = flow {
         ensureAccountLoaded()
         emitAll(_accountState)
+    }
+
+    val activeAccountId: Flow<String> = account.map { it?.id.orEmpty() }
+
+    /**
+     * ينسب العناصر القديمة ذات `accountId` الفارغ إلى الحساب النشط [activeId] عند أول إقلاع بعد التحديث.
+     */
+    suspend fun migrateHistoryAccountIdIfNeeded(activeId: String) {
+        if (activeId.isBlank()) return
+        store.edit { p ->
+            val rawFavs = p[Keys.Favs]
+            if (!rawFavs.isNullOrBlank()) {
+                val favs = decodeFavs(rawFavs)
+                if (favs.any { it.accountId.isBlank() }) {
+                    val migrated = favs.map { if (it.accountId.isBlank()) it.copy(accountId = activeId) else it }
+                        .distinctBy { Triple(it.accountId, it.kind, it.id) }
+                    p[Keys.Favs] = json.encodeToString(favSerializer, migrated)
+                }
+            }
+            val rawRecents = p[Keys.Recents]
+            if (!rawRecents.isNullOrBlank()) {
+                val recents = decodeRecents(rawRecents)
+                if (recents.any { it.accountId.isBlank() }) {
+                    val migrated = recents.map { if (it.accountId.isBlank()) it.copy(accountId = activeId) else it }
+                        .sortedByDescending { it.updatedAt }
+                        .distinctBy { Triple(it.accountId, it.kind, it.id) }
+                        .trimPerAccount(MAX_RECENTS)
+                    p[Keys.Recents] = json.encodeToString(recentSerializer, migrated)
+                }
+            }
+        }
     }
 
     val favorites: Flow<List<FavItem>> = store.data.map { decodeFavs(it[Keys.Favs]) }
@@ -467,27 +504,44 @@ class Prefs @JvmOverloads constructor(
     }
 
     suspend fun toggleFavorite(item: FavItem) {
+        val accId = item.accountId.ifBlank { currentActiveAccountId() }
+        val scopedItem = if (item.accountId == accId) item else item.copy(accountId = accId)
         store.edit { p ->
             val list = decodeFavs(p[Keys.Favs]).toMutableList()
-            val index = list.indexOfFirst { it.kind == item.kind && it.id == item.id }
-            if (index >= 0) list.removeAt(index) else list.add(0, item)
+            val index = list.indexOfFirst {
+                it.accountId == accId && it.kind == scopedItem.kind && it.id == scopedItem.id
+            }
+            if (index >= 0) list.removeAt(index) else list.add(0, scopedItem)
             p[Keys.Favs] = json.encodeToString(favSerializer, list)
         }
     }
 
-    suspend fun positionOf(kind: String, id: String): Long =
-        recents.first().firstOrNull { it.kind == kind && it.id == id }?.positionMs ?: 0L
+    suspend fun positionOf(kind: String, id: String): Long {
+        val accId = currentActiveAccountId()
+        return recents.first().firstOrNull {
+            it.accountId == accId && it.kind == kind && it.id == id
+        }?.positionMs ?: 0L
+    }
 
     /** Live channels are remembered without a position; finished movies and episodes are dropped. */
     suspend fun recordPlayback(item: RecentItem) {
+        val accId = item.accountId.ifBlank { currentActiveAccountId() }
+        val scopedItem = if (item.accountId == accId) item else item.copy(accountId = accId)
         store.edit { p ->
             val list = decodeRecents(p[Keys.Recents]).toMutableList()
-            list.removeAll { it.kind == item.kind && it.id == item.id }
-            val finished = item.kind != Kind.LIVE &&
-                item.durationMs > 0 &&
-                item.positionMs >= item.durationMs * 95 / 100
-            if (!finished) list.add(0, item)
-            p[Keys.Recents] = json.encodeToString(recentSerializer, list.take(MAX_RECENTS))
+            list.removeAll { it.accountId == accId && it.kind == scopedItem.kind && it.id == scopedItem.id }
+            val finished = scopedItem.kind != Kind.LIVE &&
+                scopedItem.durationMs > 0 &&
+                scopedItem.positionMs >= scopedItem.durationMs * 95 / 100
+            if (!finished) list.add(0, scopedItem)
+            p[Keys.Recents] = json.encodeToString(recentSerializer, list.trimPerAccount(MAX_RECENTS))
+        }
+    }
+
+    suspend fun clearRecentsForAccount(accountId: String) {
+        store.edit { p ->
+            val kept = decodeRecents(p[Keys.Recents]).filterNot { it.accountId == accountId }
+            p[Keys.Recents] = json.encodeToString(recentSerializer, kept)
         }
     }
 
