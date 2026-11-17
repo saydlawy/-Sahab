@@ -141,6 +141,7 @@ import com.saydlawy.sahab.util.ChannelLogoResolver
 internal fun UnifiedFullscreenPlayerOsd(
     item: PlayItem,
     isLive: Boolean,
+    canSeek: Boolean = !isLive,
     playlistCount: Int,
     currentProgram: Program?,
     isPlaying: Boolean,
@@ -253,6 +254,7 @@ internal fun UnifiedFullscreenPlayerOsd(
                 FullscreenTimelineSection(
                     progressFlow = progressFlow,
                     isLive = isLive,
+                    canSeek = canSeek,
                     currentProgram = currentProgram,
                     onSeekTo = onSeekTo,
                     onSeekBy = onSeekBy,
@@ -292,14 +294,16 @@ internal fun UnifiedFullscreenPlayerOsd(
                             size = 38.dp,
                             circle = true,
                         )
-                        OsdIconSquareButton(
-                            icon = Ic.Previous,
-                            description = "-10",
-                            label = "-10",
-                            onClick = { onSeekBy(-SEEK_STEP_MS) },
-                            size = 38.dp,
-                            circle = true,
-                        )
+                        if (canSeek) {
+                            OsdIconSquareButton(
+                                icon = Ic.Previous,
+                                description = "-10",
+                                label = "-10",
+                                onClick = { onSeekBy(-SEEK_STEP_MS) },
+                                size = 38.dp,
+                                circle = true,
+                            )
+                        }
                         OsdPrimaryPlayButton(
                             isPlaying = isPlaying,
                             onClick = onTogglePlay,
@@ -308,14 +312,16 @@ internal fun UnifiedFullscreenPlayerOsd(
                             showOuterRing = true,
                             focusRequester = playFocus,
                         )
-                        OsdIconSquareButton(
-                            icon = Ic.Next,
-                            description = "+10",
-                            label = "+10",
-                            onClick = { onSeekBy(SEEK_STEP_MS) },
-                            size = 38.dp,
-                            circle = true,
-                        )
+                        if (canSeek) {
+                            OsdIconSquareButton(
+                                icon = Ic.Next,
+                                description = "+10",
+                                label = "+10",
+                                onClick = { onSeekBy(SEEK_STEP_MS) },
+                                size = 38.dp,
+                                circle = true,
+                            )
+                        }
                         OsdIconSquareButton(
                             icon = Ic.Next,
                             description = Ar.next,
@@ -347,12 +353,14 @@ internal fun UnifiedFullscreenPlayerOsd(
                             onClick = onOpenTracks,
                             size = 38.dp,
                         )
-                        OsdIconSquareButton(
-                            icon = Ic.Speed,
-                            description = "السرعة ($speedDesc)",
-                            onClick = onCycleSpeed,
-                            size = 38.dp,
-                        )
+                        if (canSeek) {
+                            OsdIconSquareButton(
+                                icon = Ic.Speed,
+                                description = "السرعة ($speedDesc)",
+                                onClick = onCycleSpeed,
+                                size = 38.dp,
+                            )
+                        }
                         OsdIconSquareButton(
                             icon = Ic.Aspect,
                             description = "أبعاد العرض",
@@ -370,6 +378,7 @@ internal fun UnifiedFullscreenPlayerOsd(
 internal fun FullscreenTimelineSection(
     progressFlow: StateFlow<PlaybackProgress>,
     isLive: Boolean,
+    canSeek: Boolean = !isLive,
     currentProgram: Program?,
     onSeekTo: (Long) -> Unit,
     onSeekBy: (Long) -> Unit,
@@ -402,7 +411,7 @@ internal fun FullscreenTimelineSection(
             progress = progressFraction,
             buffered = bufferedFraction,
             showChapters = false,
-            onSeekToFraction = if (!isLive && duration > 0L) {
+            onSeekToFraction = if (canSeek && duration > 0L) {
                 { frac -> onSeekTo((duration * frac).toLong()) }
             } else null,
             onSeekBy = onSeekBy,
@@ -482,21 +491,21 @@ internal fun GradientTimelineBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(22.dp)
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
-                        onSeekBy(SEEK_STEP_MS)
-                        true
-                    } else if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
-                        onSeekBy(-SEEK_STEP_MS)
-                        true
-                    } else {
-                        false
-                    }
-                }
-                .focusable(interactionSource = interaction)
                 .then(
                     if (onSeekToFraction != null) {
                         Modifier
+                            .onKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
+                                    onSeekBy(SEEK_STEP_MS)
+                                    true
+                                } else if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                                    onSeekBy(-SEEK_STEP_MS)
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            .focusable(interactionSource = interaction)
                             .pointerInput(onSeekToFraction) {
                                 detectTapGestures { offset ->
                                     if (size.width > 0) {

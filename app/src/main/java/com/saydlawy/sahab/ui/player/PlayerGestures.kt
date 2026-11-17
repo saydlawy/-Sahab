@@ -147,6 +147,7 @@ internal fun PhonePortraitPlayerScreen(
     playlist: List<PlayItem>,
     currentIndex: Int,
     isLive: Boolean,
+    canSeek: Boolean = !isLive,
     isPlaying: Boolean,
     buffering: Boolean,
     reconnecting: Boolean,
@@ -297,14 +298,18 @@ internal fun PhonePortraitPlayerScreen(
                             if (playlist.size > 1) {
                                 OsdIconSquareButton(Ic.Previous, Ar.previous, onPrev, size = 40.dp, circle = true)
                             }
-                            OsdIconSquareButton(Ic.Previous, "-10", { onSeekBy(-SEEK_STEP_MS) }, size = 42.dp, circle = true, label = "-10")
+                            if (canSeek) {
+                                OsdIconSquareButton(Ic.Previous, "-10", { onSeekBy(-SEEK_STEP_MS) }, size = 42.dp, circle = true, label = "-10")
+                            }
                             OsdPrimaryPlayButton(
                                 isPlaying = isPlaying,
                                 onClick = onTogglePlay,
                                 size = 56.dp,
                                 cornerRadius = 28.dp,
                             )
-                            OsdIconSquareButton(Ic.Next, "+10", { onSeekBy(SEEK_STEP_MS) }, size = 42.dp, circle = true, label = "+10")
+                            if (canSeek) {
+                                OsdIconSquareButton(Ic.Next, "+10", { onSeekBy(SEEK_STEP_MS) }, size = 42.dp, circle = true, label = "+10")
+                            }
                             if (playlist.size > 1) {
                                 OsdIconSquareButton(Ic.Next, Ar.next, onNext, size = 40.dp, circle = true)
                             }
@@ -315,6 +320,7 @@ internal fun PhonePortraitPlayerScreen(
                     PhonePortraitTimelineSection(
                         progressFlow = progressFlow,
                         isLive = isLive,
+                        canSeek = canSeek,
                         onSeekTo = onSeekTo,
                         onSeekBy = onSeekBy,
                         modifier = Modifier
@@ -431,7 +437,7 @@ internal fun PhonePortraitPlayerScreen(
                             onClick = onOpenGuide,
                         )
                     }
-                } else {
+                } else if (canSeek) {
                     item {
                         OsdPillButton(
                             label = String.format(Locale.US, "%.2fx", playbackSpeed).replace(".00x", ".0x"),
@@ -640,6 +646,7 @@ internal fun PhonePortraitPlayerScreen(
 internal fun PhonePortraitTimelineSection(
     progressFlow: StateFlow<PlaybackProgress>,
     isLive: Boolean,
+    canSeek: Boolean = !isLive,
     onSeekTo: (Long) -> Unit,
     onSeekBy: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -658,7 +665,7 @@ internal fun PhonePortraitTimelineSection(
             progress = progressFraction,
             buffered = bufferedFraction,
             showChapters = false,
-            onSeekToFraction = if (!isLive && duration > 0L) {
+            onSeekToFraction = if (canSeek && duration > 0L) {
                 { frac -> onSeekTo((duration * frac).toLong()) }
             } else null,
             onSeekBy = onSeekBy,

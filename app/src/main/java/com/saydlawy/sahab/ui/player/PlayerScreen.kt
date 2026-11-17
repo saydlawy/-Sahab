@@ -101,6 +101,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
@@ -213,6 +214,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     var showEpisodesDrawer by remember { mutableStateOf(false) }
     var ended by remember { mutableStateOf(false) }
     var stoppedByLifecycle by remember { mutableStateOf(false) }
+    var mediaLive by remember(item.id) { mutableStateOf(isLive) }
+    var mediaSeekable by remember(item.id) { mutableStateOf(!isLive) }
+    val canSeek = !isLive && !mediaLive && mediaSeekable
     val rootFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
     val drawerFocus = remember { FocusRequester() }
@@ -273,15 +277,19 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         interactions++
     }
     val seekBy: (Long) -> Unit = { delta ->
-        val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: Long.MAX_VALUE
-        exo.seekTo((exo.currentPosition + delta).coerceIn(0L, total))
-        vm.onSeekPosition(exo.currentPosition)
-        interactions++
+        if (canSeek) {
+            val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: Long.MAX_VALUE
+            exo.seekTo((exo.currentPosition + delta).coerceIn(0L, total))
+            vm.onSeekPosition(exo.currentPosition)
+            interactions++
+        }
     }
     val cycleSpeed: () -> Unit = {
-        val nextSpeed = vm.cycleSpeed(PlaybackSpeeds)
-        exo.setPlaybackSpeed(nextSpeed)
-        interactions++
+        if (canSeek) {
+            val nextSpeed = vm.cycleSpeed(PlaybackSpeeds)
+            exo.setPlaybackSpeed(nextSpeed)
+            interactions++
+        }
     }
 
     val toggleOrientation: () -> Unit = {
@@ -361,7 +369,20 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
 
             override fun onPlaybackStateChanged(state: Int) {
                 vm.onBufferingReady(state == Player.STATE_BUFFERING, state == Player.STATE_READY)
+                if (!exo.currentTimeline.isEmpty || state == Player.STATE_READY) {
+                    val liveNow = isLive || exo.isCurrentMediaItemLive
+                    mediaLive = liveNow
+                    mediaSeekable = !liveNow && exo.isCurrentMediaItemSeekable
+                }
                 if (state == Player.STATE_ENDED) ended = true
+            }
+
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                if (!timeline.isEmpty) {
+                    val liveNow = isLive || exo.isCurrentMediaItemLive
+                    mediaLive = liveNow
+                    mediaSeekable = !liveNow && exo.isCurrentMediaItemSeekable
+                }
             }
 
             override fun onPlayerError(e: PlaybackException) {
@@ -507,11 +528,11 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                 true
             }
             Key.MediaFastForward -> {
-                if (!isLive) seekBy(3 * SEEK_STEP_MS)
+                if (canSeek) seekBy(3 * SEEK_STEP_MS)
                 true
             }
             Key.MediaRewind -> {
-                if (!isLive) seekBy(-3 * SEEK_STEP_MS)
+                if (canSeek) seekBy(-3 * SEEK_STEP_MS)
                 true
             }
             Key.MediaNext, Key.ChannelUp -> {
@@ -567,11 +588,11 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                             controlsVisible = true
                         }
                         Key.DirectionRight -> {
-                            if (!isLive) seekBy(SEEK_STEP_MS)
+                            if (canSeek) seekBy(SEEK_STEP_MS)
                             controlsVisible = true
                         }
                         Key.DirectionLeft -> {
-                            if (!isLive) seekBy(-SEEK_STEP_MS)
+                            if (canSeek) seekBy(-SEEK_STEP_MS)
                             controlsVisible = true
                         }
                         else -> controlsVisible = true
@@ -625,6 +646,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     playlist = playlist,
                     currentIndex = index,
                     isLive = isLive,
+                    canSeek = canSeek,
                     isPlaying = isPlaying,
                     buffering = buffering,
                     reconnecting = reconnecting,
@@ -739,6 +761,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                         UnifiedFullscreenPlayerOsd(
                             item = item,
                             isLive = isLive,
+                            canSeek = canSeek,
                             playlistCount = if (isLive) playlist.size else (seriesDetails?.episodes?.size?.takeIf { it > 0 } ?: playlist.size),
                             currentProgram = currentProgram,
                             isPlaying = isPlaying,
