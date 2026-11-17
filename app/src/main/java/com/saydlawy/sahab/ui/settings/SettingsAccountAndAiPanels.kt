@@ -93,7 +93,12 @@ import kotlinx.coroutines.withContext
 
 
 @Composable
-internal fun CloudAccountPanel(email: String?, onLogout: () -> Unit, modifier: Modifier = Modifier) {
+internal fun CloudAccountPanel(
+    email: String?,
+    onLogin: () -> Unit,
+    onLogout: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -203,6 +208,16 @@ internal fun CloudAccountPanel(email: String?, onLogout: () -> Unit, modifier: M
                 )
             } else {
                 Text("لم يتم تسجيل الدخول، بياناتك تحفظ محلياً على الجهاز.", fontSize = 13.sp, color = Palette.TextDim)
+                Spacer(Modifier.height(4.dp))
+                GlassButton(
+                    text = "تسجيل الدخول السحابي",
+                    onClick = onLogin,
+                    primary = true,
+                    icon = Ic.Cloud,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .restorableFocus(Routes.SETTINGS, "settings_cloud_login_btn"),
+                )
             }
         }
     }

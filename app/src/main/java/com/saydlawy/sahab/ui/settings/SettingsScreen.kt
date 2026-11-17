@@ -92,7 +92,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onLoggedOut: () -> Unit,
+    onOpenCloudLogin: () -> Unit = {},
+) {
     val container = LocalContainer.current
     val context = LocalContext.current
     val displayMode = LocalDisplayMode.current
@@ -208,7 +212,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    SettingsDetailContent(selectedCategory ?: "customize", container, context, onLoggedOut)
+                    SettingsDetailContent(selectedCategory ?: "customize", container, context, onOpenCloudLogin, onLoggedOut)
                 }
             }
         } else {
@@ -305,7 +309,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
-                        SettingsDetailContent(selectedCategory, container, context, onLoggedOut)
+                        SettingsDetailContent(selectedCategory, container, context, onOpenCloudLogin, onLoggedOut)
                     }
                 }
             }
@@ -370,6 +374,7 @@ private fun SettingsDetailContent(
     category: String?,
     container: AppContainer,
     context: Context,
+    onOpenCloudLogin: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -393,6 +398,7 @@ private fun SettingsDetailContent(
         "cloud" -> {
             CloudAccountPanel(
                 email = cloudUser?.email,
+                onLogin = onOpenCloudLogin,
                 onLogout = {
                     container.authManager.signOut()
                     onLoggedOut()

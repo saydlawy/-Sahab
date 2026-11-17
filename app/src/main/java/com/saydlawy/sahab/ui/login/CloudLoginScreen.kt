@@ -91,7 +91,11 @@ class CloudLoginViewModel(private val container: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
+fun CloudLoginScreen(
+    onSuccess: () -> Unit,
+    onSkip: () -> Unit,
+    skipLabel: String = "تخطي الآن (بدون حفظ سحابي)",
+) {
     val container = LocalContainer.current
     val vm = appViewModel { CloudLoginViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
@@ -192,11 +196,17 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().focusRequester(googleFocus).focusProperties { down = skipFocus; up = loginFocus }
             )
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
-            TextButton(onClick = onSkip, modifier = Modifier.focusRequester(skipFocus)) {
-                Text("تخطي الآن (بدون حفظ سحابي)", color = Palette.TextDim)
-            }
+            GlassButton(
+                text = skipLabel,
+                onClick = onSkip,
+                primary = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(skipFocus)
+                    .focusProperties { up = googleFocus },
+            )
         }
     }
 }

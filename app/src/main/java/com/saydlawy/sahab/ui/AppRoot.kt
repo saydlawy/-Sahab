@@ -325,9 +325,15 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         composable(Routes.CLOUD_LOGIN) {
             val scope = rememberCoroutineScope()
             var restoringCloud by remember { mutableStateOf(false) }
+            val fromSettings = remember { nav.previousBackStackEntry?.destination?.route == Routes.SETTINGS }
+
+            BackHandler(enabled = fromSettings && !restoringCloud) {
+                nav.popBackStack()
+            }
 
             Box(Modifier.fillMaxSize()) {
                 CloudLoginScreen(
+                    skipLabel = if (fromSettings) "رجوع" else "تخطي الآن (بدون حفظ سحابي)",
                     onSuccess = {
                         if (!restoringCloud) {
                             restoringCloud = true
@@ -357,9 +363,13 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                         }
                     },
                     onSkip = {
-                        // مسار التخطي بدون حساب سحابي: لا يتم تفعيل أي رفع سحابي
-                        container.mergeCoordinator.reset()
-                        nav.navigate(Routes.LOGIN) { popUpTo(Routes.CLOUD_LOGIN) { inclusive = true } }
+                        if (fromSettings) {
+                            nav.popBackStack()
+                        } else {
+                            // مسار التخطي بدون حساب سحابي: لا يتم تفعيل أي رفع سحابي
+                            container.mergeCoordinator.reset()
+                            nav.navigate(Routes.LOGIN) { popUpTo(Routes.CLOUD_LOGIN) { inclusive = true } }
+                        }
                     }
                 )
 
@@ -418,6 +428,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onBack = back,
+                onOpenCloudLogin = { nav.navigate(Routes.CLOUD_LOGIN) },
                 onLoggedOut = {
                     container.mergeCoordinator.reset()
                     container.authManager.signOut()
