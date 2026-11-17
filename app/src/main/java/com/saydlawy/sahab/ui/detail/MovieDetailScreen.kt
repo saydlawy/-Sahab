@@ -104,25 +104,22 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Error("لا توجد بيانات معروضة")
                 return@launch
             }
-            val key = container.aiKeys.getActiveKey()
-            if (key == null) {
-                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.NoKey
-                return@launch
-            }
             val entity = withContext(Dispatchers.IO) {
                 runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
             }
             val imdbId = entity?.imdbId ?: ""
-            val posterBytes = container.gemini.downloadPoster(details.image)
-            val result = container.gemini.generateStory(
+            val result = generateStoryWithKeyRotation(
+                container = container,
                 rawName = details.name,
                 year = details.year,
                 imdbId = imdbId,
-                posterBytes = posterBytes,
+                posterUrl = details.image,
                 contentType = com.saydlawy.sahab.data.ai.ContentType.MOVIE,
-                apiKey = key.value,
             )
-            container.aiKeys.markUsed(key.id)
+            if (result == null) {
+                _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.NoKey
+                return@launch
+            }
             when (result) {
                 is com.saydlawy.sahab.data.ai.GeminiResult.Success -> {
                     val now = System.currentTimeMillis()
@@ -181,7 +178,6 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                     _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Success(result.story, result.sources)
                 }
                 is com.saydlawy.sahab.data.ai.GeminiResult.RateLimited -> {
-                    container.aiKeys.mark429(key.id)
                     _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.RateLimited
                 }
                 is com.saydlawy.sahab.data.ai.GeminiResult.InvalidKey -> {
@@ -584,37 +580,13 @@ private fun MovieInfoPanel(
             shape = RoundedCornerShape(22.dp),
             padding = 20.dp,
         ) {
-            if (details.plot.isNotBlank()) {
-                DotTitle(Ar.plot, Palette.Gold, fontSize = 16.sp)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    details.plot,
-                    fontSize = 15.sp,
-                    lineHeight = 25.sp,
-                    color = Palette.Text.copy(alpha = 0.90f),
-                )
-                Spacer(Modifier.height(18.dp))
-            } else {
-                DotTitle(Ar.plot, Palette.Gold, fontSize = 16.sp)
-                Spacer(Modifier.height(8.dp))
-                when (aiState) {
-                    is AiGenerationState.Loading -> Text("جاري توليد القصة...", color = Palette.Glow, fontSize = 14.sp)
-                    is AiGenerationState.Error -> {
-                        Text(aiState.message, color = Palette.Danger, fontSize = 13.sp)
-                        Spacer(Modifier.height(8.dp))
-                        GlassButton("إعادة المحاولة", { onGenerateStory() }, primary = true)
-                    }
-                    is AiGenerationState.RateLimited -> Text("الخدمة غير متاحة مؤقتًا — جرّب مفتاحًا آخر.", color = Palette.Gold, fontSize = 13.sp)
-                    is AiGenerationState.InvalidKey -> Text("المفتاح غير صالح — تحقق من الإعدادات.", color = Palette.Danger, fontSize = 13.sp)
-                    is AiGenerationState.NoKey -> Text("أضف مفتاح Gemini من الإعدادات.", color = Palette.Gold, fontSize = 13.sp)
-                    else -> {
-                        Text("لا توجد قصة متاحة لهذا الفيلم.", color = Palette.TextDim, fontSize = 13.sp)
-                        Spacer(Modifier.height(8.dp))
-                        GlassButton("توليد القصة بالذكاء الاصطناعي", { onGenerateStory() }, primary = true)
-                    }
-                }
-                Spacer(Modifier.height(18.dp))
-            }
+            AiStoryPlotSection(
+                plot = details.plot,
+                emptyLabel = "لا توجد قصة متاحة لهذا الفيلم.",
+                aiState = aiState,
+                onGenerateStory = onGenerateStory,
+            )
+            Spacer(Modifier.height(18.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (details.director.isNotBlank()) {

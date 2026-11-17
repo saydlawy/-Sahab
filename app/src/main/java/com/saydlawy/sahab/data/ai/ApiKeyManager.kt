@@ -82,6 +82,15 @@ class ApiKeyManager(context: Context) {
     fun getActiveKey(): ApiKey? =
         _keys.value.firstOrNull { it.id == _activeId.value }
 
+    /** O-01: Active key first, then remaining keys ordered by oldest 429 timestamp for rotation. */
+    fun orderedKeysForRotation(): List<ApiKey> {
+        val all = _keys.value
+        if (all.isEmpty()) return emptyList()
+        val active = getActiveKey()
+        val rest = all.filter { it.id != active?.id }.sortedBy { it.last429Ms }
+        return if (active != null) listOf(active) + rest else rest
+    }
+
     fun markUsed(id: String) = mutate(id) { it.copy(lastUsedMs = System.currentTimeMillis()) }
     fun mark429(id: String) = mutate(id) { it.copy(last429Ms = System.currentTimeMillis()) }
 
