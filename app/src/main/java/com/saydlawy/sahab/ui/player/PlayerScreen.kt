@@ -338,10 +338,19 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
+    val isInPipMode by SahabMediaSessionBridge.inPipMode.collectAsStateWithLifecycle()
+
+    LaunchedEffect(isTv, isPlaying) {
+        SahabMediaSessionBridge.pipAllowed = !isTv && (isPlaying || exo.playWhenReady)
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         saveNow()
         vm.flushRecents()
-        if (exo.playWhenReady || exo.isPlaying) {
+        val inPip = context.findActivity()?.isInPictureInPictureMode == true
+        // O-03: keep live audio (MediaSessionService) or phone PiP running in background;
+        // on TV or VOD outside PiP, pause normally.
+        if (!inPip && !(isLive && !isTv) && (exo.playWhenReady || exo.isPlaying)) {
             stoppedByLifecycle = true
             exo.pause()
         }
@@ -398,7 +407,11 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             }
         }
         exo.addListener(listener)
-        onDispose { exo.removeListener(listener) }
+        SahabMediaSessionBridge.attach(context, exo, allowBackgroundService = isLive && !isTv)
+        onDispose {
+            SahabMediaSessionBridge.detach(context, exo)
+            exo.removeListener(listener)
+        }
     }
 
     LaunchedEffect(item.id, ui.retryKey, ui.formatAttempt, ui.autoReconnectCount) {
@@ -765,7 +778,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     }
 
                     AnimatedVisibility(
-                        visible = controlsVisible && error == null && LocalThemeCustomization.current.isVisible("player_controls"),
+                        visible = controlsVisible && !isInPipMode && error == null && LocalThemeCustomization.current.isVisible("player_controls"),
                         enter = fadeIn(tween(220)),
                         exit = fadeOut(tween(180)),
                         modifier = Modifier.fillMaxSize(),

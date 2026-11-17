@@ -1,6 +1,12 @@
 package com.saydlawy.sahab
 
+import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
+import com.saydlawy.sahab.ui.player.SahabMediaSessionBridge
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -67,6 +73,31 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.DEBUG) {
             ReleaseUpdateChecker.checkForUpdates()
         }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (!isTelevision(this) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            SahabMediaSessionBridge.pipAllowed &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        ) {
+            runCatching {
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(16, 9))
+                        .build(),
+                )
+            }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        SahabMediaSessionBridge.inPipMode.value = isInPictureInPictureMode
     }
 
     override fun onStop() {
