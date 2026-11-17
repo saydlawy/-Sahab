@@ -171,7 +171,7 @@ class SyncCoordinator(private val container: AppContainer) {
         val appContext = context.applicationContext
         container.appScope.launch {
             val cached = MyFirebaseMessagingService.getSavedToken(appContext)
-            val token = cached ?: suspendCancellableCoroutine { cont ->
+            val token = cached ?: suspendCancellableCoroutine<String?> { cont ->
                 FirebaseMessaging.getInstance().token
                     .addOnSuccessListener { cont.resume(it) }
                     .addOnFailureListener { cont.resume(null) }
