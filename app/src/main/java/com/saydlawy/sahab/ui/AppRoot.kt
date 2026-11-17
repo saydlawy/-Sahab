@@ -79,13 +79,21 @@ fun AppRoot(container: AppContainer) {
     LaunchedEffect(Unit) {
         var account = container.prefs.account.first()
         if (account == null && container.authManager.currentUser != null) {
-            // محاولة جلب الاشتراك من السحابة بمهلة زمنية محددة
-            val cloudAccount = withTimeoutOrNull(5_000L) {
-                container.userSyncService.getXtreamAccount()
-            }
-            if (cloudAccount != null) {
-                container.prefs.saveAccount(cloudAccount)
-                account = cloudAccount
+            // محاولة جلب المصادر المتعددة أو الاشتراك من السحابة بمهلة زمنية محددة
+            val cloudAccounts = withTimeoutOrNull(5_000L) {
+                container.userSyncService.getAccounts()
+            }.orEmpty()
+            if (cloudAccounts.isNotEmpty()) {
+                cloudAccounts.forEach { container.prefs.saveAccount(it) }
+                account = cloudAccounts.first()
+            } else {
+                val cloudAccount = withTimeoutOrNull(5_000L) {
+                    container.userSyncService.getXtreamAccount()
+                }
+                if (cloudAccount != null) {
+                    container.prefs.saveAccount(cloudAccount)
+                    account = cloudAccount
+                }
             }
         }
 
@@ -365,7 +373,16 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             SettingsScreen(
                 onBack = back,
                 onLoggedOut = {
-                    nav.navigate(Routes.LOGIN) { popUpTo(nav.graph.id) { inclusive = true } }
+                    container.cloudMergeDone = false
+                    container.authManager.signOut()
+                    container.repo.setAccount(null)
+                    container.repo.clearCache(clearDisk = true)
+                    container.appScope.launch {
+                        container.prefs.clearAccount()
+                        runCatching { container.channelDb.channelDao().clearAll() }
+                        runCatching { container.channelDb.channelDao().clearAllPrograms() }
+                    }
+                    nav.navigate(Routes.CLOUD_LOGIN) { popUpTo(nav.graph.id) { inclusive = true } }
                 },
             )
         }
