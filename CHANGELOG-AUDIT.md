@@ -31,6 +31,7 @@
 | **T-H09** | [خارج الجزء المرئي] **تم التأكيد** (`UserSyncService.kt:33-37`): كان يشتق مفتاح AES من `SHA-256("sahab_cloud_v1_$uid")`. تم تطوير `CloudAccountCrypto` (v2 عبر PBKDF2 100k + salt عشوائي 16 بايت من Sync PIN يختاره المستخدم في الإعدادات) مع ترحيل تلقائي من `enc_v1:` إلى `enc_v2:`؛ وبدون Sync PIN يُخزّن الاشتراك محلياً فقط عبر Android Keystore. **تنبيه UX:** استعادة الاشتراك المشفر على جهاز ثانٍ تتطلب إدخال Sync PIN في نافذة الاستعادة. | منع اشتقاق مفتاح التشفير من UID المكشوف في مسار الوثيقة وتغطيته بـ `UserSyncEncryptionTest`. |
 | **T-H10** | [خارج الجزء المرئي] **تم التأكيد**: لم يكن `firebase-appcheck` مضافاً ولا يوجد ملف `firestore.rules` في الريبو. تم تفعيل `PlayIntegrity` في `release` و`Debug` في `debug` وتأليف `firestore.rules` لحماية `users` و`global_catalog` (رفض التلاعب بالحقوق/الميتاداتا الأصلية). **خطوة يدوية للمالك:** نشر `firestore.rules` وتفعيل App Check Enforcement من Firebase Console. | حماية `global_catalog` ومجموعات التطبيق من الكتابة غير المصرح بها أو التلاعب بحقول الإثراء. |
 | **T-H06** | إضافة `accountId` إلى `FavItem` و`RecentItem` مع ترحيل العناصر الفارغة عند الإقلاع وتصفية كل الشاشات (`FavoritesScreen`, `BrowseScreen`, `HomeScreen`, `LiveScreen`, `MovieDetailScreen`, `SeriesDetailScreen`) بـ `activeAccountId` وحصر الدمج بـ `Triple(accountId, kind, id)` و30 سجل لكل حساب. | عزل المفضلة وسجل المشاهدة تماماً بين الاشتراكات المتعددة مع الحفاظ على تاريخ الترقية القديمة. |
+| **T-H08 / M-27** | [خارج الجزء المرئي] **تم التأكيد** (`.github/workflows/build-apk.yml`): السطر 60 كان يحتوي على `echo ...` شارد داخل `args` لـ `Dependency-Check_Action` (`continue-on-error: true`)، والأسرار في السطر 93 ممررة مباشرة بدل `env:`، وكل الـ Actions بوسوم عائمة `@v4/@main/@v1`، وشرط Firebase Distribution يفحص `env.` قبل تعريفه. تم إصلاح جميعها وتثبيت الـ 7 Actions بـ commit SHA كامل وفصل `Validate google-services.json` كخطوة فاشلة حقيقياً. | تأمين سلسلة البناء ومنع بناء نسخة بلا `google-services.json` صالح. |
 
 ---
 
@@ -56,7 +57,7 @@
 | `T-M08` | 3 | تم (Run #208) | `963658b` | المزامنة السحابية مجهزة بإعادة المحاولة ووثيقة الجذر | متوافق بلا أخطاء |
 | `T-M10` | 3 | تم (Run #208) | `a858d92` | تحديث الثيم ذرياً عبر `Prefs.updateThemeCustomization` | متوافق بلا أخطاء |
 | `T-M28` | 3 | تم (Run #208) + Unit test | `50a5342` | نجحت اختبارات `M3uParserTest` ضمن Run #208 (48/48) | نجح ضمن Run #208 |
-| `T-H05 / M-25` | 4 | قيد البناء/الاختبار | `42fbc85`, `f454df6` | بانتظار بناء الدفعة 4 | بانتظار بناء الدفعة 4 |
-| `T-H09` | 4 | قيد البناء/الاختبار | `34e217f` | بانتظار بناء الدفعة 4 (`UserSyncEncryptionTest`) | بانتظار بناء الدفعة 4 |
-| `T-H10` | 4 | قيد البناء/الاختبار | `56f4c60` | بانتظار بناء الدفعة 4 + نشر يدوي للقواعد | بانتظار بناء الدفعة 4 |
-| `T-H06` | 4 | قيد البناء/الاختبار | pending | بانتظار بناء الدفعة 4 | بانتظار بناء الدفعة 4 |
+| `T-H05 / M-25` | 4 | تم (Run #212) | `42fbc85`, `f454df6` | تم التنقل بالـ D-Pad عبر الرئيسية والإعدادات دون خطأ تركيز (`logcat` خالٍ من `FATAL`) | تم التثبيت والإقلاع (`WaitTime: 3022ms`, `versionCode=212`, تصريح `POST_NOTIFICATIONS` مضاف) |
+| `T-H09` | 4 | تم (Run #212) + Unit test | `34e217f` | نجح `UserSyncEncryptionTest` في CI؛ فحص شاشة الحساب السحابي بالإعدادات بلا Crash | نجح `UserSyncEncryptionTest` + التثبيت والإقلاع السليم |
+| `T-H10` | 4 | تم (Run #212) — يتطلب نشر القواعد يدوياً | `56f4c60` | تم التثبيت مع `AppCheckInstaller` و`firestore.rules` دون أخطاء في `logcat` | تم التثبيت مع `AppCheckInstaller` (`APK = 8,292,800 bytes`) |
+| `T-H06` | 4 | تم (Run #212) + Unit test | `372d068`, `bed28f9` | نجح `CloudMergeCoordinatorTest`؛ سجل `تابع المشاهدة` هاجر وظهرت عناصره سليمة | نجح `CloudMergeCoordinatorTest` والإقلاع السليم |
