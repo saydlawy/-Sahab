@@ -288,6 +288,8 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                         container = container,
                         nav = nav,
                     )
+
+                    GithubUpdatePrompt(container = container)
                 }
             }
         }
@@ -607,6 +609,63 @@ private fun SyncPinUnlockDialog(
                     com.saydlawy.sahab.ui.components.GlassButton(
                         text = "لاحقاً",
                         onClick = { container.syncCoordinator.dismissSyncPinPrompt() },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GithubUpdatePrompt(container: AppContainer) {
+    val context = LocalContext.current
+    var pendingUpdate by remember { mutableStateOf<com.saydlawy.sahab.data.GithubReleaseUpdate?>(null) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(5_000L)
+        pendingUpdate = com.saydlawy.sahab.data.GithubReleaseUpdater.checkForUpdate(container.client)
+    }
+
+    val update = pendingUpdate ?: return
+    androidx.compose.ui.window.Dialog(onDismissRequest = { pendingUpdate = null }) {
+        com.saydlawy.sahab.ui.components.GlassPanel(
+            modifier = Modifier.fillMaxWidth(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+            strong = true,
+            padding = 20.dp,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "تحديث جديد متاح (${update.versionCode})",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                )
+                Text(
+                    "يتوفر إصدار أحدث من سحاب (${update.title}). يمكنك تحميله الآن أو لاحقاً.",
+                    color = Palette.TextDim,
+                    fontSize = 13.sp,
+                )
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    com.saydlawy.sahab.ui.components.GlassButton(
+                        text = "تحديث الآن",
+                        primary = true,
+                        onClick = {
+                            val target = update.apkUrl.ifBlank { update.htmlUrl }
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse(target),
+                                    ),
+                                )
+                            }
+                            pendingUpdate = null
+                        },
+                    )
+                    com.saydlawy.sahab.ui.components.GlassButton(
+                        text = "لاحقاً",
+                        onClick = { pendingUpdate = null },
                     )
                 }
             }
