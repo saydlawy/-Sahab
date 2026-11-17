@@ -63,6 +63,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected as semSelected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -120,6 +124,8 @@ fun GlassCard(
     fill: Brush? = null,
     autoFocus: Boolean = false,
     focusScale: Float = 1.04f,
+    role: Role = Role.Button,
+    contentDescription: String? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     val resolvedShape = shape ?: RoundedCornerShape(LocalThemeCustomization.current.cornerRadius.dp)
@@ -172,9 +178,13 @@ fun GlassCard(
             .clip(resolvedShape)
             .background(background)
             .border(borderWidth, borderColor, resolvedShape)
+            .semantics(mergeDescendants = true) {
+                contentDescription?.let { this.contentDescription = it }
+            }
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
+                role = role,
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
@@ -224,6 +234,8 @@ fun GlassButton(
         shape = RoundedCornerShape(18.dp),
         fill = if (primary) Palette.Accent else null,
         autoFocus = autoFocus,
+        role = Role.Button,
+        contentDescription = text,
     ) {
         Row(
             modifier = Modifier
@@ -263,6 +275,8 @@ fun GlassIconButton(
         selected = selected,
         autoFocus = autoFocus,
         focusScale = 1.08f,
+        role = Role.Button,
+        contentDescription = description,
     ) {
         Icon(
             imageVector = icon,
@@ -280,9 +294,11 @@ fun GlassIconButton(
 fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     GlassCard(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) { semSelected = selected },
         shape = RoundedCornerShape(50),
         selected = selected,
+        role = Role.Tab,
+        contentDescription = text,
     ) {
         Text(
             text = text,

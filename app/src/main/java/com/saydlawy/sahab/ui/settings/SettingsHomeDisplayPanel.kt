@@ -44,6 +44,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -284,9 +289,14 @@ internal fun SettingsSwitchRow(
         onClick = onToggle,
         modifier = Modifier
             .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                toggleableState = ToggleableState(checked)
+                contentDescription = "$title، $subtitle"
+            }
             .restorableFocus(Routes.SETTINGS, itemKey),
         shape = RoundedCornerShape(16.dp),
         selected = checked,
+        role = Role.Switch,
     ) {
         Row(
             Modifier

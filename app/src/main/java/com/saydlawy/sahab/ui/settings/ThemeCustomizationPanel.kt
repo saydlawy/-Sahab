@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -29,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -167,11 +170,25 @@ internal fun ThemeCustomizationPanel(prefs: Prefs) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("إظهار عناصر الشاشات", color = Palette.Text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 customizableParts.forEach { (key, title) ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val isVisible = current.componentVisibility[key] ?: true
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics(mergeDescendants = true) {}
+                            .toggleable(
+                                value = isVisible,
+                                role = Role.Switch,
+                                onValueChange = { visible ->
+                                    updateTheme(prefs, scope, editingTheme) {
+                                        it.copy(componentVisibility = it.componentVisibility + (key to visible))
+                                    }
+                                },
+                            )
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(title, color = Palette.Text, modifier = Modifier.weight(1f), fontSize = 13.sp)
-                        Switch(checked = current.componentVisibility[key] ?: true, onCheckedChange = { visible ->
-                            updateTheme(prefs, scope, editingTheme) { it.copy(componentVisibility = it.componentVisibility + (key to visible)) }
-                        })
+                        Switch(checked = isVisible, onCheckedChange = null)
                     }
                 }
                 Text("أماكن العناصر", color = Palette.Text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
