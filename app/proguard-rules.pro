@@ -32,39 +32,19 @@
 -dontwarn com.google.crypto.tink.**
 -dontwarn com.google.errorprone.annotations.**
 
-# Media3 / ExoPlayer
+# Crashlytics readable stacktraces
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+
+# Media3 / ExoPlayer (rely on library consumer-proguard rules; suppress optional missing refs)
 -dontwarn androidx.media3.**
--keepclassmembers class androidx.media3.** { *; }
 
-# Firebase App Distribution
--keep class com.google.firebase.appdistribution.** { *; }
--dontwarn com.google.firebase.appdistribution.**
-
-# AndroidX AppCompat
--keep class androidx.appcompat.** { *; }
+# AndroidX AppCompat (consumer rules embedded in AAR)
 -dontwarn androidx.appcompat.**
 
-# Firebase & DataStore - قواعد إلزامية لمنع R8 من حذف الكلاسات المستخدمة
--keep class com.google.firebase.** { *; }
--keep class androidx.datastore.*.** {*;}
--dontwarn com.google.firebase.**
--keep class com.google.android.gms.** { *; }
+# Consolidated DataStore & Firebase DataStorage keep rules
+-keep class androidx.datastore.preferences.** { *; }
 -keep class androidx.datastore.core.** { *; }
-
-# Firebase DataStorage - منع R8 من حذف الكلاس المطلوب في وقت التشغيل
 -keep class com.google.firebase.datastorage.** { *; }
--keep class androidx.datastore.** { *; }
--dontwarn com.google.firebase.datastorage.**
-
-# الحل النهائي لمشكلة JavaDataStorage مع R8
--keep class androidx.datastore.*.** {*;}
--keep class com.google.firebase.datastorage.** { *; }
--keep class com.google.firebase.installations.** { *; }
 -dontwarn androidx.datastore.**
--dontwarn com.google.firebase.datastorage.**
--dontwarn com.google.firebase.installations.**
-
-# Firebase DataStorage & DataStore
--keep class com.google.firebase.datastorage.** { *; }
--keep class androidx.datastore.*.** {*;}
 -dontwarn com.google.firebase.datastorage.**
