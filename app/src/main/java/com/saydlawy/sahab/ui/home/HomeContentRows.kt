@@ -658,8 +658,8 @@ internal fun TodayMatchCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val localTime = remember(match.time) {
-        formatUtcClockToLocal(match.time).ifBlank { "٠٨:٠٠ م" }
+    val localTime = remember(match.time, match.date) {
+        formatUtcClockToLocal(match.time, match.date).ifBlank { "٠٨:٠٠ م" }
     }
 
     GlassCard(

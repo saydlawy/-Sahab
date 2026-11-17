@@ -270,9 +270,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
     private fun triggerSilentInitialSync() {
         val app = getApplication<Application>()
         if (!hasInternet(app)) return
-        val activeLeagueId = _selectedSubLeague.value
-            ?: defaultLeagueForCategory(_selectedCategory.value)
-        val request = SyncScheduler.enqueueManualSyncNow(app, activeLeagueId)
+        val request = SyncScheduler.enqueueManualSyncNow(app)
         viewModelScope.launch {
             runCatching {
                 withTimeoutOrNull(60_000L) {
@@ -294,9 +292,7 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         _isRefreshing.value = true
-        val activeLeagueId = _selectedSubLeague.value
-            ?: defaultLeagueForCategory(_selectedCategory.value)
-        val request = SyncScheduler.enqueueManualSyncNow(app, activeLeagueId)
+        val request = SyncScheduler.enqueueManualSyncNow(app)
         viewModelScope.launch {
             val info = try {
                 withTimeoutOrNull(120_000L) {

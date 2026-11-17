@@ -69,7 +69,9 @@ import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.data.sports.Match
 import com.saydlawy.sahab.data.sports.MatchStatus
+import androidx.work.WorkManager
 import com.saydlawy.sahab.data.sports.SportsDatabase
+import com.saydlawy.sahab.data.sports.SyncScheduler
 import com.saydlawy.sahab.data.sports.toMatch
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
@@ -95,8 +97,10 @@ import com.saydlawy.sahab.util.formatDayOffsetYmd
 import com.saydlawy.sahab.util.utcDateToLocalYmd
 import com.saydlawy.sahab.util.formatUtcClockToLocal
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 @Composable
@@ -180,12 +184,21 @@ fun HomeScreen(
         }
     }
 
-    // 3. Load Today's Matches from SportsDatabase
+    // 3. Load Today's Matches from SportsDatabase (auto-sync from Firestore if empty)
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             runCatching {
                 val dao = SportsDatabase.getInstance(context).matchDao()
-                val all = dao.getAllMatches().map { it.toMatch() }
+                var all = dao.getAllMatches().map { it.toMatch() }
+                if (all.isEmpty()) {
+                    val req = SyncScheduler.enqueueManualSyncNow(context)
+                    withTimeoutOrNull(45_000L) {
+                        WorkManager.getInstance(context)
+                            .getWorkInfoByIdFlow(req.id)
+                            .firstOrNull { it != null && it.state.isFinished }
+                    }
+                    all = dao.getAllMatches().map { it.toMatch() }
+                }
                 val todayStr = formatDayOffsetYmd(0)
                 val tomorrowStr = formatDayOffsetYmd(1)
                 val yesterdayStr = formatDayOffsetYmd(-1)

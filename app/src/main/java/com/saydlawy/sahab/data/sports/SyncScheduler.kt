@@ -21,8 +21,8 @@ object SyncScheduler {
     private const val UNIQUE_MONTHLY_WORK = "monthly_sync"
     private const val UNIQUE_MANUAL_WORK = "manual_sync"
 
-    /** Minimum interval between automatic batch syncs (25 hours). */
-    const val MIN_INTERVAL_MS = 25L * 3_600_000L
+    /** Minimum interval between automatic Firestore sports syncs (4 hours). */
+    const val MIN_INTERVAL_MS = 4L * 3_600_000L
 
     fun scheduleInitialRunIfNeeded(context: Context) {
         val app = context.applicationContext

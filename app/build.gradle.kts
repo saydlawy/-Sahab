@@ -18,7 +18,6 @@ if (localPropertiesFile.exists()) {
 }
 // Read from environment variable first (GitHub Actions), fallback to local.properties
 val tmdbApiKey: String = System.getenv("TMDB_API_KEY") ?: localProperties.getProperty("TMDB_API_KEY") ?: ""
-val goalApiKey: String = System.getenv("GOAL_API_KEY") ?: localProperties.getProperty("GOAL_API_KEY") ?: ""
 
 val runNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
@@ -33,7 +32,6 @@ android {
         versionCode = runNumber
         versionName = "1.0.$runNumber"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
-        buildConfigField("String", "GOAL_API_KEY", "\"$goalApiKey\"")
     }
 
     val keystoreFile = rootProject.file("release-keystore.jks")

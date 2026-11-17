@@ -89,7 +89,6 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-          GOAL_API_KEY: ${{ secrets.GOAL_API_KEY }}
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release-keystore.jks
           gradle :app:assembleRelease --no-daemon --stacktrace
