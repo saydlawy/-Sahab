@@ -80,33 +80,44 @@ import androidx.compose.ui.platform.LocalContext
 import android.util.Log
 
 @Composable
-fun AppRoot(container: AppContainer) {
+fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
     val context = LocalContext.current
     val nav = rememberNavController()
     var start by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(start) {
+        if (start != null) onReady()
+    }
 
     LaunchedEffect(Unit) {
         val localAccount = container.prefs.account.first()
         if (localAccount != null) {
             container.repo.setAccount(localAccount)
             start = Routes.HOME
+            onReady()
             if (container.authManager.currentUser != null) {
                 container.appScope.launch {
-                    container.syncCoordinator.performCloudRestoreAndMerge()
+                    container.syncCoordinator.performCloudRestoreAndMerge(waitForMerge = false)
                 }
             }
             container.syncCoordinator.triggerFullSync(context, forceCatalog = false, reason = "startup_local")
         } else if (container.authManager.currentUser != null) {
-            val restoredAccount = container.syncCoordinator.performCloudRestoreAndMerge()
+            val restoredAccount = container.syncCoordinator.performCloudRestoreAndMerge(
+                waitForMerge = false,
+                accountTimeoutMs = 4_000L,
+            )
             if (restoredAccount != null) {
                 container.repo.setAccount(restoredAccount)
                 start = Routes.HOME
+                onReady()
                 container.syncCoordinator.triggerFullSync(context, forceCatalog = false, reason = "startup_cloud")
             } else {
                 start = Routes.CLOUD_LOGIN
+                onReady()
             }
         } else {
             start = Routes.CLOUD_LOGIN
+            onReady()
         }
     }
 

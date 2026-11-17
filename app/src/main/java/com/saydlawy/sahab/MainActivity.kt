@@ -5,36 +5,39 @@ import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import com.google.firebase.Firebase
 import com.google.firebase.appdistribution.appDistribution
 import com.saydlawy.sahab.ui.AppRoot
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalIsTv
-import com.saydlawy.sahab.ui.components.BrandLogo
-import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.SahabTheme
 import com.saydlawy.sahab.data.ThemePreferences
 import com.saydlawy.sahab.util.isTelevision
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
-    var showSplash by mutableStateOf(true)
+    @Volatile
+    private var isAppReady by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        splashScreen.setKeepOnScreenCondition { !isAppReady }
+
+        // سقف أمان 3 ثوانٍ لإزالة شاشة البداية حتى لا يُحجب الإقلاع إذا تأخر التحميل الأولي
+        lifecycleScope.launch {
+            delay(3_000L)
+            isAppReady = true
+        }
 
         enableEdgeToEdge(
             statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -50,21 +53,15 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val themeSettings by container.prefs.themePreferences.collectAsState(initial = ThemePreferences())
             SahabTheme(settings = themeSettings) {
-                if (showSplash) {
-                    SplashScreenContent {
-                        showSplash = false
-                    }
-                } else {
-                    LaunchedEffect(Unit) {
-                        delay(3000L)
-                        checkForUpdates()
-                    }
-                    CompositionLocalProvider(
-                        LocalContainer provides container,
-                        LocalIsTv provides tv,
-                    ) {
-                        AppRoot(container)
-                    }
+                LaunchedEffect(Unit) {
+                    delay(3000L)
+                    checkForUpdates()
+                }
+                CompositionLocalProvider(
+                    LocalContainer provides container,
+                    LocalIsTv provides tv,
+                ) {
+                    AppRoot(container = container, onReady = { isAppReady = true })
                 }
             }
         }
@@ -82,21 +79,5 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.w("SahabApp", "Unable to check for App Distribution updates", e)
         }
-    }
-}
-
-@Composable
-fun SplashScreenContent(onTimeout: () -> Unit) {
-    LaunchedEffect(Unit) {
-        delay(1500L)
-        onTimeout()
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Palette.DeepBlue),
-        contentAlignment = Alignment.Center
-    ) {
-        BrandLogo(size = 120.dp, bright = true)
     }
 }

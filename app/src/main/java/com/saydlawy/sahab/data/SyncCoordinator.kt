@@ -19,6 +19,7 @@ class SyncCoordinator(private val container: AppContainer) {
      * والإعدادات بأمان مع ضبط أعلام الدمج الثلاثة فقط عند نجاح الجلب الفعلي.
      */
     suspend fun performCloudRestoreAndMerge(
+        waitForMerge: Boolean = true,
         accountTimeoutMs: Long = 4_000L,
         mergeTimeoutMs: Long = 6_000L,
     ): Account? = coroutineScope {
@@ -35,63 +36,25 @@ class SyncCoordinator(private val container: AppContainer) {
             }
         }
 
-        // دمج المفضلة والسجل والإعدادات بالتوازي مع إعادة المحاولة في الخلفية عند الفشل/المهلة
-        val favsJob = async {
-            container.mergeCoordinator.mergeFavorites(
-                localFavs = { container.prefs.favorites.first() },
-                fetchCloudFavs = { container.userSyncService.fetchFavorites() },
-                saveMergedFavs = { container.prefs.restoreFavorites(it) },
-                timeoutMs = mergeTimeoutMs,
-            )
-        }
-        val recentsJob = async {
-            container.mergeCoordinator.mergeRecents(
-                localRecents = { container.prefs.recents.first() },
-                fetchCloudRecents = { container.userSyncService.fetchRecents() },
-                saveMergedRecents = { container.prefs.restoreRecents(it) },
-                timeoutMs = mergeTimeoutMs,
-            )
-        }
-        val prefsJob = async {
-            container.mergeCoordinator.mergePreferences(
-                fetchCloudPrefs = { container.userSyncService.fetchPreferences() },
-                applyPrefs = { cp ->
-                    container.prefs.setLightEffects(cp.lightEffects)
-                    container.prefs.setHomeChannelsLayout(
-                        runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
-                            .getOrDefault(HomeChannelsLayout.CAROUSEL)
-                    )
-                    container.prefs.setHomeChannelsSource(
-                        runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
-                            .getOrDefault(HomeChannelsSource.AUTO)
-                    )
-                    container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
-                },
-                timeoutMs = mergeTimeoutMs,
-            )
-        }
-
-        var activeAccount = localDeferred.await()
-        if (activeAccount == null) {
-            val cloudAccounts = cloudAccountDeferred.await().orEmpty()
-            if (cloudAccounts.isNotEmpty()) {
-                cloudAccounts.forEach { container.prefs.saveAccount(it) }
-                activeAccount = cloudAccounts.first()
-                container.prefs.setActiveAccount(activeAccount.id)
-            }
-        }
-
-        val allMerged = favsJob.await() && recentsJob.await() && prefsJob.await()
-        if (!allMerged) {
-            container.appScope.launch {
-                container.mergeCoordinator.mergeAllWithRetry(
-                    isSignedIn = { container.authManager.currentUser != null },
+        suspend fun runMergeAndRetry() = coroutineScope {
+            val favsJob = async {
+                container.mergeCoordinator.mergeFavorites(
                     localFavs = { container.prefs.favorites.first() },
                     fetchCloudFavs = { container.userSyncService.fetchFavorites() },
                     saveMergedFavs = { container.prefs.restoreFavorites(it) },
+                    timeoutMs = mergeTimeoutMs,
+                )
+            }
+            val recentsJob = async {
+                container.mergeCoordinator.mergeRecents(
                     localRecents = { container.prefs.recents.first() },
                     fetchCloudRecents = { container.userSyncService.fetchRecents() },
                     saveMergedRecents = { container.prefs.restoreRecents(it) },
+                    timeoutMs = mergeTimeoutMs,
+                )
+            }
+            val prefsJob = async {
+                container.mergeCoordinator.mergePreferences(
                     fetchCloudPrefs = { container.userSyncService.fetchPreferences() },
                     applyPrefs = { cp ->
                         container.prefs.setLightEffects(cp.lightEffects)
@@ -105,8 +68,54 @@ class SyncCoordinator(private val container: AppContainer) {
                         )
                         container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
                     },
+                    timeoutMs = mergeTimeoutMs,
                 )
             }
+            val allMerged = favsJob.await() && recentsJob.await() && prefsJob.await()
+            if (!allMerged) {
+                container.appScope.launch {
+                    container.mergeCoordinator.mergeAllWithRetry(
+                        isSignedIn = { container.authManager.currentUser != null },
+                        localFavs = { container.prefs.favorites.first() },
+                        fetchCloudFavs = { container.userSyncService.fetchFavorites() },
+                        saveMergedFavs = { container.prefs.restoreFavorites(it) },
+                        localRecents = { container.prefs.recents.first() },
+                        fetchCloudRecents = { container.userSyncService.fetchRecents() },
+                        saveMergedRecents = { container.prefs.restoreRecents(it) },
+                        fetchCloudPrefs = { container.userSyncService.fetchPreferences() },
+                        applyPrefs = { cp ->
+                            container.prefs.setLightEffects(cp.lightEffects)
+                            container.prefs.setHomeChannelsLayout(
+                                runCatching { HomeChannelsLayout.valueOf(cp.homeChannelsLayout) }
+                                    .getOrDefault(HomeChannelsLayout.CAROUSEL)
+                            )
+                            container.prefs.setHomeChannelsSource(
+                                runCatching { HomeChannelsSource.valueOf(cp.homeChannelsSource) }
+                                    .getOrDefault(HomeChannelsSource.AUTO)
+                            )
+                            container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
+                        },
+                    )
+                }
+            }
+        }
+
+        if (!waitForMerge) {
+            container.appScope.launch { runMergeAndRetry() }
+        }
+
+        var activeAccount = localDeferred.await()
+        if (activeAccount == null) {
+            val cloudAccounts = cloudAccountDeferred.await().orEmpty()
+            if (cloudAccounts.isNotEmpty()) {
+                cloudAccounts.forEach { container.prefs.saveAccount(it) }
+                activeAccount = cloudAccounts.first()
+                container.prefs.setActiveAccount(activeAccount.id)
+            }
+        }
+
+        if (waitForMerge) {
+            runMergeAndRetry()
         }
 
         activeAccount
