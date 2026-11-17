@@ -327,7 +327,10 @@ fun SportsScreen(
     if (showPhoneDetailsDialog && dialogMatch != null) {
         val dialogCloseFocus = remember { FocusRequester() }
         LaunchedEffect(isTv) {
-            if (isTv) runCatching { dialogCloseFocus.requestFocus() }
+            if (isTv) {
+                androidx.compose.runtime.withFrameNanos { }
+                runCatching { dialogCloseFocus.requestFocus() }
+            }
         }
         Dialog(onDismissRequest = {
             showPhoneDetailsDialog = false

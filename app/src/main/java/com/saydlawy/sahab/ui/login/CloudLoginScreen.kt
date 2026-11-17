@@ -103,7 +103,10 @@ fun CloudLoginScreen(onSuccess: () -> Unit, onSkip: () -> Unit) {
     val googleFocus = remember { FocusRequester() }
     val skipFocus = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) { emailFocus.requestFocus() }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        runCatching { emailFocus.requestFocus() }
+    }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {

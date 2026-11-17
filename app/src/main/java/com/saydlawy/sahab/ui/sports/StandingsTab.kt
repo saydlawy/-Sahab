@@ -529,7 +529,10 @@ internal fun StandingsDialog(
     val isTv = LocalIsTv.current
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(isTv) {
-        if (isTv) runCatching { closeFocus.requestFocus() }
+        if (isTv) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { closeFocus.requestFocus() }
+        }
     }
     Dialog(onDismissRequest = onDismiss) {
         Surface(

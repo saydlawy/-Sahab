@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -445,17 +446,21 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     LaunchedEffect(controlsVisible, requestPlayFocusTick, showEpisodesDrawer, showQuickChannelsDrawer) {
         if (showEpisodesDrawer || (showQuickChannelsDrawer && isLive)) {
             delay(60)
+            withFrameNanos { }
             runCatching { drawerFocus.requestFocus() }
         } else if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) {
             delay(50)
+            withFrameNanos { }
             runCatching { playFocus.requestFocus() }
         } else if (!controlsVisible && !showEpisodesDrawer && !showQuickChannelsDrawer) {
             delay(60)
+            withFrameNanos { }
             runCatching { rootFocus.requestFocus() }
         }
     }
     LaunchedEffect(Unit) {
         delay(80)
+        withFrameNanos { }
         runCatching {
             if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) playFocus.requestFocus()
             else rootFocus.requestFocus()

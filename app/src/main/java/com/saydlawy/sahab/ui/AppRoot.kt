@@ -1,5 +1,12 @@
 package com.saydlawy.sahab.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.HomeChannelsSource
 
@@ -102,12 +109,14 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
             start = Routes.HOME
             onReady()
             if (container.authManager.currentUser != null) {
+                container.syncCoordinator.syncFcmToken(context)
                 container.appScope.launch {
                     container.syncCoordinator.performCloudRestoreAndMerge(waitForMerge = false)
                 }
             }
             container.syncCoordinator.triggerFullSync(context, forceCatalog = false, reason = "startup_local")
         } else if (container.authManager.currentUser != null) {
+            container.syncCoordinator.syncFcmToken(context)
             val restoredAccount = container.syncCoordinator.performCloudRestoreAndMerge(
                 waitForMerge = false,
                 accountTimeoutMs = 4_000L,
@@ -267,6 +276,11 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                             modifier = Modifier.padding(bottom = 24.dp),
                         )
                     }
+
+                    NotificationPermissionPrompt(
+                        currentRoute = currentRoute,
+                        isTv = isTv,
+                    )
                 }
             }
         }
@@ -311,6 +325,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                         if (!restoringCloud) {
                             restoringCloud = true
                             scope.launch {
+                                container.syncCoordinator.syncFcmToken(context)
                                 val restoredAccount = runCatching {
                                     container.syncCoordinator.performCloudRestoreAndMerge()
                                 }.getOrNull()
@@ -422,5 +437,82 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             )
         }
         composable(Routes.PLAYER) { PlayerScreen(container = container, onBack = back) }
+    }
+}
+
+@Composable
+private fun NotificationPermissionPrompt(
+    currentRoute: String?,
+    isTv: Boolean,
+) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    if (currentRoute != Routes.HOME || isTv) return
+
+    val context = LocalContext.current
+    val fcmPrefs = remember(context) {
+        context.applicationContext.getSharedPreferences("sahab_fcm_prefs", Context.MODE_PRIVATE)
+    }
+    var showPrompt by remember { mutableStateOf(false) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { _ ->
+        fcmPrefs.edit().putBoolean("prompted_notifications", true).apply()
+        showPrompt = false
+    }
+
+    LaunchedEffect(currentRoute) {
+        val alreadyGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        val alreadyPrompted = fcmPrefs.getBoolean("prompted_notifications", false)
+        if (!alreadyGranted && !alreadyPrompted) {
+            showPrompt = true
+        }
+    }
+
+    if (showPrompt) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = {
+                fcmPrefs.edit().putBoolean("prompted_notifications", true).apply()
+                showPrompt = false
+            },
+        ) {
+            GlassPanel(shape = RoundedCornerShape(22.dp), strong = true, padding = 22.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "تفعيل الإشعارات",
+                        color = Palette.Text,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "هل ترغب في استقبال تنبيهات المباريات والأفلام والتحديثات الجديدة من سحاب؟",
+                        color = Palette.TextDim,
+                        fontSize = 14.sp,
+                    )
+                    androidx.compose.foundation.layout.Row(
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                    ) {
+                        com.saydlawy.sahab.ui.components.GlassButton(
+                            text = "تفعيل",
+                            primary = true,
+                            onClick = {
+                                showPrompt = false
+                                runCatching { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                            },
+                        )
+                        com.saydlawy.sahab.ui.components.GlassButton(
+                            text = "لاحقاً",
+                            onClick = {
+                                fcmPrefs.edit().putBoolean("prompted_notifications", true).apply()
+                                showPrompt = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }

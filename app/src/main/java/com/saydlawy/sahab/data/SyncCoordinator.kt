@@ -2,12 +2,16 @@ package com.saydlawy.sahab.data
 
 import android.content.Context
 import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
 import com.saydlawy.sahab.AppContainer
+import com.saydlawy.sahab.MyFirebaseMessagingService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 /**
  * منسق استعادة الحسابات والمزامنة السحابية والمحلية.
@@ -119,6 +123,23 @@ class SyncCoordinator(private val container: AppContainer) {
         }
 
         activeAccount
+    }
+
+    fun syncFcmToken(context: Context) {
+        if (container.authManager.currentUser == null) return
+        val appContext = context.applicationContext
+        container.appScope.launch {
+            val cached = MyFirebaseMessagingService.getSavedToken(appContext)
+            val token = cached ?: suspendCancellableCoroutine { cont ->
+                FirebaseMessaging.getInstance().token
+                    .addOnSuccessListener { cont.resume(it) }
+                    .addOnFailureListener { cont.resume(null) }
+            }
+            if (!token.isNullOrBlank()) {
+                MyFirebaseMessagingService.savePendingToken(appContext, token)
+                container.userSyncService.saveFcmToken(token)
+            }
+        }
     }
 
     /**
