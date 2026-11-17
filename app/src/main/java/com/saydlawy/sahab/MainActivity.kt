@@ -1,7 +1,6 @@
 package com.saydlawy.sahab
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -13,8 +12,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
-import com.google.firebase.Firebase
-import com.google.firebase.appdistribution.appDistribution
 import com.saydlawy.sahab.ui.AppRoot
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalIsTv
@@ -67,16 +64,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkForUpdates() {
-        try {
-            Firebase.appDistribution.updateIfNewReleaseAvailable()
-                .addOnSuccessListener {
-                    Log.d("SahabApp", "Firebase App Distribution update check completed")
-                }
-                .addOnFailureListener { e ->
-                    Log.w("SahabApp", "Firebase App Distribution update check failed: ${e.message}")
-                }
-        } catch (e: Exception) {
-            Log.w("SahabApp", "Unable to check for App Distribution updates", e)
+        if (BuildConfig.DEBUG) {
+            ReleaseUpdateChecker.checkForUpdates()
         }
     }
 

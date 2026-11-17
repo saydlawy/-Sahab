@@ -146,5 +146,5 @@ dependencies {
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
     debugImplementation("com.google.firebase:firebase-appcheck-debug")
     implementation("com.google.android.gms:play-services-auth:20.7.0")
-    implementation("com.google.firebase:firebase-appdistribution:16.0.0-beta21")
+    debugImplementation("com.google.firebase:firebase-appdistribution:16.0.0-beta21")
 }
