@@ -313,8 +313,8 @@ class SahabApp : Application(), ImageLoaderFactory {
             .build()
 
     private val coilClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
+        container.client.newBuilder()
+            .cache(null)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
