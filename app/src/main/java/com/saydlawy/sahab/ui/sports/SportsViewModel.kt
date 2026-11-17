@@ -129,10 +129,13 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
                 if (cached.isNotEmpty()) {
                     allMatches = cached
                     applyFilters(allMatches)
+                    // احترم فاصل 4 ساعات للجدولة الصامتة عند وجود بيانات محلية جاهزة
+                    triggerIntervalRespectingSync()
                 } else {
                     _uiState.value = SportsUiState.Success(emptyMap())
+                    // الجلب الفوري عند الفراغ الكامل للقاعدة فقط
+                    triggerSilentInitialSync()
                 }
-                triggerSilentInitialSync()
             } catch (e: Exception) {
                 android.util.Log.e("SportsDB", "Failed to read DB", e)
                 _uiState.value = SportsUiState.Error("DB read error: ${e.message ?: "unknown"}")
@@ -265,6 +268,23 @@ class SportsViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshActiveFilter() {
         refreshManually()
+    }
+
+    private fun triggerIntervalRespectingSync() {
+        val app = getApplication<Application>()
+        if (!hasInternet(app)) return
+        val request = SyncScheduler.enqueueIfIntervalElapsed(app) ?: return
+        viewModelScope.launch {
+            runCatching {
+                withTimeoutOrNull(60_000L) {
+                    WorkManager.getInstance(app)
+                        .getWorkInfoByIdFlow(request.id)
+                        .firstOrNull { it != null && it.state.isFinished }
+                }
+            }
+            fetchMatchesFromApi(silent = true)
+            fetchStandings()
+        }
     }
 
     private fun triggerSilentInitialSync() {

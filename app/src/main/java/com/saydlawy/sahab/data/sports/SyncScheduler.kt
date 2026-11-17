@@ -80,4 +80,30 @@ object SyncScheduler {
         )
         return request
     }
+
+    /**
+     * Enqueues a background sync ONLY if at least [MIN_INTERVAL_MS] (4h) has elapsed since the last sync.
+     * Returns null when the local cache is still fresh.
+     */
+    fun enqueueIfIntervalElapsed(context: Context): OneTimeWorkRequest? {
+        val app = context.applicationContext
+        val prefs = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lastSync = prefs.getLong(KEY_LAST_SYNC_MS, 0L)
+        if (lastSync > 0L && (System.currentTimeMillis() - lastSync) < MIN_INTERVAL_MS) {
+            return null
+        }
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = OneTimeWorkRequestBuilder<MonthlySyncWorker>()
+            .setConstraints(constraints)
+            .setInputData(Data.Builder().putBoolean(MonthlySyncWorker.KEY_FORCE, false).build())
+            .build()
+        WorkManager.getInstance(app).enqueueUniqueWork(
+            "interval_sports_sync",
+            ExistingWorkPolicy.KEEP,
+            request,
+        )
+        return request
+    }
 }
