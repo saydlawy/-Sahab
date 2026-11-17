@@ -1,8 +1,10 @@
 package com.saydlawy.sahab.data
 
+import android.util.Log
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.data.channel.ChannelDao
 import java.net.URLEncoder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -145,6 +147,14 @@ class Repository(
         data class Failure(val reason: String) : SyncResult()
     }
 
+    private suspend inline fun <T> suspendRunCatching(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        Result.failure(t)
+    }
+
     /**
      * Syncs catalog if [force]=true OR 24h passed since last sync.
      * Bypasses cached data during fetch via forceRefresh (no cache wipe = no data loss on failure).
@@ -160,19 +170,27 @@ class Repository(
         forceRefresh = true
         return try {
             requireAccount()
-            runCatching { refreshUserInfo() }
-            supervisorScope {
+            suspendRunCatching { refreshUserInfo() }
+            val results: List<Result<*>> = supervisorScope {
                 awaitAll(
-                    async(Dispatchers.IO) { runCatching { liveCategories() } },
-                    async(Dispatchers.IO) { runCatching { movieCategories() } },
-                    async(Dispatchers.IO) { runCatching { seriesCategories() } },
-                    async(Dispatchers.IO) { runCatching { liveChannels(null) } },
-                    async(Dispatchers.IO) { runCatching { movies(null) } },
-                    async(Dispatchers.IO) { runCatching { seriesList(null) } },
+                    async(Dispatchers.IO) { suspendRunCatching { liveCategories() } },
+                    async(Dispatchers.IO) { suspendRunCatching { movieCategories() } },
+                    async(Dispatchers.IO) { suspendRunCatching { seriesCategories() } },
+                    async(Dispatchers.IO) { suspendRunCatching { liveChannels(null) } },
+                    async(Dispatchers.IO) { suspendRunCatching { movies(null) } },
+                    async(Dispatchers.IO) { suspendRunCatching { seriesList(null) } },
                 )
             }
-            prefs?.setLastSyncTime(System.currentTimeMillis())
-            SyncResult.Success
+            val firstFailure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
+            if (firstFailure != null) {
+                runCatching { Log.w("SahabSync", "syncCatalog aborted without stamping time: ${firstFailure.message}") }
+                SyncResult.Failure(firstFailure.message ?: "sync failed")
+            } else {
+                prefs?.setLastSyncTime(System.currentTimeMillis())
+                SyncResult.Success
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             SyncResult.Failure(e.message ?: "unknown")
         } finally {

@@ -136,7 +136,8 @@ class SyncCoordinator(private val container: AppContainer) {
 
             val sync = runCatching { container.repo.syncCatalog(force = forceCatalog) }
                 .getOrElse { Repository.SyncResult.Failure(it.message ?: "unknown") }
-            if (sync is Repository.SyncResult.Success || sync is Repository.SyncResult.Failure) {
+            val hasLocalCatalog = runCatching { container.catalogDb.movieDao().count() > 0 }.getOrDefault(false)
+            if (sync is Repository.SyncResult.Success || (sync is Repository.SyncResult.Skipped && hasLocalCatalog)) {
                 runCatching { container.catalogSync.syncMovies(container.repo) }
                     .onFailure { Log.w("SahabSync", "[$reason] syncMovies failed: ${it.message}") }
             }
