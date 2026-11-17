@@ -2,24 +2,39 @@ package com.saydlawy.sahab.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.datasource.HttpDataSource
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Episode
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
-import com.saydlawy.sahab.data.Program
 import com.saydlawy.sahab.data.SeriesDetails
 import com.saydlawy.sahab.util.Ar
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.Immutable
+
+/**
+ * يستخرج رمز استجابة HTTP الفعلي عبر تتبع سلسلة `cause` لـ [HttpDataSource.InvalidResponseCodeException]
+ * لتفادي التقاط أرقام موجودة داخل نص الرابط مثل `/403.mp4`.
+ */
+fun extractHttpResponseCode(throwable: Throwable?): Int? {
+    var cur: Throwable? = throwable
+    var depth = 0
+    while (cur != null && depth < 12) {
+        if (cur is HttpDataSource.InvalidResponseCodeException) {
+            return cur.responseCode
+        }
+        cur = cur.cause
+        depth++
+    }
+    return null
+}
 
 data class PlaybackProgress(
     val position: Long = 0L,
@@ -41,7 +56,6 @@ data class PlayerUiState(
     val formatAttempt: Int = 0,
     val autoReconnectCount: Int = 0,
     val reconnecting: Boolean = false,
-    val epg: List<Program> = emptyList(),
     val seriesDetails: SeriesDetails? = null,
     val requestPlayFocusTick: Int = 0,
 ) {
@@ -72,7 +86,6 @@ class PlayerViewModel(
     private var forceFromZeroId: String? = null
     private var usedInitialPos: Boolean = false
     private var lastLoadedSeriesGroupId: String? = null
-    private var epgJob: Job? = null
     private var retryJob: Job? = null
 
     fun saveProgress(positionMs: Long, durationMs: Long) {
@@ -124,25 +137,6 @@ class PlayerViewModel(
                     playlist = expanded,
                     index = if (matchIdx >= 0) matchIdx else s.index,
                 )
-            }
-        }
-    }
-
-    fun startEpgLoop(itemId: String, isLive: Boolean) {
-        epgJob?.cancel()
-        _state.update { it.copy(epg = emptyList()) }
-        if (!isLive) return
-        epgJob = viewModelScope.launch {
-            while (isActive) {
-                val list = try {
-                    repo.shortEpg(itemId, 4)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    emptyList()
-                }
-                _state.update { it.copy(epg = list) }
-                delay(60_000)
             }
         }
     }
@@ -279,11 +273,10 @@ class PlayerViewModel(
         _state.update { it.copy(reconnecting = false, error = Ar.errPlayback) }
     }
 
-    fun onPlayerError(errorCodeName: String, causeMessage: String) {
+    fun onPlayerError(errorCodeName: String, responseCode: Int? = null) {
         retryJob?.cancel()
 
-        val codeMatch = Regex("""\b(401|403|404|458|500|502|503)\b""").find(causeMessage)?.value
-        val isDeviceConflict = codeMatch == "401" || codeMatch == "403" || codeMatch == "458"
+        val isDeviceConflict = responseCode == 401 || responseCode == 403 || responseCode == 458
         val s = _state.value
         val live = s.isLive
 
@@ -322,7 +315,7 @@ class PlayerViewModel(
             }
             _state.update { it.copy(
                 reconnecting = false,
-                error = "تم تجاوز الحد الأقصى للأجهزة المتصلة أو انتهى الاشتراك ($codeMatch)",
+                error = "تم تجاوز الحد الأقصى للأجهزة المتصلة أو انتهى الاشتراك ($responseCode)",
             ) }
             return
         }
@@ -357,9 +350,9 @@ class PlayerViewModel(
                 }
             }
             else -> {
-                val hint = when (codeMatch) {
-                    "404" -> "القناة أو المحتوى غير متوفر حالياً على السيرفر (404)"
-                    "500", "502", "503" -> "خلل في خادم البث ($codeMatch)"
+                val hint = when (responseCode) {
+                    404 -> "القناة أو المحتوى غير متوفر حالياً على السيرفر (404)"
+                    500, 502, 503 -> "خلل في خادم البث ($responseCode)"
                     else -> if (errorCodeName.isNotBlank()) "فشل تشغيل البث ($errorCodeName)" else Ar.errPlayback
                 }
                 _state.update { it.copy(reconnecting = false, error = hint) }

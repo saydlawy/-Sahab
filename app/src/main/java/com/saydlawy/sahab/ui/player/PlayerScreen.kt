@@ -195,7 +195,6 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     val error = ui.error
     val playbackSpeed = ui.playbackSpeed
     val resizeIndex = ui.resizeIndex
-    val epg = ui.epg
     val seriesDetails = ui.seriesDetails
     val requestPlayFocusTick = ui.requestPlayFocusTick
 
@@ -362,7 +361,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             }
 
             override fun onPlayerError(e: PlaybackException) {
-                vm.onPlayerError(e.errorCodeName, e.cause?.message ?: e.message ?: "")
+                vm.onPlayerError(e.errorCodeName, extractHttpResponseCode(e))
             }
 
             override fun onTracksChanged(newTracks: Tracks) {
@@ -426,10 +425,6 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                 }
             }
         }
-    }
-
-    LaunchedEffect(item.id, isLive) {
-        vm.startEpgLoop(item.id, isLive)
     }
 
     LaunchedEffect(
