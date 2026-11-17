@@ -125,7 +125,7 @@ internal fun ThemeCustomizationPanel(prefs: Prefs) {
                             value = value,
                             onValueChange = { typed ->
                                 value = typed
-                                if (parseColor(typed) != null) save(prefs, scope, editingTheme, current.copy(colorOverrides = current.colorOverrides + (token to typed)))
+                                if (parseColor(typed) != null) updateTheme(prefs, scope, editingTheme) { it.copy(colorOverrides = it.colorOverrides + (token to typed)) }
                             },
                             singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle(color = Palette.Text, fontSize = 12.sp),
@@ -140,25 +140,25 @@ internal fun ThemeCustomizationPanel(prefs: Prefs) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("الخط والأيقونات", color = Palette.Text, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 ChoiceRow("الخط", listOf("cairo" to "القاهرة", "sans" to "بسيط", "serif" to "نسخي", "mono" to "أحادي"), current.fontFamily) {
-                    save(prefs, scope, editingTheme, current.copy(fontFamily = it))
+                    updateTheme(prefs, scope, editingTheme) { cur -> cur.copy(fontFamily = it) }
                 }
                 LabeledSlider("حجم الخط", current.fontScale, 0.8f..1.35f, "${(current.fontScale * 100).toInt()}٪") {
-                    save(prefs, scope, editingTheme, current.copy(fontScale = it))
+                    updateTheme(prefs, scope, editingTheme) { cur -> cur.copy(fontScale = it) }
                 }
                 ChoiceRow("شكل الأيقونة", listOf("plain" to "بسيطة", "filled" to "معبأة", "outlined" to "محددة"), current.iconStyle) {
-                    save(prefs, scope, editingTheme, current.copy(iconStyle = it))
+                    updateTheme(prefs, scope, editingTheme) { cur -> cur.copy(iconStyle = it) }
                 }
                 ChoiceRow("حاوية الأيقونة", listOf("rounded" to "مستديرة", "circle" to "دائرية", "square" to "مربعة"), current.iconContainerShape) {
-                    save(prefs, scope, editingTheme, current.copy(iconContainerShape = it))
+                    updateTheme(prefs, scope, editingTheme) { cur -> cur.copy(iconContainerShape = it) }
                 }
                 LabeledSlider("حجم الأيقونات", current.iconScale, 0.7f..1.4f, "${(current.iconScale * 100).toInt()}٪") {
-                    save(prefs, scope, editingTheme, current.copy(iconScale = it))
+                    updateTheme(prefs, scope, editingTheme) { cur -> cur.copy(iconScale = it) }
                 }
                 LabeledSlider("استدارة البطاقات", current.cornerRadius, 0f..36f, "${current.cornerRadius.toInt()} dp") {
-                    save(prefs, scope, editingTheme, current.copy(cornerRadius = it))
+                    updateTheme(prefs, scope, editingTheme) { cur -> cur.copy(cornerRadius = it) }
                 }
                 LabeledSlider("شفافية الزجاج", current.glassOpacity, 0.2f..1f, "${(current.glassOpacity * 100).toInt()}٪") {
-                    save(prefs, scope, editingTheme, current.copy(glassOpacity = it))
+                    updateTheme(prefs, scope, editingTheme) { cur -> cur.copy(glassOpacity = it) }
                 }
             }
         }
@@ -170,7 +170,7 @@ internal fun ThemeCustomizationPanel(prefs: Prefs) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, color = Palette.Text, modifier = Modifier.weight(1f), fontSize = 13.sp)
                         Switch(checked = current.componentVisibility[key] ?: true, onCheckedChange = { visible ->
-                            save(prefs, scope, editingTheme, current.copy(componentVisibility = current.componentVisibility + (key to visible)))
+                            updateTheme(prefs, scope, editingTheme) { it.copy(componentVisibility = it.componentVisibility + (key to visible)) }
                         })
                     }
                 }
@@ -190,7 +190,7 @@ internal fun ThemeCustomizationPanel(prefs: Prefs) {
                         else -> "end"
                     }
                     ChoiceRow(title, placements, current.componentPlacement[key] ?: defaultPlacement) { place ->
-                        save(prefs, scope, editingTheme, current.copy(componentPlacement = current.componentPlacement + (key to place)))
+                        updateTheme(prefs, scope, editingTheme) { it.copy(componentPlacement = it.componentPlacement + (key to place)) }
                     }
                 }
             }
@@ -234,8 +234,13 @@ private fun LabeledSlider(title: String, value: Float, range: ClosedFloatingPoin
     }
 }
 
-private fun save(prefs: Prefs, scope: kotlinx.coroutines.CoroutineScope, themeId: String, value: ThemeCustomization) {
-    scope.launch { prefs.setThemeCustomization(themeId, value) }
+private fun updateTheme(
+    prefs: Prefs,
+    scope: kotlinx.coroutines.CoroutineScope,
+    themeId: String,
+    transform: (ThemeCustomization) -> ThemeCustomization,
+) {
+    scope.launch { prefs.updateThemeCustomization(themeId, transform) }
 }
 
 private fun parseColor(raw: String): Color? {

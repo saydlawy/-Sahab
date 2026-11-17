@@ -422,13 +422,22 @@ class Prefs @JvmOverloads constructor(
     }
 
     suspend fun setThemeCustomization(themeId: String, customization: ThemeCustomization) {
+        updateThemeCustomization(themeId) { customization }
+    }
+
+    /** تحديث ذري لتخصيص الثيم داخل DataStore.edit لتجنب ضياع التغييرات المتزامنة. */
+    suspend fun updateThemeCustomization(
+        themeId: String,
+        transform: (ThemeCustomization) -> ThemeCustomization,
+    ) {
         store.edit { preferences ->
             val current = preferences[Keys.ThemePreferencesKey]
                 ?.let { raw -> runCatching { json.decodeFromString(ThemePreferences.serializer(), raw) }.getOrNull() }
                 ?: ThemePreferences()
+            val updated = transform(current.customization(themeId))
             preferences[Keys.ThemePreferencesKey] = json.encodeToString(
                 ThemePreferences.serializer(),
-                current.copy(customizations = current.customizations + (themeId to customization)),
+                current.copy(customizations = current.customizations + (themeId to updated)),
             )
         }
     }
