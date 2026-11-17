@@ -29,9 +29,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.saydlawy.sahab.data.auth.CloudPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.withContext
 import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -43,6 +46,7 @@ import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
 
+    private val appContext = context.applicationContext
     val prefs = Prefs(context)
     val diskCache = DiskCache(context)
     val gemini by lazy { com.saydlawy.sahab.data.ai.GeminiStoryService() }
@@ -128,29 +132,48 @@ class AppContainer(context: Context) {
         }
     }
 
+    private val _switchingAccount = MutableStateFlow(false)
+    val switchingAccount: StateFlow<Boolean> = _switchingAccount
+
+    /**
+     * توحيد تنظيف البيانات المحلية (الكتالوج، القنوات، البرامج، الكاش، ومواقيت المزامنة).
+     * عند [clearPrefsAccount]=true يمسح أيضاً بيانات الحساب المخزنة في Prefs ويعيد ضبط بوابات الدمج.
+     */
+    suspend fun clearAllLocalData(clearPrefsAccount: Boolean = false) = withContext(Dispatchers.IO) {
+        repo.clearCache(clearDisk = true)
+        prefs.clearSyncTimestamps()
+        runCatching { channelDb.channelDao().clearAll() }
+            .onFailure { android.util.Log.e("SahabClear", "Failed to clear channels: ${it.message}") }
+        runCatching { channelDb.channelDao().clearAllPrograms() }
+            .onFailure { android.util.Log.e("SahabClear", "Failed to clear EPG programs: ${it.message}") }
+        runCatching { catalogDb.movieDao().wipe() }
+            .onFailure { android.util.Log.e("SahabClear", "Failed to wipe catalog movies: ${it.message}") }
+        if (clearPrefsAccount) {
+            mergeCoordinator.reset()
+            repo.setAccount(null)
+            prefs.clearAccount()
+        }
+    }
+
     fun switchAccount(acc: Account) {
-        // 1. تحديث الحساب في الـ Prefs
-        appScope.launch { prefs.setActiveAccount(acc.id) }
-        
-        // 2. تفعيل الحساب في الـ Repository
+        _switchingAccount.value = true
         repo.setAccount(acc)
-        
-        // 3. مسح القنوات والبرامج والكتالوج القديم من Room (لتجنب تداخل البيانات بين الاشتراكات)
         appScope.launch(Dispatchers.IO) {
             try {
-                channelDb.channelDao().clearAll()
-                channelDb.channelDao().clearAllPrograms()
-                catalogDb.movieDao().wipe()
+                // 1. تثبيت الحساب النشط وتنظيف كل بيانات الحساب السابق قبل المزامنة
+                prefs.setActiveAccount(acc.id)
+                clearAllLocalData(clearPrefsAccount = false)
+
+                // 2. تشغيل سلسلة المزامنة الكاملة للحساب الجديد (كتالوج + أفلام + قنوات + EPG)
+                syncCoordinator.runFullSync(
+                    context = appContext,
+                    forceCatalog = true,
+                    reason = "switchAccount",
+                )
             } catch (e: Exception) {
-                android.util.Log.e("SahabSwitch", "Failed to clear local DBs: ${e.message}")
-            }
-            
-            // 4. بدء مزامنة الحساب الجديد في الخلفية
-            try {
-                repo.prewarmCatalog()
-                channelSync.sync(repo, forceFullRefresh = true)
-            } catch (e: Exception) {
-                android.util.Log.e("SahabSwitch", "Failed to sync new account: ${e.message}")
+                android.util.Log.e("SahabSwitch", "Failed to switch account: ${e.message}")
+            } finally {
+                _switchingAccount.value = false
             }
         }
     }

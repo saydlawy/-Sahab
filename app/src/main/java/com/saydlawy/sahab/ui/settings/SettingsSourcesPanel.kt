@@ -187,7 +187,7 @@ internal fun SourcesPanel(container: AppContainer) {
                                     if (next != null) {
                                         container.switchAccount(next)
                                     } else {
-                                        container.repo.setAccount(null)
+                                        container.clearAllLocalData(clearPrefsAccount = true)
                                     }
                                 }
                             }

@@ -229,13 +229,35 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                     val catalogSyncing by container.catalogSync.syncing.collectAsStateWithLifecycle()
                     val channelSyncing by container.channelSync.syncing.collectAsStateWithLifecycle()
                     val epgSyncing by container.epgSync.syncing.collectAsStateWithLifecycle()
-                    val syncing = repoSyncing || catalogSyncing || channelSyncing || epgSyncing
+                    val switchingAccount by container.switchingAccount.collectAsStateWithLifecycle()
+                    val syncing = repoSyncing || catalogSyncing || channelSyncing || epgSyncing || switchingAccount
+                    if (switchingAccount && !onPlayer) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.58f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            GlassPanel(shape = RoundedCornerShape(24.dp), strong = true, padding = 28.dp) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = Palette.FocusCyan)
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        text = "جاري تبديل الاشتراك وتحديث القنوات والأفلام...",
+                                        color = Palette.Text,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Box(
                         Modifier.fillMaxSize(),
                         contentAlignment = Alignment.BottomCenter,
                     ) {
                         SyncOverlay(
-                            visible = syncing && !onPlayer,
+                            visible = syncing && !switchingAccount && !onPlayer,
                             modifier = Modifier.padding(bottom = 24.dp),
                         )
                     }
@@ -372,12 +394,8 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                     container.mergeCoordinator.reset()
                     container.authManager.signOut()
                     container.repo.setAccount(null)
-                    container.repo.clearCache(clearDisk = true)
                     container.appScope.launch {
-                        container.prefs.clearAccount()
-                        runCatching { container.channelDb.channelDao().clearAll() }
-                        runCatching { container.channelDb.channelDao().clearAllPrograms() }
-                        runCatching { container.catalogDb.movieDao().wipe() }
+                        container.clearAllLocalData(clearPrefsAccount = true)
                     }
                     nav.navigate(Routes.CLOUD_LOGIN) { popUpTo(nav.graph.id) { inclusive = true } }
                 },
