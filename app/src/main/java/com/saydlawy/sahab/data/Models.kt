@@ -156,12 +156,14 @@ data class RecentItem(
     val accountId: String = "",
 )
 
+@JvmName("favsForAccount")
 fun List<FavItem>.forAccount(accountId: String): List<FavItem> =
     if (accountId.isBlank()) filter { it.accountId.isBlank() } else filter { it.accountId == accountId }
 
 fun List<FavItem>.isFav(accountId: String, kind: String, id: String): Boolean =
     any { it.accountId == accountId && it.kind == kind && it.id == id }
 
+@JvmName("recentsForAccount")
 fun List<RecentItem>.forAccount(accountId: String): List<RecentItem> =
     if (accountId.isBlank()) filter { it.accountId.isBlank() } else filter { it.accountId == accountId }
 
