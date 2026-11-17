@@ -287,6 +287,7 @@ class SahabApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         FirebaseApp.initializeApp(this)
+        AppCheckInstaller.install()
         container = AppContainer(this)
         container.startAutoSync()
         container.appScope.launch {

@@ -1,0 +1,202 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model (Sahab IPTV)
+    // ===============================================================
+    //
+    // Collection: users/{uid}
+    // Fields:
+    //   - fcmToken: string (optional, <= 512 chars)
+    //   - updatedAt: timestamp (optional)
+    //
+    // Subcollection: users/{uid}/data/{docId} (xtream | accounts_list | favorites | recents | preferences)
+    //   - xtream: server, user, pass (string <= 2048), cryptoVersion (int, optional)
+    //   - accounts_list: enc (string <= 65536), cryptoVersion (int, optional), json (legacy string, optional)
+    //   - favorites / recents: json (string <= 262144)
+    //   - preferences: lightEffects (bool), homeChannelsLayout (string), homeChannelsSource (string), homeChannelsCategoryId (string)
+    //
+    // Collection: global_catalog/{docId}
+    //   Shared catalog & AI-generated plots. Read-only fields populated by pipeline/TMDB
+    //   cannot be overwritten by clients once non-empty.
+    //
+    // Collections: global_channels, global_epg, global_sports (read-only from client)
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             request.resource.data[field] == null ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    function isValidOptionalInt(field, minVal, maxVal) {
+      return !(field in request.resource.data) ||
+             request.resource.data[field] == null ||
+             (request.resource.data[field] is int &&
+              request.resource.data[field] >= minVal &&
+              request.resource.data[field] <= maxVal);
+    }
+
+    function isValidOptionalUrl(field) {
+      return !(field in request.resource.data) ||
+             request.resource.data[field] == null ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() <= 1024 &&
+              (request.resource.data[field] == '' ||
+               request.resource.data[field].matches('^https://.*') ||
+               request.resource.data[field].matches('^http://.*')));
+    }
+
+    function isValidStringList(field, maxItems, maxItemLen) {
+      return !(field in request.resource.data) ||
+             request.resource.data[field] == null ||
+             (request.resource.data[field] is list &&
+              request.resource.data[field].size() <= maxItems &&
+              (request.resource.data[field].size() == 0 ||
+               (request.resource.data[field][0] is string && request.resource.data[field][0].size() <= maxItemLen)));
+    }
+
+    function isValidUserRoot(data) {
+      return hasOnlyAllowedFields(['fcmToken', 'updatedAt']) &&
+             isValidOptionalString('fcmToken', 1, 512) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidUserDataDoc(docId, data) {
+      return (docId == 'xtream' &&
+              hasOnlyAllowedFields(['server', 'user', 'pass', 'cryptoVersion']) &&
+              isValidOptionalString('server', 0, 2048) &&
+              isValidOptionalString('user', 0, 2048) &&
+              isValidOptionalString('pass', 0, 2048) &&
+              isValidOptionalInt('cryptoVersion', 1, 10)) ||
+             (docId == 'accounts_list' &&
+              hasOnlyAllowedFields(['enc', 'json', 'cryptoVersion']) &&
+              isValidOptionalString('enc', 0, 65536) &&
+              isValidOptionalString('json', 0, 65536) &&
+              isValidOptionalInt('cryptoVersion', 1, 10)) ||
+             ((docId == 'favorites' || docId == 'recents') &&
+              hasOnlyAllowedFields(['json']) &&
+              ('json' in data) && data.json is string && data.json.size() <= 262144) ||
+             (docId == 'preferences' &&
+              hasOnlyAllowedFields(['lightEffects', 'homeChannelsLayout', 'homeChannelsSource', 'homeChannelsCategoryId']) &&
+              (!('lightEffects' in data) || data.lightEffects is bool) &&
+              isValidOptionalString('homeChannelsLayout', 1, 32) &&
+              isValidOptionalString('homeChannelsSource', 1, 32) &&
+              isValidOptionalString('homeChannelsCategoryId', 0, 128));
+    }
+
+    function catalogAllowedFields() {
+      return [
+        'novaStreamId', 'titleAr', 'titleEn', 'year', 'plot', 'plotSource',
+        'plotConfidence', 'identifiedTitle', 'mediaType', 'cast', 'director',
+        'genre', 'runtime', 'rating', 'posterUrl', 'backdropUrl',
+        'tmdbId', 'imdbId', 'tmdbVoteCount', 'aliases', 'redirectTo'
+      ];
+    }
+
+    function isValidCatalogPayload(data) {
+      return hasOnlyAllowedFields(catalogAllowedFields()) &&
+             isValidOptionalString('novaStreamId', 0, 64) &&
+             isValidOptionalString('titleAr', 0, 300) &&
+             isValidOptionalString('titleEn', 0, 300) &&
+             isValidOptionalString('year', 0, 16) &&
+             isValidOptionalString('plot', 0, 6000) &&
+             isValidOptionalString('plotSource', 0, 64) &&
+             isValidOptionalString('plotConfidence', 0, 32) &&
+             isValidOptionalString('identifiedTitle', 0, 300) &&
+             isValidOptionalString('mediaType', 1, 32) &&
+             (!('mediaType' in data) || data.mediaType in ['movie', 'series']) &&
+             isValidOptionalString('cast', 0, 1000) &&
+             isValidOptionalString('director', 0, 300) &&
+             isValidOptionalString('genre', 0, 300) &&
+             isValidOptionalString('runtime', 0, 64) &&
+             isValidOptionalString('rating', 0, 32) &&
+             isValidOptionalUrl('posterUrl') &&
+             isValidOptionalUrl('backdropUrl') &&
+             isValidOptionalInt('tmdbId', 1, 999999999) &&
+             isValidOptionalString('imdbId', 0, 32) &&
+             isValidOptionalInt('tmdbVoteCount', 0, 999999999) &&
+             isValidStringList('aliases', 10, 64) &&
+             isValidOptionalString('redirectTo', 1, 64);
+    }
+
+    function immutableIfPopulated(field) {
+      return !(field in resource.data) ||
+             resource.data[field] == null ||
+             resource.data[field] == '' ||
+             request.resource.data[field] == resource.data[field];
+    }
+
+    function originalEnrichmentUnchanged() {
+      return immutableIfPopulated('tmdbId') &&
+             immutableIfPopulated('imdbId') &&
+             immutableIfPopulated('tmdbVoteCount') &&
+             immutableIfPopulated('titleEn') &&
+             immutableIfPopulated('year') &&
+             immutableIfPopulated('posterUrl') &&
+             immutableIfPopulated('backdropUrl') &&
+             immutableIfPopulated('cast') &&
+             immutableIfPopulated('director') &&
+             immutableIfPopulated('genre') &&
+             immutableIfPopulated('runtime') &&
+             immutableIfPopulated('rating') &&
+             immutableIfPopulated('mediaType');
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isValidUserRoot(request.resource.data);
+      allow delete: if isOwner(uid);
+
+      match /data/{docId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && isValidUserDataDoc(docId, request.resource.data);
+        allow delete: if isOwner(uid);
+      }
+    }
+
+    match /global_catalog/{docId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidCatalogPayload(request.resource.data);
+      allow update: if isAuthenticated() &&
+                       isValidCatalogPayload(request.resource.data) &&
+                       originalEnrichmentUnchanged();
+      allow delete: if false;
+    }
+
+    match /global_channels/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /global_epg/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /global_sports/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
