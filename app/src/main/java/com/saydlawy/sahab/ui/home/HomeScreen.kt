@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.saydlawy.sahab.data.Channel
+import com.saydlawy.sahab.data.DEFAULT_VOD_EXT
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.HomeChannelsSource
@@ -251,7 +252,7 @@ fun HomeScreen(
                                             item.title,
                                             subtitle = item.subtitle,
                                             icon = item.icon,
-                                            ext = item.ext.ifBlank { "mp4" },
+                                            ext = item.ext.ifBlank { DEFAULT_VOD_EXT },
                                         ),
                                     ),
                                     startIndex = 0,

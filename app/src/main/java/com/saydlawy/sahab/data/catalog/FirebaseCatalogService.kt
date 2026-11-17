@@ -2,6 +2,7 @@ package com.saydlawy.sahab.data.catalog
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.saydlawy.sahab.data.DEFAULT_VOD_EXT
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.Repository
 import kotlinx.coroutines.Dispatchers
@@ -262,7 +263,7 @@ class FirebaseCatalogService {
             posterUrl = bestPoster,
             backdropUrl = fb?.backdropUrl ?: room?.backdropUrl.orEmpty(),
             novaAdded = poster.added,
-            containerExtension = poster.ext.ifBlank { "mp4" },
+            containerExtension = poster.ext.ifBlank { DEFAULT_VOD_EXT },
             tmdbVoteCount = fb?.tmdbVoteCount ?: room?.tmdbVoteCount,
             needsEnrichment = 0,
         )

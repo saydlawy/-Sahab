@@ -222,8 +222,8 @@ class Repository(
                 val ext = exts[formatAttempt.coerceIn(0, exts.lastIndex)]
                 "${a.server}/live/$user/$pass/${item.id}.$ext"
             }
-            Kind.MOVIE -> "${a.server}/movie/$user/$pass/${item.id}.${item.ext.ifBlank { "mp4" }}"
-            else -> "${a.server}/series/$user/$pass/${item.id}.${item.ext.ifBlank { "mp4" }}"
+            Kind.MOVIE -> "${a.server}/movie/$user/$pass/${item.id}.${item.ext.ifBlank { DEFAULT_VOD_EXT }}"
+            else -> "${a.server}/series/$user/$pass/${item.id}.${item.ext.ifBlank { DEFAULT_VOD_EXT }}"
         }
     }
 

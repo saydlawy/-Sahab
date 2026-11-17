@@ -9,6 +9,9 @@ object Kind {
     const val SERIES = "series"
 }
 
+/** الامتداد الافتراضي الموحد لأفلام وحلقات VOD عند خلوه من استجابة الخادم. */
+const val DEFAULT_VOD_EXT = "mp4"
+
 @Serializable
 data class Account(
     val id: String = java.util.UUID.randomUUID().toString(),

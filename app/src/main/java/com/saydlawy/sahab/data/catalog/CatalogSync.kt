@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.data.catalog
 
+import com.saydlawy.sahab.data.DEFAULT_VOD_EXT
+
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.Repository
 import kotlinx.coroutines.Dispatchers
@@ -313,7 +315,7 @@ class CatalogSync(
             year = year,
             posterUrl = p.image,
             novaAdded = p.added,
-            containerExtension = p.ext.ifBlank { "m3u8" },
+            containerExtension = p.ext.ifBlank { DEFAULT_VOD_EXT },
             needsEnrichment = 1,
             lastSeen = now,
             deleted = 0,
