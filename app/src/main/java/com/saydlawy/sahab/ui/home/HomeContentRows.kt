@@ -786,23 +786,3 @@ internal fun TeamCrestBadge(
         }
     }
 }
-
-@Composable
-fun LiveMatchesBar(
-    onOpenLive: () -> Unit,
-    onOpenSports: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Palette.CardSurface)
-            .border(1.dp, Palette.GlassBorder, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        DotTitle("مباريات اليوم الحية", Palette.Gold, fontSize = 13.sp, color = Palette.Gold)
-    }
-}
