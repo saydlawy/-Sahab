@@ -88,6 +88,42 @@ class AppContainer(context: Context) {
     @Volatile
     var playback: PlayRequest? = null
 
+    private val pendingPlaybackFile by lazy { File(appContext.filesDir, "pending_playback.json") }
+    private val playbackJson by lazy {
+        kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    }
+
+    /** M-18: Persist a bounded window around [request.startIndex] so Process Death on PlayerScreen recovers cleanly. */
+    fun savePendingPlayback(request: PlayRequest) {
+        val safeIdx = request.startIndex.coerceIn(0, (request.items.size - 1).coerceAtLeast(0))
+        val windowStart = (safeIdx - 40).coerceAtLeast(0)
+        val windowEnd = (safeIdx + 41).coerceAtMost(request.items.size)
+        val bounded = if (request.items.size > 81) {
+            request.copy(
+                items = request.items.subList(windowStart, windowEnd),
+                startIndex = safeIdx - windowStart,
+            )
+        } else {
+            request
+        }
+        appScope.launch {
+            runCatching {
+                pendingPlaybackFile.writeText(playbackJson.encodeToString(PlayRequest.serializer(), bounded))
+            }
+        }
+    }
+
+    fun restorePendingPlayback(): PlayRequest? = runCatching {
+        if (!pendingPlaybackFile.exists()) return null
+        playbackJson.decodeFromString(PlayRequest.serializer(), pendingPlaybackFile.readText())
+            .also { playback = it }
+    }.getOrNull()
+
+    fun clearPendingPlayback() {
+        playback = null
+        appScope.launch { runCatching { pendingPlaybackFile.delete() } }
+    }
+
     /** Short stable hash of (server + user). Used to isolate the video cache per account
      *  without exposing credentials. Returns "anon" before login. */
     val accountHash: String

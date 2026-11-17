@@ -172,12 +172,16 @@ internal val TimelineProgressBrush get() = Brush.horizontalGradient(listOf(OsdPr
 @Composable
 fun PlayerScreen(container: AppContainer, onBack: () -> Unit) {
     val themeCustomization = LocalThemeCustomization.current
-    val request = remember { container.playback }
+    val request = remember { container.playback ?: container.restorePendingPlayback() }
     if (request == null || request.items.isEmpty()) {
         LaunchedEffect(Unit) { onBack() }
         return
     }
-    PlayerContent(container, request, onBack)
+    val exitPlayer: () -> Unit = {
+        container.clearPendingPlayback()
+        onBack()
+    }
+    PlayerContent(container, request, exitPlayer)
 }
 
 @OptIn(UnstableApi::class)

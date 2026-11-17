@@ -113,6 +113,7 @@ data class Program(
     val end: Long,
 )
 
+@Serializable
 data class PlayItem(
     val kind: String,
     val id: String,
@@ -124,6 +125,7 @@ data class PlayItem(
     val url: String = "",
 )
 
+@Serializable
 data class PlayRequest(
     val items: List<PlayItem>,
     val startIndex: Int,

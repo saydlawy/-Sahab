@@ -1,97 +1,144 @@
 package com.saydlawy.sahab.ui.home
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
+import android.content.Context
+import androidx.compose.runtime.Immutable
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
+import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Channel
 import com.saydlawy.sahab.data.FavItem
-import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.HomeChannelsSource
 import com.saydlawy.sahab.data.Kind
-import com.saydlawy.sahab.data.PlayItem
-import com.saydlawy.sahab.data.PlayRequest
-import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.data.sports.Match
 import com.saydlawy.sahab.data.sports.MatchStatus
 import com.saydlawy.sahab.data.sports.SportsDatabase
+import com.saydlawy.sahab.data.sports.SyncScheduler
 import com.saydlawy.sahab.data.sports.toMatch
-import com.saydlawy.sahab.ui.DisplayMode
-import com.saydlawy.sahab.ui.LocalContainer
-import com.saydlawy.sahab.ui.LocalDisplayMode
-import com.saydlawy.sahab.ui.LocalIsTv
-import com.saydlawy.sahab.ui.Routes
-import com.saydlawy.sahab.ui.components.DotTitle
-import com.saydlawy.sahab.ui.components.GlassCard
-import com.saydlawy.sahab.ui.components.Ic
-import com.saydlawy.sahab.ui.components.RemoteImage
-import com.saydlawy.sahab.ui.components.SahabTopBar
-import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
-import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
-import com.saydlawy.sahab.ui.focus.restorableFocus
-import com.saydlawy.sahab.ui.home.components.TrendingMoviesSection
-import com.saydlawy.sahab.ui.theme.Palette
-import com.saydlawy.sahab.util.Ar
-import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.formatDayOffsetYmd
-import com.saydlawy.sahab.util.formatUtcClockToLocal
+import com.saydlawy.sahab.util.utcDateToLocalYmd
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
+
+@Immutable
+data class HomeUiState(
+    val featuredChannels: List<Channel> = emptyList(),
+    val trendingMovies: List<CatalogMovieEntity> = emptyList(),
+    val todayMatches: List<Match> = emptyList(),
+)
+
+/**
+ * M-18: Owns Home screen data loading (featured channels, instant/enriched movies, today's matches)
+ * outside Composable state.
+ */
+class HomeViewModel(
+    private val container: AppContainer,
+    private val appContext: Context,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(
+        HomeUiState(trendingMovies = container.firebaseCatalog.peekCachedRecommendedMovies()),
+    )
+    val state = _state.asStateFlow()
+
+    private var featuredJob: Job? = null
+    private var trendingJob: Job? = null
+
+    init {
+        loadTodayMatches()
+    }
+
+    fun refreshFeaturedChannels(
+        source: HomeChannelsSource,
+        categoryId: String,
+        customIds: Set<String>,
+        favorites: List<FavItem>,
+    ) {
+        featuredJob?.cancel()
+        featuredJob = viewModelScope.launch {
+            val loaded = loadFeaturedChannels(
+                repo = container.repo,
+                source = source,
+                categoryId = categoryId,
+                customIds = customIds,
+                favorites = favorites,
+            )
+            _state.update { it.copy(featuredChannels = loaded) }
+        }
+    }
+
+    fun refreshTrendingMovies() {
+        trendingJob?.cancel()
+        trendingJob = viewModelScope.launch {
+            val instant = runCatching {
+                container.firebaseCatalog.getInstantRecommendedMovies(
+                    repo = container.repo,
+                    dao = container.catalogDb.movieDao(),
+                    limit = 18,
+                )
+            }.getOrNull().orEmpty()
+            if (instant.isNotEmpty()) {
+                _state.update { it.copy(trendingMovies = instant) }
+            }
+
+            val enriched = runCatching {
+                container.firebaseCatalog.getXtreamRecommendedMovies(
+                    repo = container.repo,
+                    dao = container.catalogDb.movieDao(),
+                    limit = 18,
+                )
+            }.getOrNull().orEmpty()
+            if (enriched.isNotEmpty()) {
+                _state.update { it.copy(trendingMovies = enriched) }
+            }
+        }
+    }
+
+    fun loadTodayMatches() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val dao = SportsDatabase.getInstance(appContext).matchDao()
+                var all = dao.getAllMatches().map { it.toMatch() }
+                if (all.isEmpty()) {
+                    val req = SyncScheduler.enqueueManualSyncNow(appContext)
+                    withTimeoutOrNull(45_000L) {
+                        WorkManager.getInstance(appContext)
+                            .getWorkInfoByIdFlow(req.id)
+                            .firstOrNull { it != null && it.state.isFinished }
+                    }
+                    all = dao.getAllMatches().map { it.toMatch() }
+                }
+                val todayStr = formatDayOffsetYmd(0)
+                val tomorrowStr = formatDayOffsetYmd(1)
+                val yesterdayStr = formatDayOffsetYmd(-1)
+
+                val todayList = all.filter {
+                    utcDateToLocalYmd(it.date, it.time) == todayStr || it.status == MatchStatus.LIVE
+                }
+                val combined = if (todayList.size >= 5) {
+                    todayList
+                } else {
+                    val nearby = all.filter {
+                        val localDate = utcDateToLocalYmd(it.date, it.time)
+                        localDate == tomorrowStr || localDate == yesterdayStr
+                    }
+                    (todayList + nearby + all).distinctBy { it.id }.take(12)
+                }
+                _state.update { it.copy(todayMatches = combined.take(12)) }
+            }
+        }
+    }
+}
 
 internal suspend fun loadFeaturedChannels(
     repo: Repository,
@@ -167,4 +214,3 @@ internal suspend fun loadFeaturedChannels(
         matched
     }.getOrDefault(emptyList())
 }
-

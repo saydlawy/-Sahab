@@ -80,6 +80,7 @@ import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.Routes
+import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.Ic
@@ -112,7 +113,8 @@ fun HomeScreen(
 ) {
     val container = LocalContainer.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val vm: HomeViewModel = appViewModel { HomeViewModel(it, context.applicationContext) }
+    val homeState by vm.state.collectAsStateWithLifecycle()
     val focusNav = LocalFocusNavigation.current
     val themeCustomization = LocalThemeCustomization.current
     val activeThemeId = LocalThemePreferences.current.selectedThemeId
@@ -143,13 +145,10 @@ fun HomeScreen(
         initialValue = emptySet(),
     )
 
-    var featuredChannels by remember { mutableStateOf<List<Channel>>(emptyList()) }
-    var trendingMovies by remember {
-        mutableStateOf(container.firebaseCatalog.peekCachedRecommendedMovies())
-    }
-    var todayMatches by remember { mutableStateOf<List<Match>>(emptyList()) }
+    val featuredChannels = homeState.featuredChannels
+    val trendingMovies = homeState.trendingMovies
+    val todayMatches = homeState.todayMatches
 
-    // 1. Load Featured Live Channels according to user's Settings customization
     LaunchedEffect(
         container.repo.account,
         homeChannelsSource,
@@ -157,8 +156,7 @@ fun HomeScreen(
         homeCustomChannelIds,
         favorites,
     ) {
-        featuredChannels = loadFeaturedChannels(
-            repo = container.repo,
+        vm.refreshFeaturedChannels(
             source = homeChannelsSource,
             categoryId = homeChannelsCategoryId,
             customIds = homeCustomChannelIds,
@@ -166,63 +164,8 @@ fun HomeScreen(
         )
     }
 
-    // 2. Two-stage ultra-fast loading of Newest Additions from Xtream + Firebase
     LaunchedEffect(container.repo.account) {
-        val instant = runCatching {
-            container.firebaseCatalog.getInstantRecommendedMovies(
-                repo = container.repo,
-                dao = container.catalogDb.movieDao(),
-                limit = 18,
-            )
-        }.getOrNull().orEmpty()
-        if (instant.isNotEmpty()) {
-            trendingMovies = instant
-        }
-
-        val enriched = runCatching {
-            container.firebaseCatalog.getXtreamRecommendedMovies(
-                repo = container.repo,
-                dao = container.catalogDb.movieDao(),
-                limit = 18,
-            )
-        }.getOrNull().orEmpty()
-        if (enriched.isNotEmpty()) {
-            trendingMovies = enriched
-        }
-    }
-
-    // 3. Load Today's Matches from SportsDatabase (auto-sync from Firestore if empty)
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val dao = SportsDatabase.getInstance(context).matchDao()
-                var all = dao.getAllMatches().map { it.toMatch() }
-                if (all.isEmpty()) {
-                    val req = SyncScheduler.enqueueManualSyncNow(context)
-                    withTimeoutOrNull(45_000L) {
-                        WorkManager.getInstance(context)
-                            .getWorkInfoByIdFlow(req.id)
-                            .firstOrNull { it != null && it.state.isFinished }
-                    }
-                    all = dao.getAllMatches().map { it.toMatch() }
-                }
-                val todayStr = formatDayOffsetYmd(0)
-                val tomorrowStr = formatDayOffsetYmd(1)
-                val yesterdayStr = formatDayOffsetYmd(-1)
-
-                val todayList = all.filter { utcDateToLocalYmd(it.date, it.time) == todayStr || it.status == MatchStatus.LIVE }
-                val combined = if (todayList.size >= 5) {
-                    todayList
-                } else {
-                    val nearby = all.filter {
-                        val localDate = utcDateToLocalYmd(it.date, it.time)
-                        localDate == tomorrowStr || localDate == yesterdayStr
-                    }
-                    (todayList + nearby + all).distinctBy { it.id }.take(12)
-                }
-                todayMatches = combined.take(12)
-            }
-        }
+        vm.refreshTrendingMovies()
     }
 
     val continueWatchingItems = remember(recents, trendingMovies) {

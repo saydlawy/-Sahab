@@ -301,6 +301,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
     val play: (PlayRequest) -> Unit = { request ->
         if (focusController.canNavigateNow()) {
             container.playback = request
+            container.savePendingPlayback(request)
             nav.navigate(Routes.PLAYER) { launchSingleTop = true }
         }
     }
