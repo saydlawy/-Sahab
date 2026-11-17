@@ -657,7 +657,7 @@ internal fun PhonePortraitTimelineSection(
         GradientTimelineBar(
             progress = progressFraction,
             buffered = bufferedFraction,
-            showChapters = !isLive,
+            showChapters = false,
             onSeekToFraction = if (!isLive && duration > 0L) {
                 { frac -> onSeekTo((duration * frac).toLong()) }
             } else null,

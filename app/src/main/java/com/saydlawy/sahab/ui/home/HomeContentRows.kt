@@ -254,28 +254,32 @@ internal fun ContinueWatchingCard(
                         )
                     }
 
-                    Text(
-                        text = "$pct%",
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    if (item.progress > 0f) {
+                        Text(
+                            text = "$pct%",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = 0.22f)),
-                ) {
+                if (item.progress > 0f) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(item.progress.coerceIn(0.05f, 1f))
+                            .fillMaxWidth()
                             .height(3.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(barColor),
-                    )
+                            .background(Color.White.copy(alpha = 0.22f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(item.progress.coerceIn(0.05f, 1f))
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(barColor),
+                        )
+                    }
                 }
 
                 Text(

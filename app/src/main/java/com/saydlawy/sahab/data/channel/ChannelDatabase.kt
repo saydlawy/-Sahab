@@ -29,7 +29,7 @@ abstract class ChannelDatabase : RoomDatabase() {
                     ChannelDatabase::class.java,
                     "channel.db",
                 )
-                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }

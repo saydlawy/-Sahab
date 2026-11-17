@@ -126,12 +126,14 @@ class AppContainer(context: Context) {
         // 2. تفعيل الحساب في الـ Repository
         repo.setAccount(acc)
         
-        // 3. مسح القنوات القديمة من Room (لتجنب تداخل القنوات والبطء)
+        // 3. مسح القنوات والبرامج والكتالوج القديم من Room (لتجنب تداخل البيانات بين الاشتراكات)
         appScope.launch(Dispatchers.IO) {
             try {
                 channelDb.channelDao().clearAll()
+                channelDb.channelDao().clearAllPrograms()
+                catalogDb.movieDao().wipe()
             } catch (e: Exception) {
-                android.util.Log.e("SahabSwitch", "Failed to clear channels: ${e.message}")
+                android.util.Log.e("SahabSwitch", "Failed to clear local DBs: ${e.message}")
             }
             
             // 4. بدء مزامنة الحساب الجديد في الخلفية

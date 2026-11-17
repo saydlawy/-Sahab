@@ -389,12 +389,12 @@ internal fun VodEpisodesDrawer(
                         title = ep.title,
                         plot = ep.plot.ifBlank { "حلقة كاملة بجودة عالية من ${currentItem.title}" },
                         imageUrl = ep.image.ifBlank { seriesDetails?.cover.orEmpty() }.ifBlank { currentItem.icon },
-                        durationText = ep.duration.ifBlank { "50:00" },
+                        durationText = ep.duration,
                         isCurrent = isCurrent,
                         isWatched = isWatched,
                         isNext = isNext,
-                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.45f,
-                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 28,
+                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
+                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
                         onClick = { onSelectEpisode(ep) },
                     )
                 }
@@ -412,12 +412,12 @@ internal fun VodEpisodesDrawer(
                         title = p.subtitle.ifBlank { p.title },
                         plot = p.title,
                         imageUrl = p.icon,
-                        durationText = if (isCurrent && curDur > 0L) formatDuration(curDur) else "HD",
+                        durationText = if (isCurrent && curDur > 0L) formatDuration(curDur) else "",
                         isCurrent = isCurrent,
                         isWatched = isWatched,
                         isNext = isNext,
-                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.45f,
-                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 25,
+                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
+                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
                         onClick = { onSelectPlaylistIndex(idx) },
                     )
                 }
@@ -569,14 +569,8 @@ internal fun EpisodeDrawerCard(
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                if (isCurrent) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("متبقي $remainingMinutes دقيقة", fontSize = 11.sp, color = OsdPrimary)
-                        Text("4K UHD", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = OsdPrimary)
-                    }
+                if (isCurrent && remainingMinutes > 0) {
+                    Text("متبقي $remainingMinutes دقيقة", fontSize = 11.sp, color = OsdPrimary)
                 }
             }
         }

@@ -391,8 +391,9 @@ private fun SeriesInfoPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-            val q = qualityOf(details.name) ?: "HD"
-            Tag(q, if (q == "4K") Palette.Gold else Palette.Glow)
+            qualityOf(details.name)?.let { q ->
+                Tag(q, if (q == "4K") Palette.Gold else Palette.Glow)
+            }
             if (details.year.isNotBlank()) {
                 Tag(details.year, Palette.Royal)
             }

@@ -92,6 +92,7 @@ import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.formatDayOffsetYmd
+import com.saydlawy.sahab.util.utcDateToLocalYmd
 import com.saydlawy.sahab.util.formatUtcClockToLocal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -189,11 +190,14 @@ fun HomeScreen(
                 val tomorrowStr = formatDayOffsetYmd(1)
                 val yesterdayStr = formatDayOffsetYmd(-1)
 
-                val todayList = all.filter { it.date == todayStr || it.status == MatchStatus.LIVE }
+                val todayList = all.filter { utcDateToLocalYmd(it.date, it.time) == todayStr || it.status == MatchStatus.LIVE }
                 val combined = if (todayList.size >= 5) {
                     todayList
                 } else {
-                    val nearby = all.filter { it.date == tomorrowStr || it.date == yesterdayStr }
+                    val nearby = all.filter {
+                        val localDate = utcDateToLocalYmd(it.date, it.time)
+                        localDate == tomorrowStr || localDate == yesterdayStr
+                    }
                     (todayList + nearby + all).distinctBy { it.id }.take(12)
                 }
                 todayMatches = combined.take(12)
@@ -207,7 +211,7 @@ fun HomeScreen(
                 val rawProgress = if (item.durationMs > 0) {
                     (item.positionMs.toFloat() / item.durationMs.toFloat()).coerceIn(0.08f, 0.96f)
                 } else {
-                    0.70f
+                    0f
                 }
                 val itemFocusKey = "home_recent_${item.kind}_${item.id}_$idx"
                 ContinueCardModel(

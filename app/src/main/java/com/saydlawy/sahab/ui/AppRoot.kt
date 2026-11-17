@@ -381,6 +381,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                         container.prefs.clearAccount()
                         runCatching { container.channelDb.channelDao().clearAll() }
                         runCatching { container.channelDb.channelDao().clearAllPrograms() }
+                        runCatching { container.catalogDb.movieDao().wipe() }
                     }
                     nav.navigate(Routes.CLOUD_LOGIN) { popUpTo(nav.graph.id) { inclusive = true } }
                 },
