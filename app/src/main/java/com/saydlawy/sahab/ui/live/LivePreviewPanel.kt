@@ -100,6 +100,7 @@ import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.Chip
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.EpgDialog
+import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassIconButton
 import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
@@ -159,6 +160,8 @@ internal fun PreviewPanel(
     var videoReady by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(true) }
     var formatAttempt by remember { mutableIntStateOf(0) }
+    var retryNonce by remember { mutableIntStateOf(0) }
+    var previewError by remember { mutableStateOf<String?>(null) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
 
     DisposableEffect(Unit) {
@@ -189,6 +192,7 @@ internal fun PreviewPanel(
 
             override fun onRenderedFirstFrame() {
                 videoReady = true
+                previewError = null
             }
 
             override fun onTracksChanged(newTracks: Tracks) {
@@ -198,6 +202,10 @@ internal fun PreviewPanel(
             override fun onPlayerError(error: PlaybackException) {
                 if (formatAttempt + 1 < repo.liveExtensions().size) {
                     formatAttempt += 1
+                } else {
+                    buffering = false
+                    videoReady = false
+                    previewError = "تعذّر تشغيل معاينة البث المباشر (${error.errorCodeName})"
                 }
             }
         }
@@ -220,10 +228,11 @@ internal fun PreviewPanel(
     LaunchedEffect(channel?.id) {
         formatAttempt = 0
         videoReady = false
+        previewError = null
         tracks = Tracks.EMPTY
     }
 
-    LaunchedEffect(channel?.id, formatAttempt, isScreenActive) {
+    LaunchedEffect(channel?.id, formatAttempt, isScreenActive, retryNonce) {
         val ch = channel
         if (ch == null || !isScreenActive) {
             previewExo?.stop()
@@ -233,11 +242,19 @@ internal fun PreviewPanel(
                 previewExo = null
             }
             videoReady = false
+            previewError = null
             return@LaunchedEffect
         }
+        previewError = null
         val url = runCatching {
             repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url), formatAttempt)
-        }.getOrNull() ?: return@LaunchedEffect
+        }.getOrNull()
+        if (url.isNullOrBlank()) {
+            buffering = false
+            videoReady = false
+            previewError = "تعذّر تجهيز رابط البث للمعاينة"
+            return@LaunchedEffect
+        }
 
         val exo = previewExo ?: SahabPlayer.create(
             context = context,
@@ -365,6 +382,34 @@ internal fun PreviewPanel(
                             fontSize = appSp(12),
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
+                        )
+                    }
+                } else if (previewError != null) {
+                    Column(
+                        Modifier
+                            .align(Alignment.Center)
+                            .padding(horizontal = appDp(14))
+                            .clip(RoundedCornerShape(appDp(14)))
+                            .background(Color.Black.copy(alpha = 0.80f))
+                            .border(appDp(1), Palette.Danger.copy(alpha = 0.55f), RoundedCornerShape(appDp(14)))
+                            .padding(horizontal = appDp(16), vertical = appDp(12)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(appDp(8)),
+                    ) {
+                        Text(
+                            previewError ?: "تعذّر تشغيل المعاينة",
+                            fontSize = appSp(12),
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                        GlassButton(
+                            text = Ar.retry,
+                            onClick = {
+                                previewError = null
+                                formatAttempt = 0
+                                retryNonce += 1
+                            },
+                            primary = true,
                         )
                     }
                 } else if (buffering && !videoReady) {
