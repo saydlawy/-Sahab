@@ -277,7 +277,7 @@ class AppContainer(context: Context) {
     private companion object {
         const val USER_AGENT = "Sahab/1.0 (Android)"
         val RETRY_BACKOFFS_MS = longArrayOf(500L, 1500L)
-        val STRICT_HTTPS_DOMAINS = listOf("themoviedb.org", "tmdb.org", "goal-api.com", "github.com", "githubusercontent.com", "open-meteo.com", "ipwho.is")
+        val STRICT_HTTPS_DOMAINS = listOf("themoviedb.org", "tmdb.org", "github.com", "githubusercontent.com", "open-meteo.com", "ipwho.is")
     }
 }
 
