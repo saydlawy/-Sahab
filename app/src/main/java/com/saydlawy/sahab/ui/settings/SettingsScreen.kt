@@ -412,10 +412,15 @@ private fun SettingsDetailContent(
                             container.repo.syncCatalog(force = true)
                             container.catalogSync.syncMovies(container.repo)
                             val chStats = container.channelSync.sync(container.repo, forceFullRefresh = true)
-                            if (chStats.isSuccess) container.prefs.setLastSyncTime(System.currentTimeMillis())
+                            if (chStats.isSuccess) container.prefs.setLastChannelSyncTime(System.currentTimeMillis())
 
-                            val epgStats = container.epgSync.sync()
-                            if (epgStats.isSuccess) container.prefs.setLastEpgSyncTime(System.currentTimeMillis())
+                            val epgStats = if (chStats.isSuccess || chStats.total > 0) {
+                                container.epgSync.sync().also { st ->
+                                    if (st.isSuccess) container.prefs.setLastEpgSyncTime(System.currentTimeMillis())
+                                }
+                            } else {
+                                com.saydlawy.sahab.data.channel.EpgSync.Stats(errors = listOf("skipped"))
+                            }
 
                             val msg = buildString {
                                 append("القنوات: ")

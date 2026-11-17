@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -47,7 +48,7 @@ class RepositorySyncCatalogTest {
 
             val result = repo.syncCatalog(force = true)
             assertTrue("Expected SyncResult.Failure but got $result", result is Repository.SyncResult.Failure)
-            assertEquals(0L, prefs.lastSyncTime.first())
+            assertEquals(0L, prefs.lastCatalogSyncTime.first())
         } finally {
             server.shutdown()
         }
@@ -88,7 +89,7 @@ class RepositorySyncCatalogTest {
 
             val result = repo.syncCatalog(force = true)
             assertTrue("Expected SyncResult.Failure on partial endpoint failure but got $result", result is Repository.SyncResult.Failure)
-            assertEquals(0L, prefs.lastSyncTime.first())
+            assertEquals(0L, prefs.lastCatalogSyncTime.first())
         } finally {
             server.shutdown()
         }
@@ -127,9 +128,27 @@ class RepositorySyncCatalogTest {
 
             val result = repo.syncCatalog(force = true)
             assertTrue("Expected SyncResult.Success but got $result", result is Repository.SyncResult.Success)
-            assertTrue(prefs.lastSyncTime.first() > 0L)
+            assertTrue(prefs.lastCatalogSyncTime.first() > 0L)
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun migrateSyncKeysIfNeeded_copiesLegacyLastSyncTimeToCatalogOnly() = runTest {
+        val ds = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { tempFolder.newFile("sync_migrate.preferences_pb") },
+        )
+        ds.edit { p ->
+            p[androidx.datastore.preferences.core.longPreferencesKey("last_sync_time")] = 123_456_789L
+            p[androidx.datastore.preferences.core.longPreferencesKey("epg_last_sync_time")] = 999L
+        }
+        val prefs = Prefs(context = null, dataStoreOverride = ds)
+        prefs.migrateSyncKeysIfNeeded()
+
+        assertEquals(123_456_789L, prefs.lastCatalogSyncTime.first())
+        assertEquals(0L, prefs.lastChannelSyncTime.first())
+        assertEquals(0L, prefs.lastEpgSyncTime.first())
     }
 }

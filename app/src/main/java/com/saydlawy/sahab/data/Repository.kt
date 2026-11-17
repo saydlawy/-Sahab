@@ -161,7 +161,8 @@ class Repository(
      */
     suspend fun syncCatalog(force: Boolean = false): SyncResult {
         if (_syncing.value) return SyncResult.AlreadyRunning
-        val lastSync = if (prefs == null) 0L else prefs.lastSyncTime.first()
+        prefs?.migrateSyncKeysIfNeeded()
+        val lastSync = if (prefs == null) 0L else prefs.lastCatalogSyncTime.first()
         val now = System.currentTimeMillis()
         if (!force && lastSync > 0L && (now - lastSync) < SYNC_TTL_MS) {
             return SyncResult.Skipped
@@ -186,7 +187,7 @@ class Repository(
                 runCatching { Log.w("SahabSync", "syncCatalog aborted without stamping time: ${firstFailure.message}") }
                 SyncResult.Failure(firstFailure.message ?: "sync failed")
             } else {
-                prefs?.setLastSyncTime(System.currentTimeMillis())
+                prefs?.setLastCatalogSyncTime(System.currentTimeMillis())
                 SyncResult.Success
             }
         } catch (e: CancellationException) {

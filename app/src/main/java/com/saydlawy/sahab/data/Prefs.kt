@@ -72,6 +72,8 @@ class Prefs @JvmOverloads constructor(
         val HomeChannelsCategoryIdKey = stringPreferencesKey("home_channels_category_id")
         val HomeCustomChannelIdsKey = stringPreferencesKey("home_custom_channel_ids")
         val LastSyncTime = longPreferencesKey("last_sync_time")
+        val LastCatalogSyncTime = longPreferencesKey("last_catalog_sync_time")
+        val LastChannelSyncTime = longPreferencesKey("last_channel_sync_time")
         val EpgLastSyncTime = longPreferencesKey("epg_last_sync_time")
     }
 
@@ -269,16 +271,48 @@ class Prefs @JvmOverloads constructor(
         }
     }
 
-    val lastSyncTime: Flow<Long> = store.data.map { it[Keys.LastSyncTime] ?: 0L }
+    val lastCatalogSyncTime: Flow<Long> = store.data.map {
+        it[Keys.LastCatalogSyncTime] ?: it[Keys.LastSyncTime] ?: 0L
+    }
 
-    suspend fun setLastSyncTime(ms: Long) {
-        store.edit { it[Keys.LastSyncTime] = ms }
+    suspend fun setLastCatalogSyncTime(ms: Long) {
+        store.edit { it[Keys.LastCatalogSyncTime] = ms }
+    }
+
+    val lastChannelSyncTime: Flow<Long> = store.data.map { it[Keys.LastChannelSyncTime] ?: 0L }
+
+    suspend fun setLastChannelSyncTime(ms: Long) {
+        store.edit { it[Keys.LastChannelSyncTime] = ms }
     }
 
     val lastEpgSyncTime: Flow<Long> = store.data.map { it[Keys.EpgLastSyncTime] ?: 0L }
 
     suspend fun setLastEpgSyncTime(ms: Long) {
         store.edit { it[Keys.EpgLastSyncTime] = ms }
+    }
+
+    /** ترحيل لمرة واحدة من last_sync_time القديم إلى last_catalog_sync_time مع ترك القنوات وEPG عند 0. */
+    suspend fun migrateSyncKeysIfNeeded() {
+        store.edit { p ->
+            val legacy = p[Keys.LastSyncTime]
+            if (legacy != null) {
+                if (p[Keys.LastCatalogSyncTime] == null) {
+                    p[Keys.LastCatalogSyncTime] = legacy
+                }
+                p.remove(Keys.LastSyncTime)
+                p.remove(Keys.LastChannelSyncTime)
+                p.remove(Keys.EpgLastSyncTime)
+            }
+        }
+    }
+
+    suspend fun clearSyncTimestamps() {
+        store.edit { p ->
+            p.remove(Keys.LastSyncTime)
+            p.remove(Keys.LastCatalogSyncTime)
+            p.remove(Keys.LastChannelSyncTime)
+            p.remove(Keys.EpgLastSyncTime)
+        }
     }
 
     suspend fun saveAccount(account: Account) {

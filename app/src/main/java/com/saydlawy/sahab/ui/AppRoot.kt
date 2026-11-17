@@ -338,13 +338,11 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
         }
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
-                container.appScope.launch {
-                    container.repo.prewarmCatalog()
-                    val sync = container.repo.syncCatalog(force = false)
-                    if (sync is Repository.SyncResult.Success || sync is Repository.SyncResult.Failure) {
-                        container.catalogSync.syncMovies(container.repo)
-                    }
-                }
+                container.syncCoordinator.triggerFullSync(
+                    context = context,
+                    forceCatalog = false,
+                    reason = "login",
+                )
                 nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true } }
             })
         }
