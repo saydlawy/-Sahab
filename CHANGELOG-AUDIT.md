@@ -65,3 +65,11 @@
 | `T-H09` | 4 | تم (Run #212) + Unit test | `34e217f` | نجح `UserSyncEncryptionTest` في CI؛ فحص شاشة الحساب السحابي بالإعدادات بلا Crash | نجح `UserSyncEncryptionTest` + التثبيت والإقلاع السليم |
 | `T-H10` | 4 | تم (Run #212) — يتطلب نشر القواعد يدوياً | `56f4c60` | تم التثبيت مع `AppCheckInstaller` و`firestore.rules` دون أخطاء في `logcat` | تم التثبيت مع `AppCheckInstaller` (`APK = 8,292,800 bytes`) |
 | `T-H06` | 4 | تم (Run #212) + Unit test | `372d068`, `bed28f9` | نجح `CloudMergeCoordinatorTest`؛ سجل `تابع المشاهدة` هاجر وظهرت عناصره سليمة | نجح `CloudMergeCoordinatorTest` والإقلاع السليم |
+| `T-H08 / M-27` | 5 | تم (Run #214) | `ed197c2`, `2ddac7d` | نجحت سلسلة CI كاملة مع تثبيت الـ 7 Actions بـ SHA كامل وفصل فحص `google-services.json` | متوافق |
+| `T-H07` | 5 | تم (Run #215/216) | `c8e956f` | حجم APK انخفض من `8,292,800` إلى `7,166,484` بايت (-13.6%)؛ جولة كافة الشاشات بلا `ClassNotFoundException` | حجم APK `7,166,484` بايت؛ إقلاع وتشغيل مستقر بلا `ClassNotFoundException` |
+| `T-L04` | 5 | تم (Run #215) | `6a769b3` | `versionCode = GITHUB_RUN_NUMBER` (215/216) مع fallback زمني بالدقائق | `versionCode=216` مثبت بنجاح |
+| `T-M11 / M-12` | 5 | تم / موثق | `54a5b74` | توحيد `androidx.security:security-crypto:1.1.0` وتوثيق خطتي هجرة M-11 وM-12 | لا تكرار تبعيات في البناء |
+| `T-M14` | 5 | تم (Run #215) | `d65ea45` | اختفت نافذة App Distribution من نسخة Release على التلفاز (`BuildConfig.DEBUG` فقط) | اختفت نافذة المختبرين وإقلاع نظيف |
+| `T-M26` | 5 | تم (Run #215/216) | `98289b0` | `FirebaseCrashlytics 19.4.2` مفعّل في `logcat` مع رفع mapping في Release | `FirebaseCrashlytics 19.4.2` مسجّل ومفعّل في `logcat` |
+| `T-M15` | 5 | تم (Run #215/216) | `66847d7` | بوابة `lintRelease` صارمة (`abortOnError = true`) نجحت مع `app/lint-baseline.xml` | بوابة Lint مجتازة بدون أخطاء |
+| `T-M13` | 5 | تم على مرحلتين (35 ثم 36) | `40d7fe5`, `9e2cebf` | `targetSdk=35` (`Run #215`, `TotalTime: 1880ms`) ثم `targetSdk=36` (`Run #216`) + رجوع سليم | `targetSdk=36`, إقلاع بارد `TotalTime: 540ms` مع Edge-to-Edge |
