@@ -124,3 +124,11 @@
 | `T-O03` | 8 | تم | `O-03` | إضافة `SahabPlaybackService` (`MediaSessionService`) لصوت البث المباشر بالخلفية + دعم PiP على الهاتف فقط (`!isTv`) |
 | `T-O04` | 8 | مُتحقّق ومنجز مسبقاً | `SettingsHomeChannelsPanel.kt` | واجهة `HomeChannelsSource.CUSTOM` (`CustomChannelPickerDialog`) مكتملة بدعم D-Pad وقائمة القنوات المحلية |
 | `T-O05` | 8 | تم | `O-05` | فاحص تحديثات خفيف عبر GitHub Releases (`GithubReleaseUpdater` + `GithubUpdatePrompt`) يقارن `versionCode` دون فرض التثبيت |
+
+### نتيجة البناء والاختبار (الدفعات 6 و7 و8 — `Run #220`)
+- **GitHub Actions (`Run #220`):** نجح البناء والترجمة واختبارات الوحدة وبوابة `lintRelease` (الـ Commit `91117d3`, حجم `Sahab.apk` = `7,520,157` بايت، `versionCode=220`, `targetSdk=36`).
+- **الهاتف (`Samsung Galaxy A52s - RZCT504YSEM`):**
+  - تم تثبيت `versionCode=220` وتشغيله بنجاح دون أي `FATAL` أو `ClassNotFoundException` في `logcat`.
+  - الشاشة الرئيسية (`HomeViewModel` + `HomeQuickCategories`): عرضت `تابع المشاهدة`، `القنوات المباشرة`، و`أفلام مقترحة لك` بسلاسة.
+  - المشغّل (`PlayerScreen` + `LIVE-01` + `T-O03`): تشغيل فوري لقناة `MBC 1` بدقة `1080p FHD` وصوت `AAC`، والانتقال تلقائياً إلى وضع **صورة داخل صورة (`PiP`)** عند الضغط على زر الرئيسية.
+- **التلفاز (`TCL Android TV`):** **لم يتم الاختبار أو التثبيت عليه** بناءً على توجيهك الصريح، وبانتظار موافقتك لاختبار النسخة `220` عليه.
