@@ -153,11 +153,14 @@ internal val OsdOnSurfaceVariant get() = Palette.color("OsdOnSurfaceVariant")
 internal val OsdOutline get() = Palette.color("OsdOutline")
 internal val OsdOutlineVariant get() = Palette.color("OsdOutlineVariant")
 
-internal val ResizeModes = intArrayOf(
+@OptIn(UnstableApi::class)
+private fun defaultResizeModes(): IntArray = intArrayOf(
     AspectRatioFrameLayout.RESIZE_MODE_FIT,
     AspectRatioFrameLayout.RESIZE_MODE_FILL,
     AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
 )
+
+internal val ResizeModes = defaultResizeModes()
 
 internal val PlaybackSpeeds = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
 
