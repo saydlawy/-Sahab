@@ -5,6 +5,11 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
+/**
+ * قاعدة بيانات القنوات المباشرة ودليل البرامج (EPG) المحلية.
+ * ملاحظة: أي رفع لرقم [version] يتطلب إما إضافة Migration صريحة أو الاعتماد المقصود
+ * على إعادة البناء التدميري (لأن كافة بيانات القنوات وEPG قابلة لإعادة المزامنة).
+ */
 @Database(
     entities = [
         ChannelEntity::class,
@@ -13,7 +18,7 @@ import androidx.room.RoomDatabase
         ChannelListItemEntity::class,
     ],
     version = 2,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class ChannelDatabase : RoomDatabase() {
     abstract fun channelDao(): ChannelDao
@@ -29,7 +34,7 @@ abstract class ChannelDatabase : RoomDatabase() {
                     ChannelDatabase::class.java,
                     "channel.db",
                 )
-                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }

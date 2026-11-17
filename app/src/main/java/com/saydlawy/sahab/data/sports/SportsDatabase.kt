@@ -92,7 +92,12 @@ interface MatchDao {
     suspend fun insertStandings(standings: List<StandingEntity>)
 }
 
-@Database(entities = [MatchEntity::class, StandingEntity::class], version = 2, exportSchema = false)
+/**
+ * قاعدة بيانات المركز الرياضي المحلية (المباريات وجداول الترتيب).
+ * ملاحظة: أي رفع لرقم [version] يتطلب إضافة Migration صريحة في [SportsMigrations]
+ * وعدم الاعتماد على التدمير التلقائي للحفاظ على البيانات المحلية.
+ */
+@Database(entities = [MatchEntity::class, StandingEntity::class], version = 2, exportSchema = true)
 abstract class SportsDatabase : RoomDatabase() {
     abstract fun matchDao(): MatchDao
 

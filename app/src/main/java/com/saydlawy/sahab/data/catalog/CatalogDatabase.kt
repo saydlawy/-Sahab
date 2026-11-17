@@ -5,10 +5,15 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
+/**
+ * قاعدة بيانات كتالوج الأفلام المحلية.
+ * ملاحظة: أي رفع لرقم [version] يتطلب إما إضافة Migration صريحة أو الاعتماد المقصود
+ * على إعادة البناء التدميري (لأن كافة بيانات الكتالوج قابلة لإعادة المزامنة من السحابة والسيرفر).
+ */
 @Database(
     entities = [CatalogMovieEntity::class],
     version = 3,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class CatalogDatabase : RoomDatabase() {
     abstract fun movieDao(): CatalogMovieDao
@@ -24,7 +29,7 @@ abstract class CatalogDatabase : RoomDatabase() {
                     CatalogDatabase::class.java,
                     "catalog.db",
                 )
-                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }
