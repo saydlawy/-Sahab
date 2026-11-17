@@ -30,7 +30,7 @@ android {
     defaultConfig {
         applicationId = "com.saydlawy.sahab"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = runNumber
         versionName = "1.0.$runNumber"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
