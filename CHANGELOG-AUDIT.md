@@ -100,3 +100,27 @@
 - **GitHub Actions:** نجح البناء في `Run #218` (الـ Commit `cf36797`، حجم `Sahab.apk` = `7,166,488` بايت، `versionCode=218`, `targetSdk=36`).
 - **Samsung Galaxy A52s (`RZCT504YSEM`):** تم التثبيت والإقلاع البارد (`TotalTime: 454ms`) واختبار شاشة البث المباشر ("الكل" — `1529` قناة، وتمرير سريع، وتشغيل البث المباشر الفعلي بالصورة والصوت `AAC` مع `c2.qti.avc.decoder` دون أي أخطاء أو `FATAL` في `logcat`).
 - **TCL Android TV (`10.19.124.138:5555`):** لم يُلمس ولم يُختبر التزاماً بتوجيه المستخدم الصريح بعدم الاختبار على التلفاز إلا بعد موافقته.
+
+---
+
+## الدفعات 6 و7 و8 — واجهة المستخدم، إعادة الهيكلة، النظافة، والفرص (2026-11-17)
+
+| المعرّف | الدفعة | الحالة | Commit | الملخص والقرار |
+| :--- | :--- | :--- | :--- | :--- |
+| `T-M06 / M-29` | 6 | منفذ | `77ff8aa` | إزالة القنوات المميزة الوهمية والوقت الوهمي `"٠٨:٠٠ م"` وإخفاء الأقسام الفارغة |
+| `T-M07` | 6 | منفذ | `8c1a20a` | إضافة مدخل الدخول السحابي بالإعدادات مع الرجوع والاستعادة عبر `performCloudRestoreAndMerge()` |
+| `T-M16 / M-17` | 6 | منفذ | `6e0f72f`, `493d446` | رسالة خطأ وزر إعادة بالمعاينة + تعطيل/إخفاء التقديم والسرعة للبث المباشر |
+| `T-M21` | 6 | منفذ | `434a5c9` | دعم `Role` و`contentDescription` وحالات TalkBack في `Glass.kt` والإعدادات |
+| `T-M19` | 6 | منفذ | `e350f59` | إزالة `noCompress += "sports_db"` وبقايا البذرة الميتة للرياضة |
+| `T-L01` | 7 | تم | `L-01` | حذف `"goal-api.com"` من `STRICT_HTTPS_DOMAINS` بعد التحقق من عدم استخدامه |
+| `T-L02` | 7 | تم | `L-02` | حذف `LiveMatchesBar` غير المستدعى من `HomeContentRows.kt` |
+| `T-L03` | 7 | تم | `L-03` | حذف `TopBarIconButton` و`TopBarBellButton` غير المستخدمين من `TopBarWidgets.kt` |
+| `T-L05` | 7 | تم | `L-05` | تهيئة `ApiKeyManager` (`EncryptedSharedPreferences`) على `appScope` (`Dispatchers.IO`) بدل خيط الواجهة |
+| `T-L06` | 7 | مؤجل موثّق | — | الإبقاء على `Palette` كما هي لتفادي كسر الثيم (نقل تدريجي مستقبلي إلى `CompositionLocal`) |
+| `T-M18` | 7 | تم | `M-18` | نقل تحميل الرئيسية إلى `HomeViewModel` حقيقي + حفظ نافذة آمنة لـ `PlayRequest` في `filesDir/pending_playback.json` للتعافي بعد Process Death مع رجوع آمن عند `null` |
+| `T-M23` | 7 | تم | `M-23` | إعادة تسمية `HomeHeroBanner.kt` إلى `HomeQuickCategories.kt` وحذف 135 سطر استيراد غير مستخدم/مكرر |
+| `T-O01` | 8 | تم | `O-01` | تدوير مفاتيح Gemini تلقائياً عند `429` في `ApiKeyManager.orderedKeysForRotation()` و`AiStoryShared.kt` |
+| `T-O02` | 8 | تم | `O-02` | تفعيل توليد قصة AI في `SeriesDetailScreen` (`ContentType.SERIES`) مع حفظ ومزامنة `global_catalog` |
+| `T-O03` | 8 | تم | `O-03` | إضافة `SahabPlaybackService` (`MediaSessionService`) لصوت البث المباشر بالخلفية + دعم PiP على الهاتف فقط (`!isTv`) |
+| `T-O04` | 8 | مُتحقّق ومنجز مسبقاً | `SettingsHomeChannelsPanel.kt` | واجهة `HomeChannelsSource.CUSTOM` (`CustomChannelPickerDialog`) مكتملة بدعم D-Pad وقائمة القنوات المحلية |
+| `T-O05` | 8 | تم | `O-05` | فاحص تحديثات خفيف عبر GitHub Releases (`GithubReleaseUpdater` + `GithubUpdatePrompt`) يقارن `versionCode` دون فرض التثبيت |
