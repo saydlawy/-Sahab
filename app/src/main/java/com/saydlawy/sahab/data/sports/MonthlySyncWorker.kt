@@ -3,27 +3,16 @@ package com.saydlawy.sahab.data.sports
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.saydlawy.sahab.BuildConfig
-import com.saydlawy.sahab.SahabApp
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
- * WorkManager worker that syncs sports data from Goal API into Room.
- *
- * Two modes:
- *  - Manual single-league: [KEY_LEAGUE_ID] is set in inputData; only that league
- *    is fetched. Triggered by the user pressing "refresh" on a specific league.
- *  - Automatic batch: no [KEY_LEAGUE_ID]; syncs BATCH_SIZE leagues per run,
- *    rotating through the full list via a persisted cursor. Triggered every
- *    SyncScheduler.MIN_INTERVAL_MS (25 hours).
+ * WorkManager worker that syncs sports data from Firestore (`global_sports`) into Room.
  */
 class MonthlySyncWorker(
     appContext: Context,
@@ -34,84 +23,52 @@ class MonthlySyncWorker(
         val prefs = applicationContext.getSharedPreferences(SyncScheduler.PREFS_NAME, Context.MODE_PRIVATE)
         val force = inputData.getBoolean(KEY_FORCE, false)
         val singleLeagueId = inputData.getInt(KEY_LEAGUE_ID, 0)
-        val isManualSingle = singleLeagueId > 0
 
         val now = System.currentTimeMillis()
         val lastSync = prefs.getLong(SyncScheduler.KEY_LAST_SYNC_MS, 0L)
-        if (!force && lastSync > 0L && (now - lastSync) < SyncScheduler.MIN_INTERVAL_MS) {
-            SyncScheduler.scheduleMonthlySync(applicationContext)
-            return@withContext Result.success()
-        }
-
-        val apiKey = try {
-            BuildConfig.GOAL_API_KEY
-        } catch (_: Exception) {
-            ""
-        }
-        if (apiKey.isBlank()) {
-            SyncScheduler.scheduleMonthlySync(applicationContext)
-            return@withContext Result.success()
-        }
-
-        val client = (applicationContext as? SahabApp)?.container?.client
-            ?: OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build()
-
         val dao = SportsDatabase.getInstance(applicationContext).matchDao()
-        val api = GoalApi(client = client, apiKey = apiKey)
-        val gate = Semaphore(MAX_CONCURRENT_LEAGUES)
+        val isEmptyDb = dao.getAllMatches().isEmpty()
 
-        val leaguesToSync: List<GoalLeagueSpec> = if (isManualSingle) {
-            listOfNotNull(GoalLeagueMapping.findByLeagueId(singleLeagueId))
-        } else {
-            val cursor = prefs.getInt(SyncScheduler.KEY_SYNC_CURSOR, 0)
-            val all = GoalLeagueMapping.ALL
-            val n = all.size
-            val size = minOf(SyncScheduler.BATCH_SIZE, n)
-            (0 until size).map { offset -> all[(cursor + offset) % n] }
+        if (!force && !isEmptyDb && lastSync > 0L && (now - lastSync) < SyncScheduler.MIN_INTERVAL_MS) {
+            SyncScheduler.scheduleMonthlySync(applicationContext)
+            return@withContext Result.success()
+        }
+
+        val firestore = FirebaseFirestore.getInstance()
+        val docs: List<DocumentSnapshot> = try {
+            if (singleLeagueId > 0 && !isEmptyDb) {
+                listOf(fetchDoc(firestore, singleLeagueId.toString()))
+            } else {
+                fetchAllDocs(firestore)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MonthlySyncWorker", "Firestore global_sports fetch failed: ${e.message}")
+            return@withContext if (!force) Result.retry() else Result.failure()
         }
 
         var successCount = 0
-        if (leaguesToSync.isNotEmpty()) {
-            coroutineScope {
-                leaguesToSync.map { league ->
-                    async {
-                        gate.withPermit {
-                            var leagueOk = false
-                            val fixturesRes = api.fixturesByLeague(league)
-                            if (fixturesRes is ApiResult.Success && fixturesRes.data.isNotEmpty()) {
-                                dao.insertMatches(fixturesRes.data)
-                                leagueOk = true
-                            }
-                            val standingsRes = api.standingsByLeague(league)
-                            if (standingsRes is ApiResult.Success && standingsRes.data.isNotEmpty()) {
-                                dao.deleteStandingsByLeague(league.leagueId)
-                                dao.insertStandings(standingsRes.data)
-                                leagueOk = true
-                            }
-                            leagueOk
-                        }
-                    }
-                }.awaitAll().forEach { ok ->
-                    if (ok) successCount++
-                }
-            }
-        }
+        for (doc in docs) {
+            if (!doc.exists()) continue
+            val leagueId = (doc.getLong("leagueId") ?: doc.id.toLongOrNull())?.toInt() ?: continue
+            val matches = parseMatches(doc, leagueId, now)
+            val standings = parseStandings(doc, leagueId)
 
-        if (!isManualSingle && successCount > 0) {
-            val cursor = prefs.getInt(SyncScheduler.KEY_SYNC_CURSOR, 0)
-            val n = GoalLeagueMapping.ALL.size
-            val newCursor = if (n > 0) (cursor + SyncScheduler.BATCH_SIZE) % n else 0
-            prefs.edit().putInt(SyncScheduler.KEY_SYNC_CURSOR, newCursor).apply()
+            if (matches.isNotEmpty()) {
+                dao.deleteMatchesByLeague(leagueId)
+                dao.insertMatches(matches)
+            }
+            if (standings.isNotEmpty()) {
+                dao.deleteStandingsByLeague(leagueId)
+                dao.insertStandings(standings)
+            }
+            if (matches.isNotEmpty() || standings.isNotEmpty()) {
+                successCount++
+            }
         }
 
         if (successCount > 0) {
-            if (!isManualSingle) {
-                prefs.edit().putLong(SyncScheduler.KEY_LAST_SYNC_MS, now).apply()
-                SyncScheduler.scheduleMonthlySync(applicationContext)
-            }
+            prefs.edit().putLong(SyncScheduler.KEY_LAST_SYNC_MS, now).apply()
+            SyncScheduler.scheduleMonthlySync(applicationContext)
             Result.success()
         } else if (!force) {
             Result.retry()
@@ -120,9 +77,78 @@ class MonthlySyncWorker(
         }
     }
 
+    private suspend fun fetchDoc(db: FirebaseFirestore, id: String): DocumentSnapshot =
+        suspendCancellableCoroutine { cont ->
+            db.collection("global_sports").document(id).get()
+                .addOnSuccessListener { snap -> if (cont.isActive) cont.resume(snap) }
+                .addOnFailureListener { e -> if (cont.isActive) cont.resumeWithException(e) }
+        }
+
+    private suspend fun fetchAllDocs(db: FirebaseFirestore): List<DocumentSnapshot> =
+        suspendCancellableCoroutine { cont ->
+            db.collection("global_sports").get()
+                .addOnSuccessListener { snap -> if (cont.isActive) cont.resume(snap.documents) }
+                .addOnFailureListener { e -> if (cont.isActive) cont.resumeWithException(e) }
+        }
+
+    private fun parseMatches(doc: DocumentSnapshot, fallbackLeagueId: Int, now: Long): List<MatchEntity> {
+        val rawList = doc.get("matches") as? List<*> ?: return emptyList()
+        return rawList.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            val id = (m["id"] as? Number)?.toInt() ?: return@mapNotNull null
+            val homeName = (m["homeTeamName"] as? String)?.trim().orEmpty()
+            val awayName = (m["awayTeamName"] as? String)?.trim().orEmpty()
+            if (homeName.isBlank() || awayName.isBlank()) return@mapNotNull null
+            MatchEntity(
+                id = id,
+                leagueId = (m["leagueId"] as? Number)?.toInt() ?: fallbackLeagueId,
+                leagueName = m["leagueName"] as? String ?: "",
+                leagueCountry = m["leagueCountry"] as? String ?: "",
+                homeTeamId = (m["homeTeamId"] as? Number)?.toInt() ?: 0,
+                homeTeamName = homeName,
+                homeTeamLogo = m["homeTeamLogo"] as? String ?: "",
+                awayTeamId = (m["awayTeamId"] as? Number)?.toInt() ?: 0,
+                awayTeamName = awayName,
+                awayTeamLogo = m["awayTeamLogo"] as? String ?: "",
+                homeScore = (m["homeScore"] as? Number)?.toInt(),
+                awayScore = (m["awayScore"] as? Number)?.toInt(),
+                status = m["status"] as? String ?: "UPCOMING",
+                minute = m["minute"] as? String,
+                date = m["date"] as? String ?: "",
+                time = m["time"] as? String ?: "17:00",
+                stadium = m["stadium"] as? String ?: "غير محدد",
+                channel = m["channel"] as? String ?: "غير محدد",
+                commentator = m["commentator"] as? String ?: "غير محدد",
+                savedAt = (m["savedAt"] as? Number)?.toLong() ?: now,
+            )
+        }
+    }
+
+    private fun parseStandings(doc: DocumentSnapshot, fallbackLeagueId: Int): List<StandingEntity> {
+        val rawList = doc.get("standings") as? List<*> ?: return emptyList()
+        return rawList.mapNotNull { item ->
+            val s = item as? Map<*, *> ?: return@mapNotNull null
+            val rank = (s["rank"] as? Number)?.toInt() ?: return@mapNotNull null
+            val teamName = (s["teamName"] as? String)?.trim().orEmpty()
+            if (teamName.isBlank()) return@mapNotNull null
+            StandingEntity(
+                leagueId = (s["leagueId"] as? Number)?.toInt() ?: fallbackLeagueId,
+                rank = rank,
+                teamName = teamName,
+                played = (s["played"] as? Number)?.toInt() ?: 0,
+                win = (s["win"] as? Number)?.toInt() ?: 0,
+                draw = (s["draw"] as? Number)?.toInt() ?: 0,
+                loss = (s["loss"] as? Number)?.toInt() ?: 0,
+                goalsFor = (s["goalsFor"] as? Number)?.toInt() ?: 0,
+                goalsAgainst = (s["goalsAgainst"] as? Number)?.toInt() ?: 0,
+                goalDifference = (s["goalDifference"] as? Number)?.toInt() ?: 0,
+                points = (s["points"] as? Number)?.toInt() ?: 0,
+            )
+        }
+    }
+
     companion object {
         const val KEY_FORCE = "force_sync"
         const val KEY_LEAGUE_ID = "league_id"
-        private const val MAX_CONCURRENT_LEAGUES = 4
     }
 }

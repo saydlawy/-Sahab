@@ -82,6 +82,9 @@ interface MatchDao {
     @Query("SELECT * FROM standings WHERE leagueId = :leagueId ORDER BY rank ASC")
     suspend fun getStandingsByLeague(leagueId: Int): List<StandingEntity>
 
+    @Query("DELETE FROM matches WHERE leagueId = :leagueId")
+    suspend fun deleteMatchesByLeague(leagueId: Int)
+
     @Query("DELETE FROM standings WHERE leagueId = :leagueId")
     suspend fun deleteStandingsByLeague(leagueId: Int)
 
@@ -101,33 +104,11 @@ abstract class SportsDatabase : RoomDatabase() {
             INSTANCE?.let { return it }
             return synchronized(this) {
                 INSTANCE?.let { return it }
-                val app = context.applicationContext
-                val dbFile = app.getDatabasePath("sports_db")
-                val seedPrefs = app.getSharedPreferences("sahab_sports_seed_prefs", Context.MODE_PRIVATE)
-                if (needsSeedCopy(dbFile, seedPrefs)) {
-                    try {
-                        dbFile.parentFile?.mkdirs()
-                        File(dbFile.path + "-wal").delete()
-                        File(dbFile.path + "-shm").delete()
-                        app.assets.open("databases/sports_db").use { input ->
-                            FileOutputStream(dbFile).use { output ->
-                                input.copyTo(output)
-                                output.flush()
-                            }
-                        }
-                        seedPrefs.edit().putInt(KEY_SEED_VERSION, CURRENT_SEED_VERSION).apply()
-                    } catch (e: Exception) {
-                        android.util.Log.e("SportsDB", "Failed to copy pre-packaged sports_db from assets", e)
-                        throw RuntimeException("SportsDB seed copy failed: ${e.message}", e)
-                    }
-                }
-
-                val copiedSize = dbFile.length()
-                if (copiedSize < 100_000) {
-                    throw RuntimeException("SportsDB seed copy produced only ${copiedSize} bytes (expected ~1.2MB)")
-                }
-
-                Room.databaseBuilder(app, SportsDatabase::class.java, "sports_db")
+                Room.databaseBuilder(
+                    context.applicationContext,
+                    SportsDatabase::class.java,
+                    "sports_db",
+                )
                     .addMigrations(SportsMigrations.MIGRATION_1_2)
                     .build()
                     .also { INSTANCE = it }
