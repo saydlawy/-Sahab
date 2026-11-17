@@ -5,8 +5,12 @@ import android.util.Log
 import com.google.firebase.messaging.FirebaseMessaging
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.MyFirebaseMessagingService
+import com.saydlawy.sahab.data.auth.CloudAccountRestoreResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -17,6 +21,27 @@ import kotlin.coroutines.resume
  * منسق استعادة الحسابات والمزامنة السحابية والمحلية.
  */
 class SyncCoordinator(private val container: AppContainer) {
+
+    private val _needsSyncPinPrompt = MutableStateFlow(false)
+    val needsSyncPinPrompt: StateFlow<Boolean> = _needsSyncPinPrompt.asStateFlow()
+
+    fun dismissSyncPinPrompt() {
+        _needsSyncPinPrompt.value = false
+    }
+
+    suspend fun submitRestorePin(context: Context, pin: String): CloudAccountRestoreResult {
+        val result = container.userSyncService.restoreAccountsWithPin(pinOverride = pin)
+        if (result is CloudAccountRestoreResult.Restored && result.accounts.isNotEmpty()) {
+            container.prefs.setCloudSyncPin(pin)
+            result.accounts.asReversed().forEach { container.prefs.saveAccount(it) }
+            val active = result.accounts.first()
+            container.prefs.setActiveAccount(active.id)
+            container.repo.setAccount(active)
+            _needsSyncPinPrompt.value = false
+            triggerFullSync(context, forceCatalog = false, reason = "pin_restore")
+        }
+        return result
+    }
 
     /**
      * يستعيد اشتراكات المستخدم من السحابة (إن لم يوجد اشتراك محلي) ويدمج المفضلة والسجل
@@ -33,11 +58,10 @@ class SyncCoordinator(private val container: AppContainer) {
             return@coroutineScope localDeferred.await()
         }
 
-        val cloudAccountDeferred = async {
+        val cloudRestoreDeferred = async {
             withTimeoutOrNull(accountTimeoutMs) {
-                val multi = container.userSyncService.getAccounts().orEmpty()
-                if (multi.isNotEmpty()) multi else listOfNotNull(container.userSyncService.getXtreamAccount())
-            }
+                container.userSyncService.restoreAccountsWithPin()
+            } ?: CloudAccountRestoreResult.Empty
         }
 
         suspend fun runMergeAndRetry() = coroutineScope {
@@ -110,11 +134,23 @@ class SyncCoordinator(private val container: AppContainer) {
 
         var activeAccount = localDeferred.await()
         if (activeAccount == null) {
-            val cloudAccounts = cloudAccountDeferred.await().orEmpty()
-            if (cloudAccounts.isNotEmpty()) {
-                cloudAccounts.asReversed().forEach { container.prefs.saveAccount(it) }
-                activeAccount = cloudAccounts.first()
-                container.prefs.setActiveAccount(activeAccount.id)
+            when (val restoreRes = cloudRestoreDeferred.await()) {
+                is CloudAccountRestoreResult.Restored -> {
+                    val cloudAccounts = restoreRes.accounts
+                    if (cloudAccounts.isNotEmpty()) {
+                        cloudAccounts.asReversed().forEach { container.prefs.saveAccount(it) }
+                        activeAccount = cloudAccounts.first()
+                        container.prefs.setActiveAccount(activeAccount.id)
+                    }
+                    _needsSyncPinPrompt.value = false
+                }
+                is CloudAccountRestoreResult.NeedsPin,
+                is CloudAccountRestoreResult.WrongPin -> {
+                    _needsSyncPinPrompt.value = true
+                }
+                is CloudAccountRestoreResult.Empty -> {
+                    _needsSyncPinPrompt.value = false
+                }
             }
         }
 

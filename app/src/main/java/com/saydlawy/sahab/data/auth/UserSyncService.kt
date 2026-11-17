@@ -1,6 +1,5 @@
 package com.saydlawy.sahab.data.auth
 
-import android.util.Base64
 import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
@@ -18,10 +17,15 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import okio.ByteString.Companion.decodeBase64
+import okio.ByteString.Companion.toByteString
 import java.security.MessageDigest
 import java.security.SecureRandom
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -39,35 +43,112 @@ sealed class CloudFetchResult<out T> {
     data class Error(val cause: Throwable? = null) : CloudFetchResult<Nothing>()
 }
 
-class UserSyncService {
-    private fun keyFor(uid: String): SecretKeySpec {
+sealed class CloudDecryptResult {
+    data class Ok(val plain: String) : CloudDecryptResult()
+    data object PinRequired : CloudDecryptResult()
+    data object WrongPin : CloudDecryptResult()
+    data object Invalid : CloudDecryptResult()
+}
+
+sealed class CloudAccountRestoreResult {
+    data class Restored(val accounts: List<Account>, val migratedFromV1: Boolean = false) : CloudAccountRestoreResult()
+    data object NeedsPin : CloudAccountRestoreResult()
+    data object WrongPin : CloudAccountRestoreResult()
+    data object Empty : CloudAccountRestoreResult()
+}
+
+/**
+ * تشفير اشتراكات السحابة:
+ * - v2: اشتقاق PBKDF2WithHmacSHA256 (100,000 دورة) من Sync PIN يختاره المستخدم + salt عشوائي 16 بايت + AES-GCM.
+ * - v1: التوافق مع الوثائق القديمة (`sahab_cloud_v1_$uid`) لفكها وترحيلها تلقائياً إلى v2.
+ */
+object CloudAccountCrypto {
+    private const val PREFIX_V2 = "enc_v2:"
+    private const val PREFIX_V1 = "enc_v1:"
+    private const val PBKDF2_ITERATIONS = 100_000
+    private const val SALT_BYTES = 16
+    private const val IV_BYTES = 12
+
+    private fun deriveV2Key(pin: String, salt: ByteArray): SecretKeySpec {
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, 256)
+        val encoded = factory.generateSecret(spec).encoded
+        return SecretKeySpec(encoded, "AES")
+    }
+
+    private fun legacyKeyFor(uid: String): SecretKeySpec {
         val hash = MessageDigest.getInstance("SHA-256")
             .digest("sahab_cloud_v1_$uid".toByteArray(Charsets.UTF_8))
         return SecretKeySpec(hash, "AES")
     }
 
-    private fun encrypt(plain: String, uid: String): String {
+    fun encryptV2(plain: String, pin: String, saltOverride: ByteArray? = null): String {
         if (plain.isEmpty()) return ""
-        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val rng = SecureRandom()
+        val salt = saltOverride ?: ByteArray(SALT_BYTES).also { rng.nextBytes(it) }
+        val iv = ByteArray(IV_BYTES).also { rng.nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
-            init(Cipher.ENCRYPT_MODE, keyFor(uid), GCMParameterSpec(128, iv))
+            init(Cipher.ENCRYPT_MODE, deriveV2Key(pin, salt), GCMParameterSpec(128, iv))
         }
-        val out = iv + cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
-        return "enc_v1:" + Base64.encodeToString(out, Base64.NO_WRAP)
+        val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+        val saltB64 = salt.toByteString().base64()
+        val payloadB64 = (iv + ct).toByteString().base64()
+        return "$PREFIX_V2$saltB64:$payloadB64"
     }
 
-    private fun decrypt(value: String, uid: String): String {
-        if (!value.startsWith("enc_v1:")) return value
-        return runCatching {
-            val raw = Base64.decode(value.removePrefix("enc_v1:"), Base64.NO_WRAP)
-            val iv = raw.copyOfRange(0, 12)
-            val ct = raw.copyOfRange(12, raw.size)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
-                init(Cipher.DECRYPT_MODE, keyFor(uid), GCMParameterSpec(128, iv))
+    fun decrypt(value: String, uid: String, pin: String?): CloudDecryptResult {
+        if (value.isBlank()) return CloudDecryptResult.Ok("")
+        if (value.startsWith(PREFIX_V2)) {
+            val cleanPin = pin?.trim().orEmpty()
+            if (cleanPin.isEmpty()) return CloudDecryptResult.PinRequired
+            val body = value.removePrefix(PREFIX_V2)
+            val parts = body.split(':')
+            if (parts.size != 2) return CloudDecryptResult.Invalid
+            val salt = parts[0].decodeBase64()?.toByteArray() ?: return CloudDecryptResult.Invalid
+            val raw = parts[1].decodeBase64()?.toByteArray() ?: return CloudDecryptResult.Invalid
+            if (raw.size <= IV_BYTES) return CloudDecryptResult.Invalid
+            val iv = raw.copyOfRange(0, IV_BYTES)
+            val ct = raw.copyOfRange(IV_BYTES, raw.size)
+            return try {
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+                    init(Cipher.DECRYPT_MODE, deriveV2Key(cleanPin, salt), GCMParameterSpec(128, iv))
+                }
+                CloudDecryptResult.Ok(String(cipher.doFinal(ct), Charsets.UTF_8))
+            } catch (_: AEADBadTagException) {
+                CloudDecryptResult.WrongPin
+            } catch (_: Exception) {
+                CloudDecryptResult.Invalid
             }
-            String(cipher.doFinal(ct), Charsets.UTF_8)
-        }.getOrDefault("")
+        }
+        if (value.startsWith(PREFIX_V1)) {
+            return runCatching {
+                val raw = value.removePrefix(PREFIX_V1).decodeBase64()?.toByteArray() ?: return CloudDecryptResult.Invalid
+                val iv = raw.copyOfRange(0, IV_BYTES)
+                val ct = raw.copyOfRange(IV_BYTES, raw.size)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+                    init(Cipher.DECRYPT_MODE, legacyKeyFor(uid), GCMParameterSpec(128, iv))
+                }
+                CloudDecryptResult.Ok(String(cipher.doFinal(ct), Charsets.UTF_8))
+            }.getOrElse { CloudDecryptResult.Invalid }
+        }
+        return CloudDecryptResult.Ok(value)
     }
+
+    fun encryptLegacyV1ForTest(plain: String, uid: String): String {
+        val iv = ByteArray(IV_BYTES).also { SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(Cipher.ENCRYPT_MODE, legacyKeyFor(uid), GCMParameterSpec(128, iv))
+        }
+        val out = iv + cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+        return PREFIX_V1 + out.toByteString().base64()
+    }
+}
+
+class UserSyncService(
+    private val syncPinProvider: suspend () -> String? = { null },
+) {
+    private fun decrypt(value: String, uid: String, pin: String?): String =
+        (CloudAccountCrypto.decrypt(value, uid, pin) as? CloudDecryptResult.Ok)?.plain ?: ""
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
@@ -123,10 +204,17 @@ class UserSyncService {
 
     suspend fun saveXtreamAccount(account: Account) {
         val uid = currentUid ?: return
+        val pin = syncPinProvider()?.trim()?.takeIf { it.isNotEmpty() }
+        if (pin == null) {
+            // بدون Sync PIN يُحفظ الاشتراك محلياً عبر Android Keystore ولا يُرفع مشفراً بمفتاح مشتق من UID
+            runCatching { Log.i("SahabSync", "Skipping cloud Xtream upload: no Sync PIN configured") }
+            return
+        }
         val data = mapOf(
-            "server" to encrypt(account.server, uid),
-            "user" to encrypt(account.user, uid),
-            "pass" to encrypt(account.pass, uid)
+            "server" to CloudAccountCrypto.encryptV2(account.server, pin),
+            "user" to CloudAccountCrypto.encryptV2(account.user, pin),
+            "pass" to CloudAccountCrypto.encryptV2(account.pass, pin),
+            "cryptoVersion" to 2,
         )
         writeWithRetry("xtream", uid) {
             db.collection("users").document(uid).collection("data").document("xtream").set(data)
@@ -149,30 +237,86 @@ class UserSyncService {
 
     private val accountsSerializer = ListSerializer(Account.serializer())
 
-    suspend fun saveAccounts(accounts: List<Account>) {
+    suspend fun saveAccounts(accounts: List<Account>, pinOverride: String? = null) {
         val uid = currentUid ?: return
+        val pin = (pinOverride ?: syncPinProvider())?.trim()?.takeIf { it.isNotEmpty() }
+        if (pin == null) {
+            runCatching { Log.i("SahabSync", "Skipping cloud accounts_list upload: no Sync PIN configured (Keystore local-only)") }
+            return
+        }
         val jsonStr = json.encodeToString(accountsSerializer, accounts)
         writeWithRetry("accounts_list", uid) {
             db.collection("users").document(uid).collection("data").document("accounts_list")
-                .set(mapOf("enc" to encrypt(jsonStr, uid)))
+                .set(mapOf("enc" to CloudAccountCrypto.encryptV2(jsonStr, pin), "cryptoVersion" to 2))
         }
     }
 
-    suspend fun getAccounts(): List<Account>? = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
-        db.collection("users").document(uid).collection("data").document("accounts_list")
-            .get()
-            .addOnSuccessListener { snapshot ->
-                val raw = snapshot.getString("enc")?.let { decrypt(it, uid) }
-                    ?: snapshot.getString("json")
-                val jsonStr = raw?.takeIf { it.isNotBlank() }
-                if (jsonStr != null) {
-                    val list = runCatching { json.decodeFromString(accountsSerializer, jsonStr) }.getOrDefault(emptyList())
-                    cont.resume(list)
-                } else cont.resume(null)
+    suspend fun restoreAccountsWithPin(pinOverride: String? = null): CloudAccountRestoreResult {
+        val uid = currentUid ?: return CloudAccountRestoreResult.Empty
+        val pin = (pinOverride ?: syncPinProvider())?.trim()?.takeIf { it.isNotEmpty() }
+
+        val listSnap = runCatching {
+            awaitTask(db.collection("users").document(uid).collection("data").document("accounts_list").get())
+        }.getOrNull()
+        if (listSnap != null && listSnap.exists()) {
+            val enc = listSnap.getString("enc")
+            val legacyPlain = listSnap.getString("json")
+            if (!enc.isNullOrBlank()) {
+                when (val dec = CloudAccountCrypto.decrypt(enc, uid, pin)) {
+                    is CloudDecryptResult.Ok -> {
+                        val list = runCatching { json.decodeFromString(accountsSerializer, dec.plain) }.getOrDefault(emptyList())
+                        if (list.isNotEmpty()) {
+                            val wasV1 = enc.startsWith("enc_v1:")
+                            if (wasV1 && pin != null) {
+                                saveAccounts(list, pin)
+                            }
+                            return CloudAccountRestoreResult.Restored(list, migratedFromV1 = wasV1)
+                        }
+                    }
+                    is CloudDecryptResult.PinRequired -> return CloudAccountRestoreResult.NeedsPin
+                    is CloudDecryptResult.WrongPin -> return CloudAccountRestoreResult.WrongPin
+                    is CloudDecryptResult.Invalid -> return CloudAccountRestoreResult.Empty
+                }
+            } else if (!legacyPlain.isNullOrBlank()) {
+                val list = runCatching { json.decodeFromString(accountsSerializer, legacyPlain) }.getOrDefault(emptyList())
+                if (list.isNotEmpty()) {
+                    if (pin != null) saveAccounts(list, pin)
+                    return CloudAccountRestoreResult.Restored(list, migratedFromV1 = true)
+                }
             }
-            .addOnFailureListener { cont.resume(null) }
+        }
+
+        // Fallback إلى وثيقة xtream المفردة
+        val xtreamSnap = runCatching {
+            awaitTask(db.collection("users").document(uid).collection("data").document("xtream").get())
+        }.getOrNull()
+        if (xtreamSnap != null && xtreamSnap.exists()) {
+            val sEnc = xtreamSnap.getString("server") ?: ""
+            val uEnc = xtreamSnap.getString("user") ?: ""
+            val pEnc = xtreamSnap.getString("pass") ?: ""
+            val resS = CloudAccountCrypto.decrypt(sEnc, uid, pin)
+            val resU = CloudAccountCrypto.decrypt(uEnc, uid, pin)
+            val resP = CloudAccountCrypto.decrypt(pEnc, uid, pin)
+            val results = listOf(resS, resU, resP)
+            if (results.any { it is CloudDecryptResult.PinRequired }) return CloudAccountRestoreResult.NeedsPin
+            if (results.any { it is CloudDecryptResult.WrongPin }) return CloudAccountRestoreResult.WrongPin
+            val s = (resS as? CloudDecryptResult.Ok)?.plain.orEmpty()
+            val u = (resU as? CloudDecryptResult.Ok)?.plain.orEmpty()
+            val p = (resP as? CloudDecryptResult.Ok)?.plain.orEmpty()
+            if (s.isNotBlank() && u.isNotBlank()) {
+                val acc = Account(server = s, user = u, pass = p)
+                val wasV1 = sEnc.startsWith("enc_v1:") || uEnc.startsWith("enc_v1:") || pEnc.startsWith("enc_v1:")
+                if (wasV1 && pin != null) {
+                    saveAccounts(listOf(acc), pin)
+                }
+                return CloudAccountRestoreResult.Restored(listOf(acc), migratedFromV1 = wasV1)
+            }
+        }
+        return CloudAccountRestoreResult.Empty
     }
+
+    suspend fun getAccounts(): List<Account>? =
+        (restoreAccountsWithPin() as? CloudAccountRestoreResult.Restored)?.accounts
 
     suspend fun saveFavorites(favs: List<FavItem>) {
         val uid = currentUid ?: return
@@ -244,23 +388,9 @@ class UserSyncService {
     suspend fun getRecents(): List<RecentItem>? =
         (fetchRecents() as? CloudFetchResult.Success)?.data
 
-    suspend fun getXtreamAccount(): Account? = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(null)
-        db.collection("users").document(uid).collection("data").document("xtream")
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (snapshot.exists()) {
-                    val acc = Account(
-                        server = decrypt(snapshot.getString("server") ?: "", uid),
-                        user = decrypt(snapshot.getString("user") ?: "", uid),
-                        pass = decrypt(snapshot.getString("pass") ?: "", uid)
-                    )
-                    cont.resume(acc)
-                } else {
-                    cont.resume(null)
-                }
-            }
-            .addOnFailureListener { cont.resume(null) }
+    suspend fun getXtreamAccount(): Account? {
+        val res = restoreAccountsWithPin()
+        return (res as? CloudAccountRestoreResult.Restored)?.accounts?.firstOrNull()
     }
 
     suspend fun savePreferences(prefs: CloudPreferences) {

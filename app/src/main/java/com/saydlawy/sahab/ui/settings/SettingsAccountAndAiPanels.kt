@@ -94,6 +94,17 @@ import kotlinx.coroutines.withContext
 
 @Composable
 internal fun CloudAccountPanel(email: String?, onLogout: () -> Unit, modifier: Modifier = Modifier) {
+    val container = LocalContainer.current
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var currentPinConfigured by remember { mutableStateOf(false) }
+    var pinInput by remember { mutableStateOf("") }
+    var savingPin by remember { mutableStateOf(false) }
+
+    LaunchedEffect(email) {
+        currentPinConfigured = !container.prefs.getCloudSyncPin().isNullOrEmpty()
+    }
+
     GlassPanel(modifier = modifier, shape = RoundedCornerShape(24.dp), strong = true, padding = 20.dp) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -122,6 +133,66 @@ internal fun CloudAccountPanel(email: String?, onLogout: () -> Unit, modifier: M
             }
             if (email != null) {
                 InfoRow("البريد الإلكتروني", email)
+                InfoRow(
+                    "تشفير الاشتراكات (Sync PIN)",
+                    if (currentPinConfigured) "مفعّل (PBKDF2-GCM)" else "محلي فقط (Android Keystore)",
+                )
+                Text(
+                    text = if (currentPinConfigured) {
+                        "تُشفَّر بيانات الاشتراك على السحابة برمز المزامنة الخاص بك؛ أدخله عند الاستعادة على جهاز جديد."
+                    } else {
+                        "بدون رمز مزامنة (Sync PIN)، تبقى بيانات الاشتراك مشفرة محلياً عبر Android Keystore ولا تُرفع للسحابة."
+                    },
+                    fontSize = 12.sp,
+                    color = Palette.TextDim,
+                )
+                GlassTextField(
+                    value = pinInput,
+                    onValueChange = { pinInput = it },
+                    placeholder = "رمز حماية المزامنة (4+ أحرف أو أرقام)",
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                    password = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassButton(
+                        text = if (savingPin) "جاري الحفظ..." else "حفظ الرمز ومزامنة",
+                        primary = true,
+                        onClick = {
+                            if (savingPin) return@GlassButton
+                            val trimmed = pinInput.trim()
+                            if (trimmed.length < 4) {
+                                Toast.makeText(context, "أدخل 4 أحرف/أرقام على الأقل", Toast.LENGTH_SHORT).show()
+                                return@GlassButton
+                            }
+                            savingPin = true
+                            scope.launch {
+                                container.prefs.setCloudSyncPin(trimmed)
+                                val accounts = container.prefs.getAccounts()
+                                if (accounts.isNotEmpty()) {
+                                    container.userSyncService.saveAccounts(accounts, pinOverride = trimmed)
+                                }
+                                currentPinConfigured = true
+                                pinInput = ""
+                                savingPin = false
+                                Toast.makeText(context, "تم تفعيل تشفير المزامنة برمز الحماية", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (currentPinConfigured) {
+                        GlassButton(
+                            text = "إلغاء الرمز",
+                            onClick = {
+                                scope.launch {
+                                    container.prefs.setCloudSyncPin(null)
+                                    currentPinConfigured = false
+                                    Toast.makeText(context, "تم التحويل للتخزين المحلي فقط (Keystore)", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                        )
+                    }
+                }
                 GlassButton(
                     text = "تسجيل الخروج من السحابة",
                     onClick = onLogout,

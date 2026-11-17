@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -282,6 +283,11 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                         currentRoute = currentRoute,
                         isTv = isTv,
                     )
+
+                    SyncPinUnlockDialog(
+                        container = container,
+                        nav = nav,
+                    )
                 }
             }
         }
@@ -512,6 +518,84 @@ private fun NotificationPermissionPrompt(
                             },
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncPinUnlockDialog(
+    container: AppContainer,
+    nav: NavHostController,
+) {
+    val needsPin by container.syncCoordinator.needsSyncPinPrompt.collectAsStateWithLifecycle()
+    if (!needsPin) return
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pin by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var unlocking by remember { mutableStateOf(false) }
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = { container.syncCoordinator.dismissSyncPinPrompt() },
+    ) {
+        GlassPanel(shape = RoundedCornerShape(22.dp), strong = true, padding = 22.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "استعادة الاشتراك المشفر",
+                    color = Palette.Text,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "اشتراكك السحابي محمي برمز مزامنة (Sync PIN). أدخل الرمز لفك التشفير واستعادته:",
+                    color = Palette.TextDim,
+                    fontSize = 13.sp,
+                )
+                com.saydlawy.sahab.ui.components.GlassTextField(
+                    value = pin,
+                    onValueChange = { pin = it; errorMsg = null },
+                    placeholder = "رمز المزامنة (Sync PIN)",
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                    password = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (errorMsg != null) {
+                    Text(errorMsg!!, color = Palette.Danger, fontSize = 12.sp)
+                }
+                androidx.compose.foundation.layout.Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    com.saydlawy.sahab.ui.components.GlassButton(
+                        text = if (unlocking) "جاري الفك..." else "استعادة",
+                        primary = true,
+                        onClick = {
+                            if (unlocking) return@GlassButton
+                            unlocking = true
+                            scope.launch {
+                                when (container.syncCoordinator.submitRestorePin(context, pin)) {
+                                    is com.saydlawy.sahab.data.auth.CloudAccountRestoreResult.Restored -> {
+                                        nav.navigate(Routes.HOME) {
+                                            popUpTo(nav.graph.id) { inclusive = true }
+                                        }
+                                    }
+                                    is com.saydlawy.sahab.data.auth.CloudAccountRestoreResult.WrongPin -> {
+                                        errorMsg = "رمز المزامنة غير صحيح"
+                                    }
+                                    else -> {
+                                        errorMsg = "تعذر العثور على اشتراك بهذا الرمز"
+                                    }
+                                }
+                                unlocking = false
+                            }
+                        },
+                    )
+                    com.saydlawy.sahab.ui.components.GlassButton(
+                        text = "لاحقاً",
+                        onClick = { container.syncCoordinator.dismissSyncPinPrompt() },
+                    )
                 }
             }
         }

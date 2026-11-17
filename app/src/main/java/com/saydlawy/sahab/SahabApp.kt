@@ -62,7 +62,9 @@ class AppContainer(context: Context) {
     val epgSync by lazy { EpgSync(channelDb.channelDao()) }
     val firebaseCatalog by lazy { com.saydlawy.sahab.data.catalog.FirebaseCatalogService() }
     val authManager by lazy { com.saydlawy.sahab.data.auth.AuthManager() }
-    val userSyncService by lazy { com.saydlawy.sahab.data.auth.UserSyncService() }
+    val userSyncService by lazy {
+        com.saydlawy.sahab.data.auth.UserSyncService { prefs.getCloudSyncPin() }
+    }
     val weather by lazy { com.saydlawy.sahab.data.weather.WeatherService(client, context.applicationContext) }
 
     val client: OkHttpClient = OkHttpClient.Builder()

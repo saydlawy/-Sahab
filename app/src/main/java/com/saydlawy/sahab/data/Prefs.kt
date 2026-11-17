@@ -378,6 +378,17 @@ class Prefs @JvmOverloads constructor(
         }
     }
 
+    suspend fun getCloudSyncPin(): String? = withContext(Dispatchers.IO) {
+        securePrefs().getString(SEC_SYNC_PIN, null)?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setCloudSyncPin(pin: String?) = withContext(Dispatchers.IO) {
+        val clean = pin?.trim().orEmpty()
+        securePrefs().edit().apply {
+            if (clean.isEmpty()) remove(SEC_SYNC_PIN) else putString(SEC_SYNC_PIN, clean)
+        }.commit()
+    }
+
     suspend fun clearAccount() {
         accountMutex.withLock {
             withContext(Dispatchers.IO) {
@@ -387,6 +398,7 @@ class Prefs @JvmOverloads constructor(
                     .remove(SEC_PASS)
                     .remove(SEC_ACCOUNTS)
                     .remove(SEC_ACTIVE_ID)
+                    .remove(SEC_SYNC_PIN)
                     .commit()
                 store.edit {
                     it.remove(Keys.Server)
@@ -504,5 +516,6 @@ class Prefs @JvmOverloads constructor(
         const val SEC_PASS = "enc_pass"
         const val SEC_ACCOUNTS = "enc_accounts_list"
         const val SEC_ACTIVE_ID = "enc_active_id"
+        const val SEC_SYNC_PIN = "enc_cloud_sync_pin"
     }
 }
