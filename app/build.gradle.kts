@@ -19,7 +19,8 @@ if (localPropertiesFile.exists()) {
 // Read from environment variable first (GitHub Actions), fallback to local.properties
 val tmdbApiKey: String = System.getenv("TMDB_API_KEY") ?: localProperties.getProperty("TMDB_API_KEY") ?: ""
 
-val runNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+val runNumber: Int = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+    ?: (System.currentTimeMillis() / 60_000L).toInt()
 
 android {
     namespace = "com.saydlawy.sahab"
