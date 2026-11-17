@@ -93,17 +93,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-internal val FALLBACK_FEATURED_CHANNELS = listOf(
-    Channel("bein_sports_1", "beIN SPORTS 1 HD"),
-    Channel("mbc_1", "MBC 1 HD"),
-    Channel("mbc_action", "MBC Action HD"),
-    Channel("mbc_drama", "MBC Drama HD"),
-    Channel("rotana_cinema", "روتانا سينما"),
-    Channel("aljazeera_news", "الجزيرة الإخبارية"),
-    Channel("ssc_1", "SSC 1 HD"),
-    Channel("alkass_1", "الكأس 1 HD"),
-)
-
 internal suspend fun loadFeaturedChannels(
     repo: Repository,
     source: HomeChannelsSource,
@@ -113,7 +102,7 @@ internal suspend fun loadFeaturedChannels(
 ): List<Channel> = withContext(Dispatchers.IO) {
     runCatching {
         val all = repo.peekAllLiveChannels() ?: repo.liveChannels(null)
-        if (all.isEmpty()) return@withContext FALLBACK_FEATURED_CHANNELS
+        if (all.isEmpty()) return@withContext emptyList()
 
         when (source) {
             HomeChannelsSource.CUSTOM -> {
@@ -176,6 +165,6 @@ internal suspend fun loadFeaturedChannels(
             }
         }
         matched
-    }.getOrDefault(FALLBACK_FEATURED_CHANNELS)
+    }.getOrDefault(emptyList())
 }
 

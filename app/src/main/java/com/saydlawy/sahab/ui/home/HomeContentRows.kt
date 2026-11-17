@@ -306,7 +306,8 @@ internal fun FeaturedChannelsSection(
     onSeeAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val displayChannels = if (channels.isNotEmpty()) channels else FALLBACK_FEATURED_CHANNELS
+    if (channels.isEmpty()) return
+    val displayChannels = channels
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
     val focusNav = LocalFocusNavigation.current
@@ -583,6 +584,7 @@ internal fun TodayMatchesSection(
     matches: List<Match>,
     onOpenSports: (String) -> Unit,
 ) {
+    if (matches.isEmpty()) return
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
     val cardWidth = if (isTvOrTablet) 232.dp else 204.dp
@@ -659,7 +661,7 @@ internal fun TodayMatchCard(
     modifier: Modifier = Modifier,
 ) {
     val localTime = remember(match.time, match.date) {
-        formatUtcClockToLocal(match.time, match.date).ifBlank { "٠٨:٠٠ م" }
+        formatUtcClockToLocal(match.time, match.date).ifBlank { "غير محدد" }
     }
 
     GlassCard(
