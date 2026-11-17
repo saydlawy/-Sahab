@@ -269,6 +269,9 @@ class CatalogSync(
                 status = 0,
                 now = now,
             )
+            if (existing.sahabId.startsWith("pending:")) {
+                runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
+            }
         } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {
             // Weak match — store data but keep needsEnrichment=1 for potential retry
             val newId = CatalogMovieEntity.idFromTmdb(movie.id)

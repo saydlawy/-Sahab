@@ -2,6 +2,7 @@ package com.saydlawy.sahab.data.catalog
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import com.saydlawy.sahab.data.DEFAULT_VOD_EXT
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.Repository
@@ -24,19 +25,62 @@ class FirebaseCatalogService {
 
     fun peekCachedRecommendedMovies(): List<CatalogMovieEntity> = cachedRecommendedMovies
 
-    suspend fun getCatalogItem(sahabId: String): CatalogMovieEntity? = suspendCancellableCoroutine { cont ->
-        collection.document(sahabId).get()
-            .addOnSuccessListener { snapshot ->
-                if (snapshot.exists()) {
-                    cont.resume(mapToEntity(sahabId, snapshot.data ?: emptyMap()))
-                } else {
+    suspend fun getCatalogItem(sahabId: String): CatalogMovieEntity? {
+        val direct = fetchDocById(sahabId)
+        if (direct != null) return direct
+        if (sahabId.startsWith("pending:")) {
+            return queryByAlias(sahabId)
+        }
+        return null
+    }
+
+    private suspend fun fetchDocById(docId: String, allowRedirect: Boolean = true): CatalogMovieEntity? =
+        suspendCancellableCoroutine { cont ->
+            collection.document(docId).get()
+                .addOnSuccessListener { snapshot ->
+                    if (!snapshot.exists()) {
+                        cont.resume(null)
+                        return@addOnSuccessListener
+                    }
+                    val redirectTarget = snapshot.getString("redirectTo")?.takeIf {
+                        it.isNotBlank() && it != docId
+                    }
+                    if (allowRedirect && redirectTarget != null) {
+                        collection.document(redirectTarget).get()
+                            .addOnSuccessListener { targetSnap ->
+                                if (targetSnap.exists()) {
+                                    cont.resume(mapToEntity(redirectTarget, targetSnap.data ?: emptyMap()))
+                                } else {
+                                    cont.resume(mapToEntity(docId, snapshot.data ?: emptyMap()))
+                                }
+                            }
+                            .addOnFailureListener {
+                                cont.resume(mapToEntity(docId, snapshot.data ?: emptyMap()))
+                            }
+                    } else {
+                        cont.resume(mapToEntity(docId, snapshot.data ?: emptyMap()))
+                    }
+                }
+                .addOnFailureListener {
                     cont.resume(null)
                 }
-            }
-            .addOnFailureListener {
-                cont.resume(null)
-            }
-    }
+        }
+
+    private suspend fun queryByAlias(aliasId: String): CatalogMovieEntity? =
+        suspendCancellableCoroutine { cont ->
+            collection.whereArrayContains("aliases", aliasId)
+                .limit(1)
+                .get()
+                .addOnSuccessListener { query ->
+                    val doc = query.documents.firstOrNull()
+                    if (doc != null && doc.exists()) {
+                        cont.resume(mapToEntity(doc.id, doc.data ?: emptyMap()))
+                    } else {
+                        cont.resume(null)
+                    }
+                }
+                .addOnFailureListener { cont.resume(null) }
+        }
 
     /**
      * Queries Firebase `global_catalog` for recently enriched / newest items.
@@ -289,30 +333,71 @@ class FirebaseCatalogService {
     }
 
     suspend fun saveCatalogItem(entity: CatalogMovieEntity) = suspendCancellableCoroutine { cont ->
-        val data = mapOf(
-            "novaStreamId" to entity.novaStreamId,
-            "titleAr" to entity.titleAr,
-            "titleEn" to entity.titleEn,
-            "year" to entity.year,
-            "plot" to entity.plot,
-            "plotSource" to entity.plotSource,
-            "plotConfidence" to entity.plotConfidence,
-            "identifiedTitle" to entity.identifiedTitle,
-            "mediaType" to entity.mediaType,
-            "cast" to entity.cast,
-            "director" to entity.director,
-            "genre" to entity.genre,
-            "runtime" to entity.runtime,
-            "rating" to entity.rating,
-            "posterUrl" to entity.posterUrl,
-            "backdropUrl" to entity.backdropUrl,
-            "tmdbId" to entity.tmdbId,
-            "imdbId" to entity.imdbId,
-            "tmdbVoteCount" to entity.tmdbVoteCount,
-        )
-        collection.document(entity.sahabId).set(data)
-            .addOnSuccessListener { cont.resume(Unit) }
+        val aliases = aliasesFor(entity)
+        val data = buildMap<String, Any?> {
+            put("novaStreamId", entity.novaStreamId)
+            put("titleAr", entity.titleAr)
+            put("titleEn", entity.titleEn)
+            put("year", entity.year)
+            put("plot", entity.plot)
+            put("plotSource", entity.plotSource)
+            put("plotConfidence", entity.plotConfidence)
+            put("identifiedTitle", entity.identifiedTitle)
+            put("mediaType", entity.mediaType)
+            put("cast", entity.cast)
+            put("director", entity.director)
+            put("genre", entity.genre)
+            put("runtime", entity.runtime)
+            put("rating", entity.rating)
+            put("posterUrl", entity.posterUrl)
+            put("backdropUrl", entity.backdropUrl)
+            put("tmdbId", entity.tmdbId)
+            put("imdbId", entity.imdbId)
+            put("tmdbVoteCount", entity.tmdbVoteCount)
+            if (aliases.isNotEmpty()) put("aliases", aliases)
+        }
+        collection.document(entity.sahabId).set(data, SetOptions.merge())
+            .addOnSuccessListener {
+                val pendingId = CatalogMovieEntity.idPending(entity.novaStreamId)
+                if (entity.novaStreamId.isNotBlank() && entity.sahabId != pendingId) {
+                    val redirectData = mapOf(
+                        "redirectTo" to entity.sahabId,
+                        "novaStreamId" to entity.novaStreamId,
+                    )
+                    collection.document(pendingId).set(redirectData, SetOptions.merge())
+                        .addOnCompleteListener { cont.resume(Unit) }
+                } else {
+                    cont.resume(Unit)
+                }
+            }
             .addOnFailureListener { cont.resume(Unit) }
+    }
+
+    suspend fun linkPendingAliasToTmdb(streamId: String, tmdbDocId: String, titleAr: String = "") {
+        if (streamId.isBlank() || tmdbDocId.isBlank() || tmdbDocId == CatalogMovieEntity.idPending(streamId)) return
+        val pendingId = CatalogMovieEntity.idPending(streamId)
+        suspendCancellableCoroutine<Unit> { cont ->
+            val pendingDoc = collection.document(pendingId)
+            pendingDoc.get()
+                .addOnSuccessListener { snap ->
+                    val existingPlot = snap.getString("plot").orEmpty()
+                    val tmdbRef = collection.document(tmdbDocId)
+                    val mergePayload = buildMap<String, Any> {
+                        put("aliases", com.google.firebase.firestore.FieldValue.arrayUnion(pendingId))
+                        if (existingPlot.isNotBlank()) put("plot", existingPlot)
+                        snap.getString("plotSource")?.takeIf { it.isNotBlank() }?.let { put("plotSource", it) }
+                        snap.getString("identifiedTitle")?.takeIf { it.isNotBlank() }?.let { put("identifiedTitle", it) }
+                    }
+                    tmdbRef.set(mergePayload, SetOptions.merge())
+                        .addOnCompleteListener {
+                            pendingDoc.set(
+                                mapOf("redirectTo" to tmdbDocId, "novaStreamId" to streamId, "titleAr" to titleAr),
+                                SetOptions.merge(),
+                            ).addOnCompleteListener { cont.resume(Unit) }
+                        }
+                }
+                .addOnFailureListener { cont.resume(Unit) }
+        }
     }
 
     private fun mapToEntity(id: String, data: Map<String, Any>): CatalogMovieEntity {
@@ -340,5 +425,22 @@ class FirebaseCatalogService {
             needsEnrichment = 0,
             lastEnriched = System.currentTimeMillis(),
         )
+    }
+
+    companion object {
+        fun aliasesFor(entity: CatalogMovieEntity): List<String> {
+            val streamId = entity.novaStreamId.trim()
+            if (streamId.isEmpty()) return emptyList()
+            val pendingId = CatalogMovieEntity.idPending(streamId)
+            return if (entity.sahabId != pendingId) listOf(pendingId) else emptyList()
+        }
+
+        fun resolveRedirectId(
+            docId: String,
+            redirectTo: String?,
+        ): String {
+            val clean = redirectTo?.trim().orEmpty()
+            return if (clean.isNotEmpty() && clean != docId) clean else docId
+        }
     }
 }
