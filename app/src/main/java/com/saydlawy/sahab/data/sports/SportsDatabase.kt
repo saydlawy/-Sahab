@@ -1,7 +1,6 @@
 package com.saydlawy.sahab.data.sports
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -14,8 +13,6 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import java.io.File
-import java.io.FileOutputStream
 
 @Entity(
     tableName = "matches",
@@ -119,47 +116,6 @@ abstract class SportsDatabase : RoomDatabase() {
                     .also { INSTANCE = it }
             }
         }
-
-        private const val KEY_SEED_VERSION = "seed_version"
-        private const val CURRENT_SEED_VERSION = 1
-
-        private fun needsSeedCopy(dbFile: File, seedPrefs: android.content.SharedPreferences): Boolean {
-            if (!dbFile.exists()) return true
-            if (seedPrefs.getInt(KEY_SEED_VERSION, 0) < CURRENT_SEED_VERSION) return true
-            return try {
-                SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqLite ->
-                    isSchemaOutdated(sqLite)
-                }
-            } catch (e: Exception) {
-                true
-            }
-        }
-
-        private fun isSchemaOutdated(sqLite: SQLiteDatabase): Boolean {
-            var leagueIdNotNull = false
-            sqLite.rawQuery("PRAGMA table_info(matches)", null).use { cursor ->
-                val nameIdx = cursor.getColumnIndex("name")
-                val notNullIdx = cursor.getColumnIndex("notnull")
-                while (cursor.moveToNext()) {
-                    if (nameIdx >= 0 && notNullIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
-                        leagueIdNotNull = cursor.getInt(notNullIdx) == 1
-                    }
-                }
-            }
-            var standingsPkValid = false
-            sqLite.rawQuery("PRAGMA table_info(standings)", null).use { cursor ->
-                val nameIdx = cursor.getColumnIndex("name")
-                val pkIdx = cursor.getColumnIndex("pk")
-                while (cursor.moveToNext()) {
-                    if (nameIdx >= 0 && pkIdx >= 0 && cursor.getString(nameIdx) == "leagueId") {
-                        standingsPkValid = cursor.getInt(pkIdx) > 0
-                    }
-                }
-            }
-            return !leagueIdNotNull || !standingsPkValid
-        }
-
-
     }
 }
 
