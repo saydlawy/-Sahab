@@ -227,7 +227,7 @@ object SahabPlayer {
 
         val langCode = selectedFormat.language
         val langName = if (!langCode.isNullOrBlank() && langCode != "und") {
-            Locale(langCode).getDisplayLanguage(Locale("ar")).ifBlank { langCode }
+            Locale.forLanguageTag(langCode).getDisplayLanguage(Locale.forLanguageTag("ar")).ifBlank { langCode }
         } else {
             selectedFormat.label?.takeIf { it.isNotBlank() } ?: "الصوت"
         }
@@ -270,7 +270,7 @@ object SahabPlayer {
 
         val langCode = format.language
         val langName = if (!langCode.isNullOrBlank() && langCode != "und") {
-            Locale(langCode).getDisplayLanguage(Locale("ar")).ifBlank { langCode }
+            Locale.forLanguageTag(langCode).getDisplayLanguage(Locale.forLanguageTag("ar")).ifBlank { langCode }
         } else {
             format.label?.takeIf { it.isNotBlank() } ?: "الصوت"
         }
@@ -286,7 +286,7 @@ object SahabPlayer {
             ?: return "بدون ترجمة"
         val langCode = format.language
         val langName = if (!langCode.isNullOrBlank() && langCode != "und") {
-            Locale(langCode).getDisplayLanguage(Locale("ar")).ifBlank { langCode }
+            Locale.forLanguageTag(langCode).getDisplayLanguage(Locale.forLanguageTag("ar")).ifBlank { langCode }
         } else {
             format.label?.takeIf { it.isNotBlank() } ?: "ترجمة"
         }

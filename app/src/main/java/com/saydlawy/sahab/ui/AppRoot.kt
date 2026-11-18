@@ -217,8 +217,11 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                     val oledWideNavigation = themePreferences.selectedThemeId == "oled_cinema" && windowInfo.mode == DisplayMode.TABLET_OR_TV
                     val navigationVisible = LocalThemeCustomization.current.isVisible("global_navigation")
                     val adjustedContentModifier = when {
-                        oledPhoneNavigation && navigationVisible -> contentModifier.padding(bottom = 76.dp)
-                        oledWideNavigation && navigationVisible -> contentModifier.padding(start = 84.dp)
+                        onPlayer -> contentModifier
+                        oledPhoneNavigation && navigationVisible ->
+                            contentModifier.padding(bottom = 76.dp)
+                        oledWideNavigation && navigationVisible ->
+                            contentModifier.padding(start = 84.dp)
                         else -> contentModifier
                     }
                     Box(adjustedContentModifier) {

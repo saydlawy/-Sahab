@@ -48,14 +48,19 @@ fun LiveVideoStallWatchdog(
         while (isActive) {
             delay(SAMPLE_MS)
             val counters = player.videoDecoderCounters
-            val armed = player.isPlaying &&
-                player.playbackState == Player.STATE_READY &&
-                player.videoFormat != null &&
-                counters != null
-            if (!armed || counters == null) {
+            if (counters == null) {
                 lastRendered = -1
                 continue
             }
+
+            val armed = player.isPlaying &&
+                player.playbackState == Player.STATE_READY &&
+                player.videoFormat != null
+            if (!armed) {
+                lastRendered = -1
+                continue
+            }
+
             counters.ensureUpdated()
             val rendered = counters.renderedOutputBufferCount
             val now = SystemClock.elapsedRealtime()

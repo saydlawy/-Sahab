@@ -18,6 +18,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -103,6 +104,7 @@ fun CloudLoginScreen(
     val vm = appViewModel { CloudLoginViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val serverClientId = stringResource(id = com.saydlawy.sahab.R.string.default_web_client_id)
 
     val emailFocus = remember { FocusRequester() }
     val passFocus = remember { FocusRequester() }
@@ -121,7 +123,7 @@ fun CloudLoginScreen(
             try {
                 val credentialManager = CredentialManager.create(context)
                 val googleIdOption = GetGoogleIdOption.Builder()
-                    .setServerClientId(context.getString(com.saydlawy.sahab.R.string.default_web_client_id))
+                    .setServerClientId(serverClientId)
                     .setFilterByAuthorizedAccounts(false)
                     .build()
                 val request = GetCredentialRequest.Builder()

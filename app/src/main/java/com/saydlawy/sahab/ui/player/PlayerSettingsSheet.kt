@@ -277,7 +277,7 @@ internal fun trackLabel(format: Format, position: Int): String {
     val language = if (languageCode.isNullOrBlank() || languageCode == "und") {
         null
     } else {
-        val name = Locale(languageCode).getDisplayLanguage(Locale("ar"))
+        val name = Locale.forLanguageTag(languageCode).getDisplayLanguage(Locale.forLanguageTag("ar"))
         name.ifBlank { languageCode }
     }
     return listOfNotNull(format.label, language).distinct().joinToString(" - ")
