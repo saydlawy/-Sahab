@@ -429,6 +429,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             )
         }
         composable(Routes.SETTINGS) {
+            val scope = rememberCoroutineScope()
             SettingsScreen(
                 onBack = back,
                 onOpenCloudLogin = { nav.navigate(Routes.CLOUD_LOGIN) },
