@@ -62,7 +62,10 @@ data class EpgProgramEntity(
     val updatedAt: Long,
 )
 
-@Entity(tableName = "channel_lists")
+@Entity(
+    tableName = "channel_lists",
+    indices = [Index(value = ["accountId"])],
+)
 data class ChannelListEntity(
     @PrimaryKey val listId: String,
     val name: String,
@@ -71,6 +74,7 @@ data class ChannelListEntity(
     val sortMode: String = "custom",
     val createdAt: Long,
     val updatedAt: Long,
+    val accountId: String = "",
 )
 
 @Entity(

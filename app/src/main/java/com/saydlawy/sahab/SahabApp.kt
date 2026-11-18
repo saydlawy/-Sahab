@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.sample
@@ -87,6 +88,7 @@ class AppContainer(context: Context) {
     @Volatile
     var playback: PlayRequest? = null
 
+    private val pendingPlaybackLock = Any()
     private val pendingPlaybackFile by lazy { File(appContext.filesDir, "pending_playback.json") }
     private val playbackJson by lazy {
         kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -105,31 +107,49 @@ class AppContainer(context: Context) {
         } else {
             request
         }
+        val payload = playbackJson.encodeToString(PlayRequest.serializer(), bounded)
         appScope.launch {
             runCatching {
-                pendingPlaybackFile.writeText(playbackJson.encodeToString(PlayRequest.serializer(), bounded))
+                synchronized(pendingPlaybackLock) {
+                    val tmpFile = File(pendingPlaybackFile.parentFile, "pending_playback.json.tmp")
+                    tmpFile.writeText(payload)
+                    if (!tmpFile.renameTo(pendingPlaybackFile)) {
+                        pendingPlaybackFile.writeText(payload)
+                        tmpFile.delete()
+                    }
+                }
             }
         }
     }
 
     fun restorePendingPlayback(): PlayRequest? = runCatching {
-        if (!pendingPlaybackFile.exists()) return null
-        playbackJson.decodeFromString(PlayRequest.serializer(), pendingPlaybackFile.readText())
-            .also { playback = it }
+        synchronized(pendingPlaybackLock) {
+            if (!pendingPlaybackFile.exists()) return null
+            playbackJson.decodeFromString(PlayRequest.serializer(), pendingPlaybackFile.readText())
+                .also { playback = it }
+        }
     }.getOrNull()
 
     fun clearPendingPlayback() {
         playback = null
-        appScope.launch { runCatching { pendingPlaybackFile.delete() } }
+        appScope.launch {
+            runCatching {
+                synchronized(pendingPlaybackLock) {
+                    pendingPlaybackFile.delete()
+                    File(pendingPlaybackFile.parentFile, "pending_playback.json.tmp").delete()
+                }
+            }
+        }
     }
 
-    /** Short stable hash of (server + user). Used to isolate the video cache per account
+    /** Short stable hash of (id + server + user + type). Used to isolate the video cache per account
      *  without exposing credentials. Returns "anon" before login. */
     val accountHash: String
         get() {
             val a = repo.account ?: return "anon"
+            val identity = if (a.type == "M3U") "${a.id}|m3u|${a.m3uUrl}" else "${a.id}|${a.server}|${a.user}"
             val bytes = java.security.MessageDigest.getInstance("SHA-256")
-                .digest("${a.server}|${a.user}".toByteArray(Charsets.UTF_8))
+                .digest(identity.toByteArray(Charsets.UTF_8))
             return bytes.take(4).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         }
 
@@ -150,6 +170,12 @@ class AppContainer(context: Context) {
     @Volatile
     private var lastUploadedRecents: List<RecentItem>? = null
 
+    @Volatile
+    private var lastUploadedFavorites: List<com.saydlawy.sahab.data.FavItem>? = null
+
+    @Volatile
+    private var lastUploadedPreferences: CloudPreferences? = null
+
     private suspend fun uploadRecentsIfNeeded(recents: List<RecentItem>) {
         if (!recentsMergeDone || authManager.currentUser == null) return
         if (recents == lastUploadedRecents) return
@@ -167,13 +193,16 @@ class AppContainer(context: Context) {
     fun startAutoSync() {
         appScope.launch {
             // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين (فقط بعد نجاح الدمج الأولي)
-            prefs.favorites.drop(1).debounce(2000L).collect { favs ->
-                if (favoritesMergeDone && authManager.currentUser != null) userSyncService.saveFavorites(favs)
+            prefs.favorites.distinctUntilChanged().drop(1).debounce(2000L).collect { favs ->
+                if (favoritesMergeDone && authManager.currentUser != null && favs != lastUploadedFavorites) {
+                    userSyncService.saveFavorites(favs)
+                    lastUploadedFavorites = favs
+                }
             }
         }
         appScope.launch {
             // خنق رفع سجل المشاهدة أثناء التشغيل المستمر إلى مرة واحدة كل 3 دقائق (180 ثانية)
-            prefs.recents.drop(1).sample(180_000L).collect { recents ->
+            prefs.recents.distinctUntilChanged().drop(1).sample(180_000L).collect { recents ->
                 uploadRecentsIfNeeded(recents)
             }
         }
@@ -201,8 +230,11 @@ class AppContainer(context: Context) {
                     moviesLayoutStyle = (arr[4] as com.saydlawy.sahab.data.VodLayoutStyle).name,
                     seriesLayoutStyle = (arr[5] as com.saydlawy.sahab.data.VodLayoutStyle).name,
                 )
-            }.drop(1).debounce(2000L).collect { cloudPrefs ->
-                if (prefsMergeDone && authManager.currentUser != null) userSyncService.savePreferences(cloudPrefs)
+            }.distinctUntilChanged().drop(1).debounce(2000L).collect { cloudPrefs ->
+                if (prefsMergeDone && authManager.currentUser != null && cloudPrefs != lastUploadedPreferences) {
+                    userSyncService.savePreferences(cloudPrefs)
+                    lastUploadedPreferences = cloudPrefs
+                }
             }
         }
     }
@@ -235,6 +267,9 @@ class AppContainer(context: Context) {
         repo.setAccount(acc)
         appScope.launch(Dispatchers.IO) {
             try {
+                // 0. إيقاف أي مزامنة جارية للحساب السابق قبل تنظيف قواعد البيانات
+                syncCoordinator.stopActiveSync()
+
                 // 1. تثبيت الحساب النشط وتنظيف كل بيانات الحساب السابق قبل المزامنة
                 prefs.setActiveAccount(acc.id)
                 clearAllLocalData(clearPrefsAccount = false)
@@ -322,7 +357,15 @@ class AppContainer(context: Context) {
     private companion object {
         const val USER_AGENT = "Sahab/1.0 (Android)"
         val RETRY_BACKOFFS_MS = longArrayOf(500L, 1500L)
-        val STRICT_HTTPS_DOMAINS = listOf("themoviedb.org", "tmdb.org", "github.com", "githubusercontent.com", "open-meteo.com", "ipwho.is")
+        val STRICT_HTTPS_DOMAINS = listOf(
+            "themoviedb.org",
+            "tmdb.org",
+            "github.com",
+            "githubusercontent.com",
+            "open-meteo.com",
+            "ipwho.is",
+            "generativelanguage.googleapis.com",
+        )
     }
 }
 

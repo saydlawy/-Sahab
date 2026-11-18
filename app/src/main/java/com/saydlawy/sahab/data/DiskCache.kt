@@ -5,8 +5,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.security.MessageDigest
 
@@ -43,6 +48,7 @@ class DiskCache(
     private fun lockFor(key: String): Mutex =
         lockStripes[(key.hashCode() and Int.MAX_VALUE) % LOCK_STRIPES]
 
+    @OptIn(ExperimentalSerializationApi::class)
     suspend fun <T> get(
         key: String,
         serializer: KSerializer<T>,
@@ -51,16 +57,18 @@ class DiskCache(
     ): T? = withContext(Dispatchers.IO) {
         lockFor(key).withLock {
             val file = fileFor(key, permanentNamespace)
-            if (!file.exists()) return@withLock null
+            if (!file.exists() || file.length() == 0L) return@withLock null
             val age = System.currentTimeMillis() - file.lastModified()
             if (age > ttlMs) return@withLock null
             runCatching {
-                val text = file.readText(Charsets.UTF_8)
-                if (text.isBlank()) null else json.decodeFromString(serializer, text)
+                BufferedInputStream(file.inputStream(), 64 * 1024).use { input ->
+                    json.decodeFromStream(serializer, input)
+                }
             }.getOrNull()
         }
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     suspend fun <T> put(
         key: String,
         serializer: KSerializer<T>,
@@ -74,7 +82,9 @@ class DiskCache(
                 val file = fileFor(key, permanentNamespace)
                 val previousBytes = if (!permanentNamespace && file.exists()) file.length() else 0L
                 val tmp = File(dir, "${file.name}.tmp")
-                tmp.writeText(json.encodeToString(serializer, value), Charsets.UTF_8)
+                BufferedOutputStream(tmp.outputStream(), 64 * 1024).use { output ->
+                    json.encodeToStream(serializer, value, output)
+                }
                 var renamed = tmp.renameTo(file)
                 if (!renamed) {
                     if (file.exists()) file.delete()

@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.data.catalog
 
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
@@ -43,7 +44,7 @@ class FirebaseCatalogService {
                         return@addOnSuccessListener
                     }
                     val redirectTarget = snapshot.getString("redirectTo")?.takeIf {
-                        it.isNotBlank() && it != docId
+                        it.isNotBlank() && it != docId && it.startsWith("tmdb:")
                     }
                     if (allowRedirect && redirectTarget != null) {
                         collection.document(redirectTarget).get()
@@ -241,20 +242,38 @@ class FirebaseCatalogService {
 
     /**
      * Sorts Xtream VOD streams strictly by newest additions (`added` timestamp DESC,
-     * then numeric `id` DESC, deduplicated by normalized title).
+     * then numeric `id` DESC, deduplicated by normalized title) using bounded top-K selection.
      */
     private fun sortNewestXtreamAdditions(
         movies: List<Poster>,
         limit: Int,
     ): List<Poster> {
-        val sorted = movies.sortedWith(
-            compareByDescending<Poster> { it.added }
-                .thenByDescending { it.id.toLongOrNull() ?: 0L },
-        )
+        if (limit <= 0 || movies.isEmpty()) return emptyList()
+        val poolCap = (limit * 5).coerceAtLeast(limit)
+        data class Ranked(val poster: Poster, val numericId: Long)
+        val cmp = Comparator<Ranked> { a, b ->
+            val c = a.poster.added.compareTo(b.poster.added)
+            if (c != 0) c else a.numericId.compareTo(b.numericId)
+        }
+        val minHeap = java.util.PriorityQueue<Ranked>(poolCap + 1, cmp)
+        for (p in movies) {
+            if (minHeap.size >= poolCap) {
+                val weakest = minHeap.peek()!!
+                if (p.added < weakest.poster.added) continue
+                val pNum = p.id.toLongOrNull() ?: 0L
+                if (p.added == weakest.poster.added && pNum <= weakest.numericId) continue
+                minHeap.poll()
+                minHeap.add(Ranked(p, pNum))
+            } else {
+                minHeap.add(Ranked(p, p.id.toLongOrNull() ?: 0L))
+            }
+        }
+        val topCandidates = minHeap.sortedWith(cmp.reversed())
         val selected = ArrayList<Poster>(limit)
-        val seenTitles = HashSet<String>()
-        for (poster in sorted) {
+        val seenTitles = HashSet<String>(limit * 2)
+        for (entry in topCandidates) {
             if (selected.size >= limit) break
+            val poster = entry.poster
             val norm = normalizeTitle(poster.name).ifBlank { poster.id }
             if (seenTitles.add(norm)) {
                 selected.add(poster)
@@ -319,16 +338,16 @@ class FirebaseCatalogService {
         if (raw.isBlank()) return ""
         return raw
             .lowercase(Locale.ROOT)
-            .replace(Regex("""\[.*?]|\(.*?\)"""), " ")
-            .replace(Regex("""\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|ar|en|sub|مدبلج|مترجم)\b"""), " ")
-            .replace(Regex("""[^\p{L}\p{N}]+"""), " ")
+            .replace(BRACKETS_OR_PARENS_REGEX, " ")
+            .replace(MEDIA_TOKENS_REGEX, " ")
+            .replace(NON_ALNUM_REGEX, " ")
             .trim()
     }
 
     private fun cleanDisplayTitle(raw: String): String {
         return raw
-            .replace(Regex("""^\[.*?]\s*"""), "")
-            .replace(Regex("""\s*\[.*?]$"""), "")
+            .replace(LEADING_BRACKETS_REGEX, "")
+            .replace(TRAILING_BRACKETS_REGEX, "")
             .trim()
     }
 
@@ -358,8 +377,37 @@ class FirebaseCatalogService {
             if (aliases.isNotEmpty()) put("aliases", aliases)
         }
         if (tmdbDocId != null) {
-            collection.document(tmdbDocId).set(data, SetOptions.merge())
-                .addOnCompleteListener { cont.resume(Unit) }
+            val docRef = collection.document(tmdbDocId)
+            docRef.get()
+                .addOnSuccessListener { snap ->
+                    if (!snap.exists()) {
+                        val createPayload = data.filterValues { v ->
+                            v != null && (v !is String || v.isNotBlank())
+                        }
+                        docRef.set(createPayload, SetOptions.merge())
+                            .addOnCompleteListener { cont.resume(Unit) }
+                    } else {
+                        val delta = mutableMapOf<String, Any?>()
+                        for ((k, v) in data) {
+                            if (k == "aliases") continue
+                            if (v == null || (v is String && v.isBlank())) continue
+                            val existing = snap.get(k)
+                            if (existing == null || (existing is String && existing.isBlank())) {
+                                delta[k] = v
+                            }
+                        }
+                        if (aliases.isNotEmpty()) {
+                            delta["aliases"] = FieldValue.arrayUnion(*aliases.toTypedArray())
+                        }
+                        if (delta.isEmpty()) {
+                            cont.resume(Unit)
+                        } else {
+                            docRef.set(delta, SetOptions.merge())
+                                .addOnCompleteListener { cont.resume(Unit) }
+                        }
+                    }
+                }
+                .addOnFailureListener { cont.resume(Unit) }
         } else {
             val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
             if (uid.isNullOrBlank()) {
@@ -376,28 +424,29 @@ class FirebaseCatalogService {
 
     suspend fun linkPendingAliasToTmdb(streamId: String, tmdbDocId: String, titleAr: String = "") {
         if (streamId.isBlank() || tmdbDocId.isBlank() || tmdbDocId == CatalogMovieEntity.idPending(streamId)) return
+        if (!tmdbDocId.startsWith("tmdb:")) return
         val pendingId = CatalogMovieEntity.idPending(streamId)
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
         suspendCancellableCoroutine<Unit> { cont ->
-            val pendingDoc = collection.document(pendingId)
-            pendingDoc.get()
-                .addOnSuccessListener { snap ->
-                    val existingPlot = snap.getString("plot").orEmpty()
-                    val tmdbRef = collection.document(tmdbDocId)
-                    val mergePayload = buildMap<String, Any> {
-                        put("aliases", com.google.firebase.firestore.FieldValue.arrayUnion(pendingId))
-                        if (existingPlot.isNotBlank()) put("plot", existingPlot)
-                        snap.getString("plotSource")?.takeIf { it.isNotBlank() }?.let { put("plotSource", it) }
-                        snap.getString("identifiedTitle")?.takeIf { it.isNotBlank() }?.let { put("identifiedTitle", it) }
-                    }
-                    tmdbRef.set(mergePayload, SetOptions.merge())
-                        .addOnCompleteListener {
-                            pendingDoc.set(
+            val tmdbRef = collection.document(tmdbDocId)
+            val mergePayload = mapOf(
+                "aliases" to com.google.firebase.firestore.FieldValue.arrayUnion(pendingId),
+            )
+            tmdbRef.set(mergePayload, SetOptions.merge())
+                .addOnCompleteListener {
+                    if (!uid.isNullOrBlank()) {
+                        db.collection("users").document(uid)
+                            .collection("custom_catalog")
+                            .document(pendingId)
+                            .set(
                                 mapOf("redirectTo" to tmdbDocId, "novaStreamId" to streamId, "titleAr" to titleAr),
                                 SetOptions.merge(),
-                            ).addOnCompleteListener { cont.resume(Unit) }
-                        }
+                            )
+                            .addOnCompleteListener { if (cont.isActive) cont.resume(Unit) }
+                    } else {
+                        if (cont.isActive) cont.resume(Unit)
+                    }
                 }
-                .addOnFailureListener { cont.resume(Unit) }
         }
     }
 
@@ -429,6 +478,12 @@ class FirebaseCatalogService {
     }
 
     companion object {
+        private val BRACKETS_OR_PARENS_REGEX = Regex("""\[.*?]|\(.*?\)""")
+        private val MEDIA_TOKENS_REGEX = Regex("""\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|ar|en|sub|مدبلج|مترجم)\b""")
+        private val NON_ALNUM_REGEX = Regex("""[^\p{L}\p{N}]+""")
+        private val LEADING_BRACKETS_REGEX = Regex("""^\[.*?]\s*""")
+        private val TRAILING_BRACKETS_REGEX = Regex("""\s*\[.*?]$""")
+
         fun aliasesFor(entity: CatalogMovieEntity): List<String> {
             val streamId = entity.novaStreamId.trim()
             if (streamId.isEmpty()) return emptyList()

@@ -120,6 +120,14 @@ interface CatalogMovieDao {
         now: Long,
     )
 
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "AND (titleAr LIKE '%' || :query || '%' OR titleEn LIKE '%' || :query || '%') " +
+            "ORDER BY novaAdded DESC LIMIT :limit"
+    )
+    suspend fun searchCatalog(query: String, mediaType: String = "movie", limit: Int = 100): List<CatalogMovieEntity>
+
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()
 }

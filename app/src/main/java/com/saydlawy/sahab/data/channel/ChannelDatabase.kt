@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChannelListEntity::class,
         ChannelListItemEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class ChannelDatabase : RoomDatabase() {
@@ -87,6 +87,21 @@ abstract class ChannelDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (hasTable(db, "channel_lists") && !hasColumn(db, "channel_lists", "accountId")) {
+                    db.execSQL(
+                        "ALTER TABLE `channel_lists` ADD COLUMN `accountId` TEXT NOT NULL DEFAULT ''",
+                    )
+                }
+                if (hasTable(db, "channel_lists")) {
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS `index_channel_lists_accountId` ON `channel_lists` (`accountId`)",
+                    )
+                }
+            }
+        }
+
         fun getInstance(context: Context): ChannelDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -94,7 +109,7 @@ abstract class ChannelDatabase : RoomDatabase() {
                     ChannelDatabase::class.java,
                     "channel.db",
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { INSTANCE = it }
             }

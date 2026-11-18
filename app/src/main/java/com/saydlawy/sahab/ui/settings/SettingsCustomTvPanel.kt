@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +42,12 @@ internal fun SettingsCustomTvPanel(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val dao = container.channelDb.channelDao()
-    val customLists by dao.observeLists().collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
+        initialValue = container.prefs.currentActiveAccountId(),
+    )
+    val customLists by remember(dao, activeAccountId) {
+        dao.observeLists(activeAccountId)
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
     val hiddenIds by dao.observeHiddenIds().collectAsStateWithLifecycle(initialValue = emptyList())
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {

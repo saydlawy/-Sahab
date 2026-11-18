@@ -2,11 +2,15 @@ package com.saydlawy.sahab.data
 
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import com.google.firebase.messaging.FirebaseMessaging
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.MyFirebaseMessagingService
 import com.saydlawy.sahab.data.auth.CloudAccountRestoreResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +18,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
@@ -24,6 +31,11 @@ class SyncCoordinator(private val container: AppContainer) {
 
     private val _needsSyncPinPrompt = MutableStateFlow(false)
     val needsSyncPinPrompt: StateFlow<Boolean> = _needsSyncPinPrompt.asStateFlow()
+
+    private val syncMutex = Mutex()
+
+    @Volatile
+    private var activeSyncJob: Job? = null
 
     fun dismissSyncPinPrompt() {
         _needsSyncPinPrompt.value = false
@@ -53,15 +65,9 @@ class SyncCoordinator(private val container: AppContainer) {
         mergeTimeoutMs: Long = 6_000L,
     ): Account? = coroutineScope {
         val currentUser = container.authManager.currentUser
-        val localDeferred = async { container.prefs.account.first() }
+        val localAccount = container.prefs.account.first()
         if (currentUser == null) {
-            return@coroutineScope localDeferred.await()
-        }
-
-        val cloudRestoreDeferred = async {
-            withTimeoutOrNull(accountTimeoutMs) {
-                container.userSyncService.restoreAccountsWithPin()
-            } ?: CloudAccountRestoreResult.Empty
+            return@coroutineScope localAccount
         }
 
         suspend fun runMergeAndRetry() = coroutineScope {
@@ -148,9 +154,12 @@ class SyncCoordinator(private val container: AppContainer) {
             container.appScope.launch { runMergeAndRetry() }
         }
 
-        var activeAccount = localDeferred.await()
+        var activeAccount = localAccount
         if (activeAccount == null) {
-            when (val restoreRes = cloudRestoreDeferred.await()) {
+            val restoreRes = withTimeoutOrNull(accountTimeoutMs) {
+                container.userSyncService.restoreAccountsWithPin()
+            } ?: CloudAccountRestoreResult.Empty
+            when (restoreRes) {
                 is CloudAccountRestoreResult.Restored -> {
                     val cloudAccounts = restoreRes.accounts
                     if (cloudAccounts.isNotEmpty()) {
@@ -200,12 +209,75 @@ class SyncCoordinator(private val container: AppContainer) {
     }
 
     /**
+     * يوقف أي مزامنة خلفية نشطة وينتظر تحرير القفل قبل مسح البيانات أو تبديل الحساب.
+     */
+    suspend fun stopActiveSync() {
+        val job = activeSyncJob
+        activeSyncJob = null
+        job?.cancelAndJoin()
+    }
+
+    /**
      * يشغّل سلسلة المزامنة الخلفية بالكامل للحساب النشط في [container.appScope] دون حجب الواجهة.
      */
     fun triggerFullSync(context: Context, forceCatalog: Boolean = false, reason: String = "startup") {
         val appContext = context.applicationContext
-        container.appScope.launch {
+        val previous = activeSyncJob
+        if (!forceCatalog && previous?.isActive == true) {
+            return
+        }
+        activeSyncJob = container.appScope.launch {
+            previous?.cancelAndJoin()
             runFullSync(appContext, forceCatalog = forceCatalog, reason = reason)
+        }
+    }
+
+    /**
+     * يشغّل المزامنة اليدوية من الإعدادات داخل [container.appScope] بحيث تستمر حتى لو أغلق المستخدم شاشة الإعدادات.
+     */
+    fun triggerManualSync(context: Context) {
+        val appContext = context.applicationContext
+        val previous = activeSyncJob
+        activeSyncJob = container.appScope.launch(Dispatchers.IO) {
+            previous?.cancelAndJoin()
+            syncMutex.withLock {
+                val msg = runCatching {
+                    container.repo.syncCatalog(force = true)
+                    container.catalogSync.syncMovies(container.repo)
+                    val chStats = container.channelSync.sync(container.repo, forceFullRefresh = true)
+                    if (chStats.isSuccess) container.prefs.setLastChannelSyncTime(System.currentTimeMillis())
+
+                    val epgStats = if (chStats.isSuccess || chStats.total > 0) {
+                        container.epgSync.sync().also { st ->
+                            if (st.isSuccess) container.prefs.setLastEpgSyncTime(System.currentTimeMillis())
+                        }
+                    } else {
+                        com.saydlawy.sahab.data.channel.EpgSync.Stats(errors = listOf("skipped"))
+                    }
+
+                    buildString {
+                        append("القنوات: ")
+                        when {
+                            chStats.isSuccess && chStats.total > 0 ->
+                                append("${chStats.total} قناة (${chStats.enriched} بـ EPG)")
+                            chStats.hasPartialFailure -> append("جزئي (${chStats.errors.size} خطأ)")
+                            else -> append("فشل")
+                        }
+                        append("\nالبرامج: ")
+                        when {
+                            epgStats.isSuccess && epgStats.programsUpserted > 0 ->
+                                append("${epgStats.programsUpserted} برنامج")
+                            epgStats.hasPartialFailure -> append("جزئي (${epgStats.errors.size} خطأ)")
+                            else -> append("فشل")
+                        }
+                    }
+                }.getOrElse { err ->
+                    "تعذر إتمام المزامنة: ${err.message ?: "خطأ غير متوقع"}"
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, msg, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -215,7 +287,7 @@ class SyncCoordinator(private val container: AppContainer) {
      * 4) channelSync.sync -> 5) epgSync.sync (يعمل فقط بعد channelSync ناجح).
      * كل خطوة تُسجّل وتفشل بمعزل دون إيقاف السلسلة.
      */
-    suspend fun runFullSync(context: Context, forceCatalog: Boolean = false, reason: String = "startup") {
+    suspend fun runFullSync(context: Context, forceCatalog: Boolean = false, reason: String = "startup") = syncMutex.withLock {
         container.prefs.migrateSyncKeysIfNeeded()
 
         runCatching {

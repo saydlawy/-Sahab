@@ -1,7 +1,6 @@
 package com.saydlawy.sahab.ui.settings
 
 import android.content.Context
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,7 +39,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,9 +85,6 @@ import com.saydlawy.sahab.util.ChannelLogoResolver
 import com.saydlawy.sahab.util.appVersion
 import com.saydlawy.sahab.util.formatDate
 import com.saydlawy.sahab.util.normalizeForSearch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -411,7 +406,6 @@ private fun SettingsDetailContent(
     onOpenCloudLogin: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     val cloudUser = container.authManager.currentUser
     val account: Account? = container.repo.account
     val info: UserInfo? = container.repo.userInfo
@@ -447,40 +441,7 @@ private fun SettingsDetailContent(
                     account = account,
                     info = info,
                     onSyncNow = {
-                        scope.launch(Dispatchers.IO) {
-                            container.repo.syncCatalog(force = true)
-                            container.catalogSync.syncMovies(container.repo)
-                            val chStats = container.channelSync.sync(container.repo, forceFullRefresh = true)
-                            if (chStats.isSuccess) container.prefs.setLastChannelSyncTime(System.currentTimeMillis())
-
-                            val epgStats = if (chStats.isSuccess || chStats.total > 0) {
-                                container.epgSync.sync().also { st ->
-                                    if (st.isSuccess) container.prefs.setLastEpgSyncTime(System.currentTimeMillis())
-                                }
-                            } else {
-                                com.saydlawy.sahab.data.channel.EpgSync.Stats(errors = listOf("skipped"))
-                            }
-
-                            val msg = buildString {
-                                append("القنوات: ")
-                                when {
-                                    chStats.isSuccess && chStats.total > 0 ->
-                                        append("${chStats.total} قناة (${chStats.enriched} بـ EPG)")
-                                    chStats.hasPartialFailure -> append("جزئي (${chStats.errors.size} خطأ)")
-                                    else -> append("فشل")
-                                }
-                                append("\nالبرامج: ")
-                                when {
-                                    epgStats.isSuccess && epgStats.programsUpserted > 0 ->
-                                        append("${epgStats.programsUpserted} برنامج")
-                                    epgStats.hasPartialFailure -> append("جزئي (${epgStats.errors.size} خطأ)")
-                                    else -> append("فشل")
-                                }
-                            }
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(appCtx, msg, Toast.LENGTH_LONG).show()
-                            }
-                        }
+                        container.syncCoordinator.triggerManualSync(appCtx)
                     }
                 )
             }

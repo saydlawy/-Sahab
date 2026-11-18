@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -32,7 +33,10 @@ interface ChannelDao {
     @Query("SELECT COUNT(*) FROM channels")
     suspend fun count(): Int
 
-    @Query("SELECT * FROM channels")
+    @Query("SELECT * FROM channels WHERE isHidden = 0 ORDER BY sortOrder ASC, displayName ASC")
+    suspend fun visibleOrdered(): List<ChannelEntity>
+
+    @Query("SELECT * FROM channels ORDER BY sortOrder ASC, displayName ASC")
     suspend fun all(): List<ChannelEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -110,8 +114,8 @@ interface ChannelDao {
 
     // ═══ Custom Lists ═══
 
-    @Query("SELECT * FROM channel_lists ORDER BY sortOrder ASC, name ASC")
-    fun observeLists(): Flow<List<ChannelListEntity>>
+    @Query("SELECT * FROM channel_lists WHERE accountId = :accountId OR accountId = '' ORDER BY sortOrder ASC, name ASC")
+    fun observeLists(accountId: String = ""): Flow<List<ChannelListEntity>>
 
     @Query("SELECT streamId FROM channel_list_items WHERE listId = :listId ORDER BY position ASC")
     suspend fun itemsOfList(listId: String): List<String>
@@ -127,4 +131,31 @@ interface ChannelDao {
 
     @Query("DELETE FROM channel_lists WHERE listId = :listId")
     suspend fun deleteList(listId: String)
+
+    @Transaction
+    suspend fun replaceListItems(listId: String, orderedChannelIds: List<String>) {
+        clearListItems(listId)
+        if (orderedChannelIds.isNotEmpty()) {
+            upsertListItems(
+                orderedChannelIds.mapIndexed { idx, id ->
+                    ChannelListItemEntity(listId = listId, streamId = id, position = idx)
+                },
+            )
+        }
+    }
+
+    @Transaction
+    suspend fun toggleChannelInList(listId: String, channelId: String) {
+        val current = itemsOfList(listId).toMutableList()
+        if (!current.remove(channelId)) {
+            current.add(channelId)
+        }
+        replaceListItems(listId, current)
+    }
+
+    @Transaction
+    suspend fun deleteListAndItems(listId: String) {
+        clearListItems(listId)
+        deleteList(listId)
+    }
 }

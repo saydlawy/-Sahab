@@ -9,16 +9,20 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import okio.ByteString.Companion.decodeBase64
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import java.io.InputStream
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.first
@@ -42,14 +46,26 @@ class Repository(
     var userInfo: UserInfo? = null
         private set
 
-    @Volatile
-    private var forceRefresh: Boolean = false
-
     private val _syncing = kotlinx.coroutines.flow.MutableStateFlow(false)
     val syncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _syncing
 
-    private val cache = ConcurrentHashMap<String, Any>()
-    private val inFlight = ConcurrentHashMap<String, CompletableDeferred<Any>>()
+    private data class CacheEntry(
+        val typeTag: String,
+        val value: Any,
+    )
+
+    private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val inFlight = ConcurrentHashMap<String, CompletableDeferred<CacheEntry>>()
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Any> getTypedCache(key: String, serializer: KSerializer<T>): T? {
+        val entry = cache[key] ?: return null
+        return if (entry.typeTag == serializer.descriptor.serialName) entry.value as? T else null
+    }
+
+    private fun <T : Any> putTypedCache(key: String, serializer: KSerializer<T>, value: T) {
+        cache[key] = CacheEntry(serializer.descriptor.serialName, value)
+    }
     private val epgCacheLock = Any()
     private val epgCache = object : LinkedHashMap<String, Pair<Long, List<Program>>>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, List<Program>>>?): Boolean =
@@ -87,11 +103,23 @@ class Repository(
         }
     }
 
+    fun invalidateLiveChannelCache() {
+        cache.keys.removeIf { it.startsWith("live:") }
+        inFlight.keys.removeIf { it.contains("::live:") }
+    }
+
     private fun requireAccount(): Account = account ?: throw ApiException(Ar.errNoAccount)
 
     private fun accountTag(): String {
         val a = account ?: return "anon"
-        return "${a.server}|${a.user}"
+        if (a.type == "M3U") {
+            val urlHash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(a.m3uUrl.toByteArray(Charsets.UTF_8))
+                .take(6)
+                .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            return "m3u|${a.id}|$urlHash"
+        }
+        return "${a.id}|${a.server}|${a.user}"
     }
 
     private fun diskKey(key: String): String = "${accountTag()}::$key"
@@ -106,7 +134,7 @@ class Repository(
             account = candidate
             userInfo = null
             clearCache(clearDisk = false)
-            cache["live_m3u"] = channels
+            putTypedCache("live_m3u", ListSerializer(Channel.serializer()), channels)
             return null
         }
         val info = parseUserInfo(api.request(candidate, null))
@@ -136,13 +164,14 @@ class Repository(
                 userInfo = it
             }
         }
+        val gate = Semaphore(MAX_CONCURRENT_CATALOG_TASKS)
         awaitAll(
-            async(Dispatchers.IO) { runCatching { liveCategories() } },
-            async(Dispatchers.IO) { runCatching { movieCategories() } },
-            async(Dispatchers.IO) { runCatching { seriesCategories() } },
-            async(Dispatchers.IO) { runCatching { liveChannels(null) } },
-            async(Dispatchers.IO) { runCatching { movies(null) } },
-            async(Dispatchers.IO) { runCatching { seriesList(null) } },
+            async(Dispatchers.IO) { gate.withPermit { runCatching { liveCategories() } } },
+            async(Dispatchers.IO) { gate.withPermit { runCatching { movieCategories() } } },
+            async(Dispatchers.IO) { gate.withPermit { runCatching { seriesCategories() } } },
+            async(Dispatchers.IO) { gate.withPermit { runCatching { liveChannels(null) } } },
+            async(Dispatchers.IO) { gate.withPermit { runCatching { movies(null) } } },
+            async(Dispatchers.IO) { gate.withPermit { runCatching { seriesList(null) } } },
         )
     }
 
@@ -166,26 +195,26 @@ class Repository(
      * Bypasses cached data during fetch via forceRefresh (no cache wipe = no data loss on failure).
      */
     suspend fun syncCatalog(force: Boolean = false): SyncResult {
-        if (_syncing.value) return SyncResult.AlreadyRunning
+        if (!_syncing.compareAndSet(expect = false, update = true)) return SyncResult.AlreadyRunning
         prefs?.migrateSyncKeysIfNeeded()
         val lastSync = if (prefs == null) 0L else prefs.lastCatalogSyncTime.first()
         val now = System.currentTimeMillis()
         if (!force && lastSync > 0L && (now - lastSync) < SYNC_TTL_MS) {
+            _syncing.value = false
             return SyncResult.Skipped
         }
-        _syncing.value = true
-        forceRefresh = true
         return try {
             requireAccount()
             suspendRunCatching { refreshUserInfo() }
+            val gate = Semaphore(MAX_CONCURRENT_CATALOG_TASKS)
             val results: List<Result<*>> = supervisorScope {
                 awaitAll(
-                    async(Dispatchers.IO) { suspendRunCatching { liveCategories() } },
-                    async(Dispatchers.IO) { suspendRunCatching { movieCategories() } },
-                    async(Dispatchers.IO) { suspendRunCatching { seriesCategories() } },
-                    async(Dispatchers.IO) { suspendRunCatching { liveChannels(null) } },
-                    async(Dispatchers.IO) { suspendRunCatching { movies(null) } },
-                    async(Dispatchers.IO) { suspendRunCatching { seriesList(null) } },
+                    async(Dispatchers.IO) { gate.withPermit { suspendRunCatching { liveCategories(forceNetwork = true) } } },
+                    async(Dispatchers.IO) { gate.withPermit { suspendRunCatching { movieCategories(forceNetwork = true) } } },
+                    async(Dispatchers.IO) { gate.withPermit { suspendRunCatching { seriesCategories(forceNetwork = true) } } },
+                    async(Dispatchers.IO) { gate.withPermit { suspendRunCatching { liveChannels(null, forceNetwork = true) } } },
+                    async(Dispatchers.IO) { gate.withPermit { suspendRunCatching { movies(null, forceNetwork = true) } } },
+                    async(Dispatchers.IO) { gate.withPermit { suspendRunCatching { seriesList(null, forceNetwork = true) } } },
                 )
             }
             val firstFailure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
@@ -201,7 +230,6 @@ class Repository(
         } catch (e: Exception) {
             SyncResult.Failure(e.message ?: "unknown")
         } finally {
-            forceRefresh = false
             _syncing.value = false
         }
     }
@@ -220,9 +248,9 @@ class Repository(
             return item.url
         }
         if (item.url.isBlank() && item.kind == Kind.LIVE) {
-            @Suppress("UNCHECKED_CAST")
-            val cachedUrl = (cache["live:"] as? List<Channel>)?.firstOrNull { it.id == item.id }?.url
-                ?: (cache["live_m3u"] as? List<Channel>)?.firstOrNull { it.id == item.id }?.url
+            val channelListSerializer = ListSerializer(Channel.serializer())
+            val cachedUrl = getTypedCache("live:", channelListSerializer)?.firstOrNull { it.id == item.id }?.url
+                ?: getTypedCache("live_m3u", channelListSerializer)?.firstOrNull { it.id == item.id }?.url
             if (!cachedUrl.isNullOrBlank() && cachedUrl.startsWith("http")) {
                 return cachedUrl
             }
@@ -244,7 +272,6 @@ class Repository(
     private fun encodeSegment(value: String): String =
         URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
-    @Suppress("UNCHECKED_CAST")
     private suspend fun <T : Any> cachedPersistent(
         key: String,
         serializer: KSerializer<T>,
@@ -252,32 +279,65 @@ class Repository(
         forceNetwork: Boolean = false,
         load: suspend () -> T,
     ): T {
-        if (!forceRefresh && !forceNetwork) {
-            (cache[key] as? T)?.let { return it }
-        }
+        val typeTag = serializer.descriptor.serialName
         val dKey = diskKey(key)
-        val mine = CompletableDeferred<Any>()
-        val existing = inFlight.putIfAbsent(dKey, mine)
+        if (!forceNetwork) {
+            getTypedCache(key, serializer)?.let { return it }
+            val existing = inFlight[dKey]
+            if (existing != null) {
+                return try {
+                    val awaited = existing.await()
+                    if (awaited.typeTag == typeTag) {
+                        @Suppress("UNCHECKED_CAST")
+                        awaited.value as T
+                    } else {
+                        load().also { loaded ->
+                            putTypedCache(key, serializer, loaded)
+                            disk?.put(dKey, serializer, loaded)
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                    cachedPersistent(key, serializer, ttlMs, forceNetwork = false, load = load)
+                }
+            }
+        }
+        val mine = CompletableDeferred<CacheEntry>()
+        val existing = if (forceNetwork) null else inFlight.putIfAbsent(dKey, mine)
         if (existing != null) {
-            return existing.await() as T
+            return try {
+                val awaited = existing.await()
+                if (awaited.typeTag == typeTag) {
+                    @Suppress("UNCHECKED_CAST")
+                    awaited.value as T
+                } else {
+                    load().also { loaded ->
+                        putTypedCache(key, serializer, loaded)
+                        disk?.put(dKey, serializer, loaded)
+                    }
+                }
+            } catch (e: CancellationException) {
+                currentCoroutineContext().ensureActive()
+                cachedPersistent(key, serializer, ttlMs, forceNetwork = false, load = load)
+            }
         }
         return try {
-            if (!forceRefresh && !forceNetwork) {
-                (cache[key] as? T)?.let { cached ->
-                    mine.complete(cached)
+            if (!forceNetwork) {
+                getTypedCache(key, serializer)?.let { cached ->
+                    mine.complete(CacheEntry(typeTag, cached))
                     return cached
                 }
                 val fromDisk = disk?.get(dKey, serializer, ttlMs)
                 if (fromDisk != null) {
-                    cache[key] = fromDisk
-                    mine.complete(fromDisk)
+                    putTypedCache(key, serializer, fromDisk)
+                    mine.complete(CacheEntry(typeTag, fromDisk))
                     return fromDisk
                 }
             }
             val loaded = load()
-            cache[key] = loaded
+            putTypedCache(key, serializer, loaded)
             disk?.put(dKey, serializer, loaded)
-            mine.complete(loaded)
+            mine.complete(CacheEntry(typeTag, loaded))
             loaded
         } catch (e: CancellationException) {
             inFlight.remove(dKey, mine)
@@ -291,16 +351,15 @@ class Repository(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
     suspend fun <T : Any> peekCachedList(
         key: String,
         serializer: KSerializer<List<T>>,
         ttlMs: Long = CATALOG_LIST_TTL_MS,
     ): List<T>? {
-        (cache[key] as? List<T>)?.let { return it }
+        getTypedCache(key, serializer)?.let { return it }
         val fromDisk = disk?.get(diskKey(key), serializer, ttlMs)
         if (fromDisk != null) {
-            cache[key] = fromDisk
+            putTypedCache(key, serializer, fromDisk)
             return fromDisk
         }
         return null
@@ -309,18 +368,30 @@ class Repository(
     private suspend fun request(action: String, params: Map<String, String> = emptyMap()): JsonElement =
         api.request(requireAccount(), action, params)
 
+    private suspend fun <T> streamArray(
+        action: String,
+        params: Map<String, String> = emptyMap(),
+        parseStream: (InputStream) -> List<T>,
+    ): List<T> = api.streamArray(
+        account = requireAccount(),
+        action = action,
+        params = params,
+        onEmptyOrNonArray = { emptyList() },
+        parseStream = parseStream,
+    )
+
     private fun categoryParams(categoryId: String?): Map<String, String> =
         if (categoryId.isNullOrBlank()) emptyMap() else mapOf("category_id" to categoryId)
 
     // Live
 
-    suspend fun liveCategories(): List<Category> {
+    suspend fun liveCategories(forceNetwork: Boolean = false): List<Category> {
         val acc = requireAccount()
         if (acc.type == "M3U") {
-            val channels = liveChannels(null)
+            val channels = liveChannels(null, forceNetwork = forceNetwork)
             return channels.map { it.categoryId }.filter { it.isNotBlank() }.distinct().map { Category(it, it) }
         }
-        return cachedPersistent("live_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+        return cachedPersistent("live_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS, forceNetwork = forceNetwork) {
             parseCategories(request("get_live_categories"))
         }
     }
@@ -337,21 +408,18 @@ class Repository(
     }
 
     private suspend fun roomChannels(): List<Channel>? {
-        val rows = runCatching { channelDao?.all() }.getOrNull().orEmpty()
+        val rows = runCatching { channelDao?.visibleOrdered() }.getOrNull().orEmpty()
         if (rows.isEmpty()) return null
-        return rows.asSequence()
-            .filter { !it.isHidden }
-            .map {
-                Channel(
-                    id = it.streamId,
-                    name = it.displayName.ifBlank { it.name },
-                    icon = it.logoUrl,
-                    categoryId = it.categoryId,
-                    epgId = it.epgId,
-                    url = it.streamUrlTemplate.takeIf { u -> u.startsWith("http") }.orEmpty(),
-                )
-            }
-            .toList()
+        return rows.map {
+            Channel(
+                id = it.streamId,
+                name = it.displayName.ifBlank { it.name },
+                icon = it.logoUrl,
+                categoryId = it.categoryId,
+                epgId = it.epgId,
+                url = it.streamUrlTemplate.takeIf { u -> u.startsWith("http") }.orEmpty(),
+            )
+        }
     }
 
     suspend fun peekAllLiveChannels(): List<Channel>? =
@@ -369,15 +437,15 @@ class Repository(
         }
 
         val key = "live:${categoryId.orEmpty()}"
-        val bypassCache = forceRefresh || forceNetwork
-        if (!bypassCache) {
-            @Suppress("UNCHECKED_CAST")
-            (cache[key] as? List<Channel>)?.let { return it }
+        val channelListSerializer = ListSerializer(Channel.serializer())
+        if (!forceNetwork) {
+            getTypedCache(key, channelListSerializer)?.let { return it }
 
             roomChannels()?.let { all ->
-                val result = if (categoryId.isNullOrBlank()) all else all.filter { it.categoryId == categoryId }
+                val result = if (categoryId.isNullOrBlank()) all
+                else withContext(Dispatchers.Default) { all.filter { it.categoryId == categoryId } }
                 if (result.isNotEmpty() || categoryId.isNullOrBlank()) {
-                    cache[key] = result
+                    putTypedCache(key, channelListSerializer, result)
                     return result
                 }
             }
@@ -388,23 +456,24 @@ class Repository(
                     val filtered = withContext(Dispatchers.Default) {
                         all.filter { it.categoryId == categoryId }
                     }
-                    cache[key] = filtered
+                    putTypedCache(key, channelListSerializer, filtered)
                     return filtered
                 }
             }
         }
 
         return enrichWithLogos(cachedPersistent(key, ListSerializer(Channel.serializer()), CATALOG_LIST_TTL_MS, forceNetwork = forceNetwork) {
-            val json = request("get_live_streams", categoryParams(categoryId))
-            withContext(Dispatchers.Default) { parseChannels(json) }
+            streamArray("get_live_streams", categoryParams(categoryId)) { stream ->
+                parseChannelsStream(stream)
+            }
         })
     }
 
     // Movies
 
-    suspend fun movieCategories(): List<Category> {
+    suspend fun movieCategories(forceNetwork: Boolean = false): List<Category> {
         if (requireAccount().type == "M3U") return emptyList()
-        return cachedPersistent("vod_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+        return cachedPersistent("vod_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS, forceNetwork = forceNetwork) {
             parseCategories(request("get_vod_categories"))
         }
     }
@@ -412,12 +481,12 @@ class Repository(
     suspend fun peekAllMovies(): List<Poster>? =
         peekCachedList("vod:", ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS)
 
-    suspend fun movies(categoryId: String?): List<Poster> {
+    suspend fun movies(categoryId: String?, forceNetwork: Boolean = false): List<Poster> {
         if (requireAccount().type == "M3U") return emptyList()
         val key = "vod:${categoryId.orEmpty()}"
-        if (!forceRefresh) {
-            @Suppress("UNCHECKED_CAST")
-            (cache[key] as? List<Poster>)?.let { return it }
+        val posterListSerializer = ListSerializer(Poster.serializer())
+        if (!forceNetwork) {
+            getTypedCache(key, posterListSerializer)?.let { return it }
 
             if (!categoryId.isNullOrBlank()) {
                 val all = peekAllMovies()
@@ -425,15 +494,16 @@ class Repository(
                     val filtered = withContext(Dispatchers.Default) {
                         all.filter { it.categoryId == categoryId }
                     }
-                    cache[key] = filtered
+                    putTypedCache(key, posterListSerializer, filtered)
                     return filtered
                 }
             }
         }
 
-        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS) {
-            val json = request("get_vod_streams", categoryParams(categoryId))
-            withContext(Dispatchers.Default) { parseMovies(json) }
+        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS, forceNetwork = forceNetwork) {
+            streamArray("get_vod_streams", categoryParams(categoryId)) { stream ->
+                parseMoviesStream(stream)
+            }
         }
     }
 
@@ -457,9 +527,9 @@ class Repository(
 
     // Series
 
-    suspend fun seriesCategories(): List<Category> {
+    suspend fun seriesCategories(forceNetwork: Boolean = false): List<Category> {
         if (requireAccount().type == "M3U") return emptyList()
-        return cachedPersistent("series_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+        return cachedPersistent("series_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS, forceNetwork = forceNetwork) {
             parseCategories(request("get_series_categories"))
         }
     }
@@ -467,12 +537,12 @@ class Repository(
     suspend fun peekAllSeries(): List<Poster>? =
         peekCachedList("series:", ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS)
 
-    suspend fun seriesList(categoryId: String?): List<Poster> {
+    suspend fun seriesList(categoryId: String?, forceNetwork: Boolean = false): List<Poster> {
         if (requireAccount().type == "M3U") return emptyList()
         val key = "series:${categoryId.orEmpty()}"
-        if (!forceRefresh) {
-            @Suppress("UNCHECKED_CAST")
-            (cache[key] as? List<Poster>)?.let { return it }
+        val posterListSerializer = ListSerializer(Poster.serializer())
+        if (!forceNetwork) {
+            getTypedCache(key, posterListSerializer)?.let { return it }
 
             if (!categoryId.isNullOrBlank()) {
                 val all = peekAllSeries()
@@ -480,15 +550,16 @@ class Repository(
                     val filtered = withContext(Dispatchers.Default) {
                         all.filter { it.categoryId == categoryId }
                     }
-                    cache[key] = filtered
+                    putTypedCache(key, posterListSerializer, filtered)
                     return filtered
                 }
             }
         }
 
-        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS) {
-            val json = request("get_series", categoryParams(categoryId))
-            withContext(Dispatchers.Default) { parseSeries(json) }
+        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS, forceNetwork = forceNetwork) {
+            streamArray("get_series", categoryParams(categoryId)) { stream ->
+                parseSeriesStream(stream)
+            }
         }
     }
 
@@ -609,22 +680,53 @@ class Repository(
             if (id.isBlank()) null else Category(id, o.s("category_name").ifBlank { Ar.noName })
         }.distinctBy { it.id }
 
-    private fun parseChannels(json: JsonElement): List<Channel> {
-        val arr = json.arr() ?: return emptyList()
-        val result = ArrayList<Channel>(arr.size)
-        val seen = HashSet<String>(arr.size)
-        for (e in arr) {
-            val o = e.obj() ?: continue
-            val id = o.s("stream_id")
+    @Serializable
+    private data class XtreamChannelDto(
+        val stream_id: JsonElement? = null,
+        val name: JsonElement? = null,
+        val stream_icon: JsonElement? = null,
+        val category_id: JsonElement? = null,
+        val epg_channel_id: JsonElement? = null,
+        val added: JsonElement? = null,
+    )
+
+    @Serializable
+    private data class XtreamMovieDto(
+        val stream_id: JsonElement? = null,
+        val name: JsonElement? = null,
+        val stream_icon: JsonElement? = null,
+        val rating: JsonElement? = null,
+        val container_extension: JsonElement? = null,
+        val category_id: JsonElement? = null,
+        val added: JsonElement? = null,
+    )
+
+    @Serializable
+    private data class XtreamSeriesDto(
+        val series_id: JsonElement? = null,
+        val name: JsonElement? = null,
+        val cover: JsonElement? = null,
+        val rating: JsonElement? = null,
+        val releaseDate: JsonElement? = null,
+        val release_date: JsonElement? = null,
+        val category_id: JsonElement? = null,
+        val last_modified: JsonElement? = null,
+    )
+
+    private fun parseChannelsStream(stream: InputStream): List<Channel> {
+        val result = ArrayList<Channel>(256)
+        val seen = HashSet<String>(256)
+        for (o in api.decodeArraySequence<XtreamChannelDto>(stream)) {
+            val id = o.stream_id.str().trim()
             if (id.isNotBlank() && seen.add(id)) {
                 result.add(
                     Channel(
                         id = id,
-                        name = o.s("name").ifBlank { Ar.noName },
-                        icon = o.s("stream_icon"),
-                        categoryId = o.s("category_id"),
-                        epgId = o.s("epg_channel_id"),
-                        added = o.s("added").toLongOrNull() ?: 0L,
+                        name = o.name.str().trim().ifBlank { Ar.noName },
+                        icon = o.stream_icon.str().trim(),
+                        categoryId = o.category_id.str().trim(),
+                        epgId = o.epg_channel_id.str().trim(),
+                        added = o.added.str().trim().toLongOrNull() ?: 0L,
                     ),
                 )
             }
@@ -632,25 +734,23 @@ class Repository(
         return if (result.any { it.added > 0L }) result.sortedByDescending { it.added } else result
     }
 
-    private fun parseMovies(json: JsonElement): List<Poster> {
-        val arr = json.arr() ?: return emptyList()
-        val result = ArrayList<Poster>(arr.size)
-        val seen = HashSet<String>(arr.size)
-        for (e in arr) {
-            val o = e.obj() ?: continue
-            val id = o.s("stream_id")
+    private fun parseMoviesStream(stream: InputStream): List<Poster> {
+        val result = ArrayList<Poster>(256)
+        val seen = HashSet<String>(256)
+        for (o in api.decodeArraySequence<XtreamMovieDto>(stream)) {
+            val id = o.stream_id.str().trim()
             if (id.isNotBlank() && seen.add(id)) {
-                val name = o.s("name")
+                val name = o.name.str().trim()
                 result.add(
                     Poster(
                         id = id,
                         name = name.ifBlank { Ar.noName },
-                        image = o.s("stream_icon"),
-                        rating = formatRating(o.s("rating")),
-                        ext = o.s("container_extension"),
+                        image = o.stream_icon.str().trim(),
+                        rating = formatRating(o.rating.str().trim()),
+                        ext = o.container_extension.str().trim(),
                         year = yearOf(name),
-                        categoryId = o.s("category_id"),
-                        added = o.s("added").toLongOrNull() ?: 0L,
+                        categoryId = o.category_id.str().trim(),
+                        added = o.added.str().trim().toLongOrNull() ?: 0L,
                     ),
                 )
             }
@@ -658,25 +758,24 @@ class Repository(
         return if (result.any { it.added > 0L }) result.sortedByDescending { it.added } else result
     }
 
-    private fun parseSeries(json: JsonElement): List<Poster> {
-        val arr = json.arr() ?: return emptyList()
-        val result = ArrayList<Poster>(arr.size)
-        val seen = HashSet<String>(arr.size)
-        for (e in arr) {
-            val o = e.obj() ?: continue
-            val id = o.s("series_id")
+    private fun parseSeriesStream(stream: InputStream): List<Poster> {
+        val result = ArrayList<Poster>(256)
+        val seen = HashSet<String>(256)
+        for (o in api.decodeArraySequence<XtreamSeriesDto>(stream)) {
+            val id = o.series_id.str().trim()
             if (id.isNotBlank() && seen.add(id)) {
-                val name = o.s("name")
+                val name = o.name.str().trim()
+                val release = o.releaseDate.str().trim().ifBlank { o.release_date.str().trim() }.ifBlank { name }
                 result.add(
                     Poster(
                         id = id,
                         name = name.ifBlank { Ar.noName },
-                        image = o.s("cover"),
-                        rating = formatRating(o.s("rating")),
+                        image = o.cover.str().trim(),
+                        rating = formatRating(o.rating.str().trim()),
                         ext = "",
-                        year = yearOf(o.s("releaseDate").ifBlank { o.s("release_date") }.ifBlank { name }),
-                        categoryId = o.s("category_id"),
-                        added = o.s("last_modified").toLongOrNull() ?: 0L,
+                        year = yearOf(release),
+                        categoryId = o.category_id.str().trim(),
+                        added = o.last_modified.str().trim().toLongOrNull() ?: 0L,
                     ),
                 )
             }
@@ -783,6 +882,7 @@ class Repository(
         YEAR_REGEX.find(raw)?.value.orEmpty()
 
     private companion object {
+        const val MAX_CONCURRENT_CATALOG_TASKS = 2
         const val MAX_EPG_MEMORY_ENTRIES = 256
         val YEAR_REGEX = Regex("(19|20)\\d{2}")
         const val SYNC_TTL_MS = 24L * 3600_000L

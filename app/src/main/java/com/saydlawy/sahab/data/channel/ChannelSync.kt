@@ -132,6 +132,7 @@ class ChannelSync(
                     removedIds.chunked(ROOM_BATCH_SIZE).forEach { batch ->
                         dao.deleteByStreamIds(batch)
                     }
+                    repo.invalidateLiveChannelCache()
                 } catch (e: Exception) {
                     Log.e(TAG, "Room upsert failed", e)
                     errors.add("Room write failed: ${e.message ?: e.javaClass.simpleName}")
@@ -261,11 +262,14 @@ class ChannelSync(
         private const val WHERE_IN_LIMIT = 30            // Firestore max per whereIn
         private const val RETRY_TTL_MS = 24L * 3600_000L       // 24 hours
         private const val STREAM_TEMPLATE = "/live/{USER}/{PASS}/{streamId}.{ext}"
+        private val SLUG_NON_WORD_REGEX = Regex("[^\\w\\u0600-\\u06FF]+")
+        private val SLUG_EDGE_UNDERSCORES = Regex("^_+|_+$")
+        private val SLUG_MULTI_UNDERSCORES = Regex("_+")
 
         fun slug(name: String): String = name.lowercase(Locale.US).trim()
-            .replace(Regex("[^\\w\\u0600-\\u06FF]+"), "_")
-            .replace(Regex("^_+|_+$"), "")
-            .replace(Regex("_+"), "_")
+            .replace(SLUG_NON_WORD_REGEX, "_")
+            .replace(SLUG_EDGE_UNDERSCORES, "")
+            .replace(SLUG_MULTI_UNDERSCORES, "_")
             .take(200)
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -193,15 +194,21 @@ internal fun SettingsAppearancePanel(container: AppContainer) {
                 ) { opacity ->
                     scope.launch { prefs.updateThemeCustomization(activeThemeId) { it.copy(glassOpacity = opacity) } }
                 }
+                var resetFocused by remember { mutableStateOf(false) }
                 Text(
                     text = "إعادة ضبط إعدادات هذا الثيم",
-                    color = Palette.Glow,
+                    color = if (resetFocused) Palette.FocusCyan else Palette.Glow,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
+                        .onFocusChanged { resetFocused = it.isFocused }
+                        .then(
+                            if (resetFocused) Modifier.border(1.5.dp, Palette.FocusCyan, RoundedCornerShape(10.dp))
+                            else Modifier,
+                        )
                         .clickable { scope.launch { prefs.resetThemeCustomization(activeThemeId) } }
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                        .padding(vertical = 8.dp, horizontal = 10.dp),
                 )
             }
         }
@@ -222,7 +229,11 @@ internal fun SettingsAppearancePanel(container: AppContainer) {
             onToggleShowRecommended = { scope.launch { prefs.setShowRecommendedOnHome(!showRecommended) } },
             onToggleShowQuickCategories = { scope.launch { prefs.setShowQuickCategoriesOnHome(!showQuickCategories) } },
             onSelectLayout = { layout -> scope.launch { prefs.setHomeChannelsLayout(layout) } },
-            onClearRecents = { scope.launch { prefs.restoreRecents(emptyList()) } },
+            onClearRecents = {
+                scope.launch {
+                    prefs.clearRecentsForAccount(prefs.currentActiveAccountId())
+                }
+            },
         )
     }
 }
@@ -337,13 +348,26 @@ private fun AppearanceChoiceRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { (key, label) ->
                 val active = selected == key
+                var chipFocused by remember { mutableStateOf(false) }
                 Text(
                     text = label,
-                    color = if (active) Color.White else Palette.TextDim,
+                    color = if (active || chipFocused) Color.White else Palette.TextDim,
                     fontSize = 12.sp,
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (active) Palette.Royal else Palette.CardSurface)
+                        .background(
+                            when {
+                                active -> Palette.Royal
+                                chipFocused -> Palette.CardSurfaceElevated
+                                else -> Palette.CardSurface
+                            },
+                        )
+                        .onFocusChanged { chipFocused = it.isFocused }
+                        .border(
+                            width = if (chipFocused) 2.dp else 1.dp,
+                            color = if (chipFocused) Palette.FocusCyan else Color.Transparent,
+                            shape = RoundedCornerShape(10.dp),
+                        )
                         .clickable { onSelect(key) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 )

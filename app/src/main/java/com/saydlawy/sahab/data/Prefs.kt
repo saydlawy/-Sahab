@@ -14,6 +14,7 @@ import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -92,14 +93,17 @@ class Prefs @JvmOverloads constructor(
         synchronized(this) {
             cachedSecurePrefs?.let { return it }
             val created = runCatching { createEncryptedPrefs() }.getOrElse {
-                // Recover from corrupted Android Keystore entry after backup restore
-                runCatching {
-                    val parent = appContext?.filesDir?.parentFile
-                    if (parent != null) {
-                        File(parent, "shared_prefs/$SECURE_PREFS_NAME.xml").delete()
+                // Recover from corrupted EncryptedSharedPreferences or Android Keystore entry after backup restore
+                runCatching { appContext?.deleteSharedPreferences(SECURE_PREFS_NAME) }
+                runCatching { createEncryptedPrefs() }.getOrElse {
+                    runCatching {
+                        val ks = java.security.KeyStore.getInstance("AndroidKeyStore")
+                        ks.load(null)
+                        ks.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
                     }
+                    runCatching { appContext?.deleteSharedPreferences(SECURE_PREFS_NAME) }
+                    createEncryptedPrefs()
                 }
-                createEncryptedPrefs()
             }
             cachedSecurePrefs = created
             return created
@@ -183,7 +187,7 @@ class Prefs @JvmOverloads constructor(
         emitAll(_accountState)
     }
 
-    val activeAccountId: Flow<String> = account.map { it?.id.orEmpty() }
+    val activeAccountId: Flow<String> = account.map { it?.id.orEmpty() }.distinctUntilChanged()
 
     /**
      * ينسب العناصر القديمة ذات `accountId` الفارغ إلى الحساب النشط [activeId] عند أول إقلاع بعد التحديث.
@@ -214,59 +218,97 @@ class Prefs @JvmOverloads constructor(
         }
     }
 
-    val favorites: Flow<List<FavItem>> = store.data.map { decodeFavs(it[Keys.Favs]) }
+    val favorites: Flow<List<FavItem>> = store.data
+        .map { it[Keys.Favs] }
+        .distinctUntilChanged()
+        .map { decodeFavs(it) }
+        .distinctUntilChanged()
 
-    val recents: Flow<List<RecentItem>> = store.data.map { decodeRecents(it[Keys.Recents]) }
+    val recents: Flow<List<RecentItem>> = store.data
+        .map { it[Keys.Recents] }
+        .distinctUntilChanged()
+        .map { decodeRecents(it) }
+        .distinctUntilChanged()
 
-    val lightEffects: Flow<Boolean> = store.data.map { it[Keys.LightEffects] ?: false }
+    val lightEffects: Flow<Boolean> = store.data
+        .map { it[Keys.LightEffects] ?: false }
+        .distinctUntilChanged()
 
-    val themePreferences: Flow<ThemePreferences> = store.data.map { preferences ->
-        preferences[Keys.ThemePreferencesKey]
-            ?.let { raw -> runCatching { json.decodeFromString(ThemePreferences.serializer(), raw) }.getOrNull() }
-            ?: ThemePreferences()
-    }
+    val themePreferences: Flow<ThemePreferences> = store.data
+        .map { it[Keys.ThemePreferencesKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            raw?.let { runCatching { json.decodeFromString(ThemePreferences.serializer(), it) }.getOrNull() }
+                ?: ThemePreferences()
+        }
+        .distinctUntilChanged()
 
-    val showRecents: Flow<Boolean> = store.data.map { it[Keys.ShowRecents] ?: true }
+    val showRecents: Flow<Boolean> = store.data
+        .map { it[Keys.ShowRecents] ?: true }
+        .distinctUntilChanged()
 
-    val showLiveChannelsOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowLiveChannelsOnHome] ?: true }
+    val showLiveChannelsOnHome: Flow<Boolean> = store.data
+        .map { it[Keys.ShowLiveChannelsOnHome] ?: true }
+        .distinctUntilChanged()
 
-    val showRecommendedOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowRecommendedOnHome] ?: true }
+    val showRecommendedOnHome: Flow<Boolean> = store.data
+        .map { it[Keys.ShowRecommendedOnHome] ?: true }
+        .distinctUntilChanged()
 
-    val showQuickCategoriesOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowQuickCategoriesOnHome] ?: true }
+    val showQuickCategoriesOnHome: Flow<Boolean> = store.data
+        .map { it[Keys.ShowQuickCategoriesOnHome] ?: true }
+        .distinctUntilChanged()
 
-    val homeChannelsLayout: Flow<HomeChannelsLayout> = store.data.map {
-        val raw = it[Keys.HomeChannelsLayoutKey]
-        if (raw == HomeChannelsLayout.GRID.name) HomeChannelsLayout.GRID else HomeChannelsLayout.CAROUSEL
-    }
+    val homeChannelsLayout: Flow<HomeChannelsLayout> = store.data
+        .map { it[Keys.HomeChannelsLayoutKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            if (raw == HomeChannelsLayout.GRID.name) HomeChannelsLayout.GRID else HomeChannelsLayout.CAROUSEL
+        }
+        .distinctUntilChanged()
 
-    val moviesLayoutStyle: Flow<VodLayoutStyle> = store.data.map {
-        val raw = it[Keys.MoviesLayoutStyleKey]
-        runCatching { if (raw != null) VodLayoutStyle.valueOf(raw) else VodLayoutStyle.CLASSIC }
-            .getOrDefault(VodLayoutStyle.CLASSIC)
-    }
+    val moviesLayoutStyle: Flow<VodLayoutStyle> = store.data
+        .map { it[Keys.MoviesLayoutStyleKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            runCatching { if (raw != null) VodLayoutStyle.valueOf(raw) else VodLayoutStyle.CLASSIC }
+                .getOrDefault(VodLayoutStyle.CLASSIC)
+        }
+        .distinctUntilChanged()
 
-    val seriesLayoutStyle: Flow<VodLayoutStyle> = store.data.map {
-        val raw = it[Keys.SeriesLayoutStyleKey]
-        runCatching { if (raw != null) VodLayoutStyle.valueOf(raw) else VodLayoutStyle.CLASSIC }
-            .getOrDefault(VodLayoutStyle.CLASSIC)
-    }
+    val seriesLayoutStyle: Flow<VodLayoutStyle> = store.data
+        .map { it[Keys.SeriesLayoutStyleKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            runCatching { if (raw != null) VodLayoutStyle.valueOf(raw) else VodLayoutStyle.CLASSIC }
+                .getOrDefault(VodLayoutStyle.CLASSIC)
+        }
+        .distinctUntilChanged()
 
-    val homeChannelsSource: Flow<HomeChannelsSource> = store.data.map {
-        val raw = it[Keys.HomeChannelsSourceKey]
-        runCatching { if (raw != null) HomeChannelsSource.valueOf(raw) else HomeChannelsSource.AUTO }
-            .getOrDefault(HomeChannelsSource.AUTO)
-    }
+    val homeChannelsSource: Flow<HomeChannelsSource> = store.data
+        .map { it[Keys.HomeChannelsSourceKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            runCatching { if (raw != null) HomeChannelsSource.valueOf(raw) else HomeChannelsSource.AUTO }
+                .getOrDefault(HomeChannelsSource.AUTO)
+        }
+        .distinctUntilChanged()
 
-    val homeChannelsCategoryId: Flow<String> = store.data.map { it[Keys.HomeChannelsCategoryIdKey].orEmpty() }
+    val homeChannelsCategoryId: Flow<String> = store.data
+        .map { it[Keys.HomeChannelsCategoryIdKey].orEmpty() }
+        .distinctUntilChanged()
 
-    val homeCustomChannelIds: Flow<Set<String>> = store.data.map {
-        it[Keys.HomeCustomChannelIdsKey]
-            ?.split(",")
-            ?.map { id -> id.trim() }
-            ?.filter { id -> id.isNotBlank() }
-            ?.toSet()
-            ?: emptySet()
-    }
+    val homeCustomChannelIds: Flow<Set<String>> = store.data
+        .map { it[Keys.HomeCustomChannelIdsKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            raw?.split(",")
+                ?.map { id -> id.trim() }
+                ?.filter { id -> id.isNotBlank() }
+                ?.toSet()
+                ?: emptySet()
+        }
+        .distinctUntilChanged()
 
     suspend fun setShowRecents(show: Boolean) {
         store.edit { it[Keys.ShowRecents] = show }
@@ -327,19 +369,19 @@ class Prefs @JvmOverloads constructor(
 
     val lastCatalogSyncTime: Flow<Long> = store.data.map {
         it[Keys.LastCatalogSyncTime] ?: it[Keys.LastSyncTime] ?: 0L
-    }
+    }.distinctUntilChanged()
 
     suspend fun setLastCatalogSyncTime(ms: Long) {
         store.edit { it[Keys.LastCatalogSyncTime] = ms }
     }
 
-    val lastChannelSyncTime: Flow<Long> = store.data.map { it[Keys.LastChannelSyncTime] ?: 0L }
+    val lastChannelSyncTime: Flow<Long> = store.data.map { it[Keys.LastChannelSyncTime] ?: 0L }.distinctUntilChanged()
 
     suspend fun setLastChannelSyncTime(ms: Long) {
         store.edit { it[Keys.LastChannelSyncTime] = ms }
     }
 
-    val lastEpgSyncTime: Flow<Long> = store.data.map { it[Keys.EpgLastSyncTime] ?: 0L }
+    val lastEpgSyncTime: Flow<Long> = store.data.map { it[Keys.EpgLastSyncTime] ?: 0L }.distinctUntilChanged()
 
     suspend fun setLastEpgSyncTime(ms: Long) {
         store.edit { it[Keys.EpgLastSyncTime] = ms }

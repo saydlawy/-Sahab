@@ -41,8 +41,7 @@ class CatalogSync(
     val syncing: StateFlow<Boolean> = _syncing
 
     suspend fun syncMovies(repo: Repository): Stats = withContext(Dispatchers.IO) {
-        if (_syncing.value) return@withContext Stats()
-        _syncing.value = true
+        if (!_syncing.compareAndSet(expect = false, update = true)) return@withContext Stats()
         val start = System.currentTimeMillis()
         try {
             val now = System.currentTimeMillis()
@@ -123,8 +122,7 @@ class CatalogSync(
      * Sets _syncing flag so SyncOverlay shows the operation.
      */
     suspend fun populateFromSeed(context: Context): SeedStats = withContext(Dispatchers.IO) {
-        if (_syncing.value) return@withContext SeedStats(wasSkipped = true)
-        _syncing.value = true
+        if (!_syncing.compareAndSet(expect = false, update = true)) return@withContext SeedStats(wasSkipped = true)
         val start = System.currentTimeMillis()
         try {
             val dbCount = dao.observeCount().first()
