@@ -655,13 +655,15 @@ private fun GithubUpdatePrompt(container: AppContainer) {
                         primary = true,
                         onClick = {
                             val target = update.apkUrl.ifBlank { update.htmlUrl }
-                            runCatching {
-                                context.startActivity(
-                                    android.content.Intent(
-                                        android.content.Intent.ACTION_VIEW,
-                                        android.net.Uri.parse(target),
-                                    ),
-                                )
+                            if (com.saydlawy.sahab.data.GithubReleaseUpdater.isTrustedReleaseUrl(target)) {
+                                runCatching {
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse(target),
+                                        ),
+                                    )
+                                }
                             }
                             pendingUpdate = null
                         },

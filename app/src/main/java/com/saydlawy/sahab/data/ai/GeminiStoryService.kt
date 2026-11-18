@@ -35,7 +35,10 @@ sealed class GeminiResult {
     data class Error(val message: String) : GeminiResult()
 }
 
-class GeminiStoryService(baseClient: OkHttpClient = OkHttpClient()) {
+class GeminiStoryService(
+    baseClient: OkHttpClient = OkHttpClient(),
+    private val baseUrl: String = "https://generativelanguage.googleapis.com",
+) {
 
     private val client = baseClient.newBuilder()
         .cache(null)
@@ -74,9 +77,10 @@ class GeminiStoryService(baseClient: OkHttpClient = OkHttpClient()) {
         try {
             val prompt = buildPrompt(rawName, year, imdbId, contentType)
             val body = buildBody(prompt, posterBytes)
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+            val url = "${baseUrl.trimEnd('/')}/v1beta/models/$model:generateContent"
             val req = Request.Builder()
                 .url(url)
+                .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
                 .post(body.toRequestBody("application/json".toMediaType()))
                 .build()

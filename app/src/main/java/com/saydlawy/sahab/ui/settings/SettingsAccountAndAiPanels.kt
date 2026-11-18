@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -304,7 +305,7 @@ internal fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
             Text("أضف مفاتيح لتوليد قصص الأفلام باللغة العربية عند الحاجة.", fontSize = 12.sp, color = Palette.TextDim)
             if (!aiKeys.isEncrypted) {
                 Text(
-                    "تنبيه: جهازك لا يدعم التشفير الآمن للمفاتيح، تم الحفظ في وضع احتياطي غير مشفر.",
+                    "تنبيه: جهازك لا يدعم التشفير الآمن للمفاتيح، تم الاحتفاظ بها في الذاكرة المؤقتة فقط ولن تُحفظ بنص صريح على القرص.",
                     fontSize = 12.sp,
                     color = Palette.Gold,
                     modifier = Modifier
@@ -358,7 +359,13 @@ internal fun AiKeysPanel(aiKeys: ApiKeyManager, modifier: Modifier = Modifier) {
             },
         ) {
             GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .imePadding(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     Text("مفتاح Gemini جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
                     GlassTextField(value = newKeyLabel, onValueChange = { newKeyLabel = it }, placeholder = "اسم مختصر (اختياري)", modifier = Modifier.fillMaxWidth())
                     GlassTextField(value = newKeyText, onValueChange = { newKeyText = it }, placeholder = "المفتاح (AIza...)", modifier = Modifier.fillMaxWidth())

@@ -72,16 +72,35 @@ class SahabPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        syncActiveSession()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        syncActiveSession()
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun syncActiveSession() {
         val player = SahabMediaSessionBridge.activePlayer ?: return
-        mediaSession = buildSession(player)
+        val existing = mediaSession
+        if (existing == null) {
+            mediaSession = buildSession(player)
+        } else if (existing.player !== player) {
+            existing.player = player
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        if (mediaSession == null) {
-            val player = SahabMediaSessionBridge.activePlayer ?: return null
-            mediaSession = buildSession(player)
+        if (!isAllowedMediaController(controllerInfo.uid, android.os.Process.myUid(), controllerInfo.isTrusted)) {
+            return null
         }
+        syncActiveSession()
         return mediaSession
+    }
+
+    internal companion object {
+        fun isAllowedMediaController(uid: Int, myUid: Int, isTrusted: Boolean): Boolean =
+            uid == myUid || isTrusted
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {

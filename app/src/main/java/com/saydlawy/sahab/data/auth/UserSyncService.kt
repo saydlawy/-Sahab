@@ -10,11 +10,13 @@ import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.RecentItem
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okio.ByteString.Companion.decodeBase64
@@ -217,12 +219,14 @@ class UserSyncService(
             runCatching { Log.i("SahabSync", "Skipping cloud Xtream upload: no Sync PIN configured") }
             return
         }
-        val data = mapOf(
-            "server" to CloudAccountCrypto.encryptV2(account.server, pin),
-            "user" to CloudAccountCrypto.encryptV2(account.user, pin),
-            "pass" to CloudAccountCrypto.encryptV2(account.pass, pin),
-            "cryptoVersion" to 2,
-        )
+        val data = withContext(Dispatchers.Default) {
+            mapOf(
+                "server" to CloudAccountCrypto.encryptV2(account.server, pin),
+                "user" to CloudAccountCrypto.encryptV2(account.user, pin),
+                "pass" to CloudAccountCrypto.encryptV2(account.pass, pin),
+                "cryptoVersion" to 2,
+            )
+        }
         writeWithRetry("xtream", uid) {
             db.collection("users").document(uid).collection("data").document("xtream").set(data)
         }
@@ -251,10 +255,13 @@ class UserSyncService(
             runCatching { Log.i("SahabSync", "Skipping cloud accounts_list upload: no Sync PIN configured (Keystore local-only)") }
             return
         }
-        val jsonStr = json.encodeToString(accountsSerializer, accounts)
+        val encryptedPayload = withContext(Dispatchers.Default) {
+            val jsonStr = json.encodeToString(accountsSerializer, accounts)
+            CloudAccountCrypto.encryptV2(jsonStr, pin)
+        }
         writeWithRetry("accounts_list", uid) {
             db.collection("users").document(uid).collection("data").document("accounts_list")
-                .set(mapOf("enc" to CloudAccountCrypto.encryptV2(jsonStr, pin), "cryptoVersion" to 2))
+                .set(mapOf("enc" to encryptedPayload, "cryptoVersion" to 2))
         }
     }
 
@@ -269,7 +276,7 @@ class UserSyncService(
             val enc = listSnap.getString("enc")
             val legacyPlain = listSnap.getString("json")
             if (!enc.isNullOrBlank()) {
-                when (val dec = CloudAccountCrypto.decrypt(enc, uid, pin)) {
+                when (val dec = withContext(Dispatchers.Default) { CloudAccountCrypto.decrypt(enc, uid, pin) }) {
                     is CloudDecryptResult.Ok -> {
                         val list = runCatching { json.decodeFromString(accountsSerializer, dec.plain) }.getOrDefault(emptyList())
                         if (list.isNotEmpty()) {
@@ -301,9 +308,13 @@ class UserSyncService(
             val sEnc = xtreamSnap.getString("server") ?: ""
             val uEnc = xtreamSnap.getString("user") ?: ""
             val pEnc = xtreamSnap.getString("pass") ?: ""
-            val resS = CloudAccountCrypto.decrypt(sEnc, uid, pin)
-            val resU = CloudAccountCrypto.decrypt(uEnc, uid, pin)
-            val resP = CloudAccountCrypto.decrypt(pEnc, uid, pin)
+            val (resS, resU, resP) = withContext(Dispatchers.Default) {
+                Triple(
+                    CloudAccountCrypto.decrypt(sEnc, uid, pin),
+                    CloudAccountCrypto.decrypt(uEnc, uid, pin),
+                    CloudAccountCrypto.decrypt(pEnc, uid, pin),
+                )
+            }
             val results = listOf(resS, resU, resP)
             if (results.any { it is CloudDecryptResult.PinRequired }) return CloudAccountRestoreResult.NeedsPin
             if (results.any { it is CloudDecryptResult.WrongPin }) return CloudAccountRestoreResult.WrongPin
@@ -327,7 +338,8 @@ class UserSyncService(
 
     suspend fun saveFavorites(favs: List<FavItem>) {
         val uid = currentUid ?: return
-        val capped = if (favs.size > MAX_CLOUD_FAVS) favs.take(MAX_CLOUD_FAVS) else favs
+        val capped = (if (favs.size > MAX_CLOUD_FAVS) favs.take(MAX_CLOUD_FAVS) else favs)
+            .map { item -> if (item.url.isBlank()) item else item.copy(url = redactCredentialsFromStreamUrl(item.url)) }
         val jsonStr = json.encodeToString(favSerializer, capped)
         writeWithRetry("favorites", uid) {
             db.collection("users").document(uid).collection("data").document("favorites")
@@ -363,7 +375,8 @@ class UserSyncService(
 
     suspend fun saveRecents(recents: List<RecentItem>) {
         val uid = currentUid ?: return
-        val capped = if (recents.size > MAX_CLOUD_RECENTS) recents.take(MAX_CLOUD_RECENTS) else recents
+        val capped = (if (recents.size > MAX_CLOUD_RECENTS) recents.take(MAX_CLOUD_RECENTS) else recents)
+            .map { item -> if (item.url.isBlank()) item else item.copy(url = redactCredentialsFromStreamUrl(item.url)) }
         val jsonStr = json.encodeToString(recentSerializer, capped)
         writeWithRetry("recents", uid) {
             db.collection("users").document(uid).collection("data").document("recents")
@@ -448,8 +461,20 @@ class UserSyncService(
     suspend fun getPreferences(): CloudPreferences? =
         (fetchPreferences() as? CloudFetchResult.Success)?.data
 
-    private companion object {
+    internal companion object {
         const val MAX_CLOUD_FAVS = 800
         const val MAX_CLOUD_RECENTS = 150
+        private val XTREAM_PATH_CREDENTIAL_REGEX = Regex("^https?://[^/]+/(live|movie|series)/[^/]+/[^/]+/.*", RegexOption.IGNORE_CASE)
+        private val SENSITIVE_QUERY_PARAM_REGEX = Regex("([?&](?:username|user|password|pass|token)=)[^&#]*", RegexOption.IGNORE_CASE)
+
+        /** Strips Xtream credentials before persisting stream URLs to Firestore; non-credential URLs remain intact. */
+        fun redactCredentialsFromStreamUrl(rawUrl: String): String {
+            val trimmed = rawUrl.trim()
+            if (trimmed.isEmpty()) return ""
+            if (XTREAM_PATH_CREDENTIAL_REGEX.matches(trimmed)) {
+                return ""
+            }
+            return trimmed.replace(SENSITIVE_QUERY_PARAM_REGEX, "$1REDACTED")
+        }
     }
 }

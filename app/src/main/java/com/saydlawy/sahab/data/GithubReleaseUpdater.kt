@@ -4,9 +4,11 @@ import com.saydlawy.sahab.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -15,6 +17,7 @@ data class GithubReleaseUpdate(
     val title: String,
     val apkUrl: String,
     val htmlUrl: String,
+    val sha256: String? = null,
 )
 
 /**
@@ -25,12 +28,29 @@ object GithubReleaseUpdater {
 
     private const val LATEST_TAG_URL = "https://api.github.com/repos/saydlawy/-Sahab/releases/tags/latest"
     private val BUILD_NUMBER_REGEX = Regex("""build\s+(\d+)""", RegexOption.IGNORE_CASE)
+    private val SHA256_REGEX = Regex("""\bsha-?256\s*[:=]\s*([0-9a-fA-F]{64})\b""", RegexOption.IGNORE_CASE)
+    private val TRUSTED_HOSTS = setOf(
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    )
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun checkForUpdate(client: OkHttpClient): GithubReleaseUpdate? = withContext(Dispatchers.IO) {
+    fun isTrustedReleaseUrl(rawUrl: String): Boolean {
+        val parsed = rawUrl.trim().toHttpUrlOrNull() ?: return false
+        if (!parsed.isHttps) return false
+        val host = parsed.host.lowercase()
+        return TRUSTED_HOSTS.any { trusted -> host == trusted || host.endsWith(".$trusted") }
+    }
+
+    suspend fun checkForUpdate(
+        client: OkHttpClient,
+        endpointUrl: String = LATEST_TAG_URL,
+        currentVersionCode: Int = BuildConfig.VERSION_CODE,
+    ): GithubReleaseUpdate? = withContext(Dispatchers.IO) {
         runCatching {
             val req = Request.Builder()
-                .url(LATEST_TAG_URL)
+                .url(endpointUrl)
                 .header("Accept", "application/vnd.github+json")
                 .build()
             client.newCall(req).execute().use { resp ->
@@ -38,25 +58,33 @@ object GithubReleaseUpdater {
                 val body = resp.body?.string().orEmpty()
                 if (body.isBlank()) return@runCatching null
                 val root = json.parseToJsonElement(body).jsonObject
-                val name = root["name"]?.jsonPrimitive?.content.orEmpty()
-                val htmlUrl = root["html_url"]?.jsonPrimitive?.content.orEmpty()
+                val name = root["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val releaseNotes = root["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val rawHtmlUrl = root["html_url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val htmlUrl = rawHtmlUrl.takeIf { isTrustedReleaseUrl(it) }.orEmpty()
                 val remoteCode = BUILD_NUMBER_REGEX.find(name)?.groupValues?.getOrNull(1)?.toIntOrNull()
                     ?: return@runCatching null
-                if (remoteCode <= BuildConfig.VERSION_CODE) return@runCatching null
+                if (remoteCode <= currentVersionCode) return@runCatching null
                 val assets = root["assets"]?.jsonArray.orEmpty()
-                val apkUrl = assets.firstNotNullOfOrNull { el ->
-                    val obj = el.jsonObject
-                    val assetName = obj["name"]?.jsonPrimitive?.content.orEmpty()
-                    if (assetName.endsWith(".apk", ignoreCase = true)) {
-                        obj["browser_download_url"]?.jsonPrimitive?.content
-                    } else null
-                }.orEmpty().ifBlank { htmlUrl }
-                if (apkUrl.isBlank()) return@runCatching null
+                val apkAsset = assets.firstOrNull { el ->
+                    val assetName = el.jsonObject["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    assetName.endsWith(".apk", ignoreCase = true)
+                }?.jsonObject
+                val rawApkUrl = apkAsset?.get("browser_download_url")?.jsonPrimitive?.contentOrNull.orEmpty()
+                val apkUrl = rawApkUrl.takeIf { isTrustedReleaseUrl(it) }.orEmpty().ifBlank { htmlUrl }
+                if (apkUrl.isBlank() || !isTrustedReleaseUrl(apkUrl)) return@runCatching null
+
+                val assetDigest = apkAsset?.get("digest")?.jsonPrimitive?.contentOrNull
+                    ?.removePrefix("sha256:")
+                    ?.trim()
+                    ?.takeIf { it.length == 64 && it.all { c -> c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F' } }
+                val noteDigest = SHA256_REGEX.find(releaseNotes)?.groupValues?.getOrNull(1)
                 GithubReleaseUpdate(
                     versionCode = remoteCode,
                     title = name.ifBlank { "إصدار جديد ($remoteCode)" },
                     apkUrl = apkUrl,
                     htmlUrl = htmlUrl,
+                    sha256 = assetDigest ?: noteDigest,
                 )
             }
         }.getOrNull()

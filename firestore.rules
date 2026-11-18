@@ -63,13 +63,27 @@ service cloud.firestore {
                request.resource.data[field].matches('^http://.*')));
     }
 
+    function isValidListElem(list, idx, maxLen) {
+      return list.size() <= idx ||
+             (list[idx] is string && list[idx].size() <= maxLen);
+    }
+
     function isValidStringList(field, maxItems, maxItemLen) {
       return !(field in request.resource.data) ||
              request.resource.data[field] == null ||
              (request.resource.data[field] is list &&
               request.resource.data[field].size() <= maxItems &&
-              (request.resource.data[field].size() == 0 ||
-               (request.resource.data[field][0] is string && request.resource.data[field][0].size() <= maxItemLen)));
+              maxItems <= 10 &&
+              isValidListElem(request.resource.data[field], 0, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 1, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 2, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 3, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 4, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 5, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 6, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 7, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 8, maxItemLen) &&
+              isValidListElem(request.resource.data[field], 9, maxItemLen));
     }
 
     function isValidUserRoot(data) {
@@ -151,7 +165,14 @@ service cloud.firestore {
              immutableIfPopulated('imdbId') &&
              immutableIfPopulated('tmdbVoteCount') &&
              immutableIfPopulated('titleEn') &&
+             immutableIfPopulated('titleAr') &&
+             immutableIfPopulated('novaStreamId') &&
              immutableIfPopulated('year') &&
+             immutableIfPopulated('plot') &&
+             immutableIfPopulated('plotSource') &&
+             immutableIfPopulated('plotConfidence') &&
+             immutableIfPopulated('identifiedTitle') &&
+             immutableIfPopulated('redirectTo') &&
              immutableIfPopulated('posterUrl') &&
              immutableIfPopulated('backdropUrl') &&
              immutableIfPopulated('cast') &&
@@ -159,7 +180,18 @@ service cloud.firestore {
              immutableIfPopulated('genre') &&
              immutableIfPopulated('runtime') &&
              immutableIfPopulated('rating') &&
-             immutableIfPopulated('mediaType');
+             immutableIfPopulated('mediaType') &&
+             (!('aliases' in resource.data) ||
+              resource.data.aliases == null ||
+              (('aliases' in request.resource.data) &&
+               request.resource.data.aliases is list &&
+               request.resource.data.aliases.hasAll(resource.data.aliases)));
+    }
+
+    function isValidGlobalCatalogRedirect(data) {
+      return !('redirectTo' in data) ||
+             data.redirectTo == null ||
+             (data.redirectTo is string && data.redirectTo.matches('^tmdb:[0-9]+$'));
     }
 
     match /users/{uid} {
@@ -184,10 +216,12 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAuthenticated() &&
                        docId.matches('^tmdb:[0-9]+$') &&
-                       isValidCatalogPayload(request.resource.data);
+                       isValidCatalogPayload(request.resource.data) &&
+                       isValidGlobalCatalogRedirect(request.resource.data);
       allow update: if isAuthenticated() &&
                        docId.matches('^tmdb:[0-9]+$') &&
                        isValidCatalogPayload(request.resource.data) &&
+                       isValidGlobalCatalogRedirect(request.resource.data) &&
                        originalEnrichmentUnchanged();
       allow delete: if false;
     }
