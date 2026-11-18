@@ -198,20 +198,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                 ) {
                     if (!onPlayer) DreamyBackground()
                     val contentModifier = when {
-                        onPlayer && windowInfo.mode != DisplayMode.PHONE_PORTRAIT -> Modifier.fillMaxSize()
-                        windowInfo.isPhoneLandscape -> {
-                            // Keep symmetric horizontal margins across notch/cutout on landscape phones
-                            val symH = maxOf(
-                                safeInsets.calculateStartPadding(layoutDir),
-                                safeInsets.calculateEndPadding(layoutDir),
-                            )
-                            Modifier.fillMaxSize().padding(
-                                start = symH,
-                                end = symH,
-                                top = safeInsets.calculateTopPadding(),
-                                bottom = safeInsets.calculateBottomPadding(),
-                            )
-                        }
+                        windowInfo.mode != DisplayMode.PHONE_PORTRAIT -> Modifier.fillMaxSize()
                         else -> Modifier.fillMaxSize().safeDrawingPadding()
                     }
                     val oledPhoneNavigation = themePreferences.selectedThemeId == "oled_cinema" && windowInfo.mode == DisplayMode.PHONE_PORTRAIT

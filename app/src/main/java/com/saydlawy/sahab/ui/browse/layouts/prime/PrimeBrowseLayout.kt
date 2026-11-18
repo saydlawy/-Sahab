@@ -121,8 +121,8 @@ internal fun PrimeBrowseLayout(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = hPad, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = hPad, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             tabs()
 
@@ -208,8 +208,8 @@ private fun PrimeTop10Shelf(
     isPhone: Boolean,
 ) {
     val rowState = rememberRestorableLazyListState("${route}_prime_top10")
-    val cardW: Dp = if (isPhone) 168.dp else 218.dp
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val cardW: Dp = if (isPhone) 96.dp else 132.dp
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             text = androidx.compose.ui.text.buildAnnotatedString {
                 pushStyle(androidx.compose.ui.text.SpanStyle(color = PrimeCyan, fontWeight = FontWeight.Bold))
@@ -218,23 +218,23 @@ private fun PrimeTop10Shelf(
                 append("الأعلى 10")
             },
             color = Color.White,
-            fontSize = if (isPhone) 15.sp else 18.sp,
+            fontSize = if (isPhone) 14.sp else 18.sp,
             fontWeight = FontWeight.Bold,
         )
         LazyRow(
             state = rowState,
             modifier = Modifier.fillMaxWidth().focusRestorer(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
         ) {
             itemsIndexed(posters, key = { _, p -> "prime_top10_${p.id}" }) { index, poster ->
                 val rank = index + 1
                 val focusKey = "prime_top10_${poster.id}"
-                Box(Modifier.width(cardW + if (rank >= 10) 86.dp else 54.dp)) {
+                Box(Modifier.width(cardW + if (rank >= 10) 76.dp else 48.dp)) {
                     Text(
                         text = "$rank",
                         color = Color.White.copy(alpha = 0.92f),
-                        fontSize = if (isPhone) 68.sp else 92.sp,
+                        fontSize = if (isPhone) 64.sp else 92.sp,
                         fontWeight = FontWeight.Black,
                         maxLines = 1,
                         modifier = Modifier.align(Alignment.BottomStart),
@@ -244,7 +244,7 @@ private fun PrimeTop10Shelf(
                         route = route,
                         focusKey = focusKey,
                         isDefault = false,
-                        landscape = true,
+                        landscape = false,
                         onOpen = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                         onLongClick = { callbacks.onToggleFavorite(poster) },
                         onFocused = { callbacks.onPosterFocused(poster) },

@@ -48,6 +48,8 @@ class MainActivity : AppCompatActivity() {
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
+            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
         val container = (application as SahabApp).container
         val tv = isTelevision(this)
@@ -65,6 +67,16 @@ class MainActivity : AppCompatActivity() {
                 ) {
                     AppRoot(container = container, onReady = { isAppReady = true })
                 }
+            }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
             }
         }
     }

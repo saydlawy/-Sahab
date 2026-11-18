@@ -40,15 +40,34 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val bg = Palette.CinematicBg
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
+    val hasWideBackdrop = details != null &&
+        details.backdropUrl.isNotBlank() &&
+        details.backdropUrl != details.poster.image
     Box(modifier.fillMaxSize()) {
         if (details != null) {
-            RemoteImage(
-                url = details.backdropUrl.ifBlank { details.poster.image },
-                fallbackUrl = details.poster.image,
-                fallbackText = details.poster.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (hasWideBackdrop) {
+                RemoteImage(
+                    url = details.backdropUrl,
+                    fallbackUrl = details.poster.image,
+                    fallbackText = details.poster.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .fillMaxWidth(if (compact) 0.58f else 0.42f)
+                        .fillMaxHeight(if (compact) 0.54f else 0.72f),
+                ) {
+                    RemoteImage(
+                        url = details.poster.image,
+                        fallbackText = details.poster.name,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
         }
         val sideStops = if (rtl) {
             arrayOf(
@@ -105,22 +124,23 @@ internal fun PrimeHeroInfo(
 ) {
     val item = details ?: return
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 7.dp)) {
-        if (rank != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "#$rank في الأعلى تقييماً",
-                    color = PrimeCyan,
-                    fontSize = if (compact) 12.sp else 14.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                SahabIcon(Ic.CheckCircle, null, Modifier.size(15.dp), PrimeCyan)
-            }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SahabIcon(Ic.CheckCircle, null, Modifier.size(14.dp), PrimeCyan)
+            val badgeText = if (rank != null) "#$rank في الأعلى تقييماً  •  متاح ضمن اشتراكك" else "متاح ضمن اشتراكك"
+            Text(
+                text = badgeText,
+                color = PrimeCyan,
+                fontSize = if (compact) 11.sp else 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Text(
             text = item.poster.name,
             color = Color.White,
-            fontSize = if (compact) 20.sp else 26.sp,
+            fontSize = if (compact) 19.sp else 24.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -168,15 +188,7 @@ internal fun PrimeHeroInfo(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SahabIcon(Ic.CheckCircle, null, Modifier.size(16.dp), PrimeCyan)
-            Text(
-                text = "متاح ضمن اشتراكك",
-                color = Color.White,
-                fontSize = if (compact) 12.sp else 13.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+
     }
 }
 
