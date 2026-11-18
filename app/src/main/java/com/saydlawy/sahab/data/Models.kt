@@ -14,7 +14,6 @@ enum class VodLayoutStyle(val id: String, val labelAr: String, val descAr: Strin
     CLASSIC("classic", "سحاب الكلاسيكي", "شبكة متوازنة بتصميم سحاب الأصلي"),
     PRIME("prime", "Prime Cinema", "واجهة عرض سينمائية بعرض بانورامي وتفاصيل سريعة"),
     NETFLIX("netflix", "Netflix Row", "بطل رئيسي + صفوف أفقية + قائمة أفضل ١٠"),
-    TIVIMATE("tivimate", "TiviMate Pro", "جدول منظم من عمودين مع معاينة جانبية فورية"),
 }
 
 /** الامتداد الافتراضي الموحد لأفلام وحلقات VOD عند خلوه من استجابة الخادم. */

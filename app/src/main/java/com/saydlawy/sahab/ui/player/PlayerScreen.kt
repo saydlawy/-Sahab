@@ -46,7 +46,7 @@ internal val ResizeModes = defaultResizeModes()
 internal val PlaybackSpeeds = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
 
 internal const val SEEK_STEP_MS = 10_000L
-internal const val CONTROLS_HIDE_MS = 2_000L
+internal const val CONTROLS_HIDE_MS = 4_500L
 internal val TimelineProgressBrush get() = Brush.horizontalGradient(listOf(OsdPrimaryContainer, OsdPrimary, OsdCyan))
 
 @Composable

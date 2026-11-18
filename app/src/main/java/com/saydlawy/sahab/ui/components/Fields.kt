@@ -40,6 +40,11 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -117,7 +122,22 @@ fun GlassTextField(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth().then(inputModifier),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown) {
+                            when (event.key) {
+                                Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
+                                Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
+                                Key.DirectionLeft -> if (value.isEmpty()) focusManager.moveFocus(FocusDirection.Left) else false
+                                Key.DirectionRight -> if (value.isEmpty()) focusManager.moveFocus(FocusDirection.Right) else false
+                                else -> false
+                            }
+                        } else {
+                            false
+                        }
+                    }
+                    .then(inputModifier),
                 singleLine = true,
                 textStyle = textStyle,
                 cursorBrush = SolidColor(Palette.Glow),

@@ -135,7 +135,7 @@ internal fun PrimeBrowseLayout(
             ) {
                 item(key = "prime_header", span = { GridItemSpan(maxLineSpan) }) {
                     Column(
-                        Modifier.fillMaxWidth().height(if (isPhone) 320.dp else 300.dp),
+                        Modifier.fillMaxWidth().height(if (isPhone) 280.dp else 252.dp),
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         tabs()
@@ -143,8 +143,8 @@ internal fun PrimeBrowseLayout(
                             details = heroDetails,
                             rank = rank,
                             modifier = Modifier
-                                .fillMaxWidth(if (isPhone) 1f else 0.52f)
-                                .padding(bottom = 6.dp),
+                                .fillMaxWidth(if (isPhone) 1f else 0.54f)
+                                .padding(bottom = 4.dp),
                         )
                     }
                 }
@@ -196,11 +196,11 @@ private fun PrimeTop10Shelf(
     isPhone: Boolean,
 ) {
     val rowState = rememberRestorableLazyListState("${route}_prime_top10")
-    val cardW: Dp = if (isPhone) 104.dp else 138.dp
+    val cardW: Dp = if (isPhone) 168.dp else 218.dp
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = androidx.compose.ui.text.buildAnnotatedString {
-                pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.FocusCyan, fontWeight = FontWeight.Bold))
+                pushStyle(androidx.compose.ui.text.SpanStyle(color = PrimeCyan, fontWeight = FontWeight.Bold))
                 append("Prime ")
                 pop()
                 append("الأعلى 10")
@@ -211,17 +211,17 @@ private fun PrimeTop10Shelf(
         )
         LazyRow(
             state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
         ) {
             itemsIndexed(posters, key = { _, p -> "prime_top10_${p.id}" }) { index, poster ->
                 val rank = index + 1
                 val focusKey = "prime_top10_${poster.id}"
-                Box(Modifier.width(cardW + if (rank >= 10) 78.dp else 50.dp)) {
+                Box(Modifier.width(cardW + if (rank >= 10) 86.dp else 54.dp)) {
                     Text(
                         text = "$rank",
                         color = Color.White.copy(alpha = 0.92f),
-                        fontSize = if (isPhone) 78.sp else 116.sp,
+                        fontSize = if (isPhone) 68.sp else 92.sp,
                         fontWeight = FontWeight.Black,
                         maxLines = 1,
                         modifier = Modifier.align(Alignment.BottomStart),
@@ -231,6 +231,7 @@ private fun PrimeTop10Shelf(
                         route = route,
                         focusKey = focusKey,
                         isDefault = false,
+                        landscape = true,
                         onOpen = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                         onLongClick = { callbacks.onToggleFavorite(poster) },
                         onFocused = { callbacks.onPosterFocused(poster) },
@@ -252,7 +253,7 @@ private fun PrimeShelf(
     isPhone: Boolean,
 ) {
     val rowState = rememberRestorableLazyListState("${route}_$rowId")
-    val cardW = if (isPhone) 104.dp else 128.dp
+    val cardW = if (isPhone) 168.dp else 210.dp
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
@@ -274,6 +275,7 @@ private fun PrimeShelf(
                     route = route,
                     focusKey = focusKey,
                     isDefault = false,
+                    landscape = true,
                     onOpen = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                     onLongClick = { callbacks.onToggleFavorite(poster) },
                     onFocused = { callbacks.onPosterFocused(poster) },
@@ -293,6 +295,7 @@ private fun PrimeTile(
     route: String,
     focusKey: String,
     isDefault: Boolean,
+    landscape: Boolean = false,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onFocused: () -> Unit,
@@ -305,10 +308,10 @@ private fun PrimeTile(
         animationSpec = tween(120),
         label = "primeTileScale",
     )
-    val shape = RoundedCornerShape(6.dp)
+    val shape = RoundedCornerShape(8.dp)
     Box(
         modifier
-            .aspectRatio(2f / 3f)
+            .aspectRatio(if (landscape) 16f / 9f else 2f / 3f)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

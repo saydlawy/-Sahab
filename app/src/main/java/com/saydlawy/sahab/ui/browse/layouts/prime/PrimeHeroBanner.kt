@@ -85,6 +85,8 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
     }
 }
 
+internal val PrimeCyan = Color(0xFF00A8E1)
+
 /** Title block: rank badge, big title, meta line, synopsis and the "included" line. */
 @Composable
 internal fun PrimeHeroInfo(
@@ -94,22 +96,22 @@ internal fun PrimeHeroInfo(
 ) {
     val item = details ?: return
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 9.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 7.dp)) {
         if (rank != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = "#$rank في الأعلى تقييماً",
-                    color = Palette.FocusCyan,
+                    color = PrimeCyan,
                     fontSize = if (compact) 12.sp else 14.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                SahabIcon(Ic.CheckCircle, null, Modifier.size(15.dp), Palette.FocusCyan)
+                SahabIcon(Ic.CheckCircle, null, Modifier.size(15.dp), PrimeCyan)
             }
         }
         Text(
             text = item.poster.name,
             color = Color.White,
-            fontSize = if (compact) 24.sp else 34.sp,
+            fontSize = if (compact) 22.sp else 30.sp,
             fontWeight = FontWeight.Black,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -140,7 +142,7 @@ internal fun PrimeHeroInfo(
                     Text(
                         text = metaTail,
                         color = Color.White.copy(alpha = 0.85f),
-                        fontSize = if (compact) 12.sp else 14.sp,
+                        fontSize = if (compact) 12.sp else 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -150,18 +152,18 @@ internal fun PrimeHeroInfo(
         if (item.plot.isNotBlank()) {
             Text(
                 text = item.plot,
-                color = Color.White.copy(alpha = 0.9f),
-                fontSize = if (compact) 12.sp else 15.sp,
-                maxLines = if (compact) 2 else 3,
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = if (compact) 12.sp else 14.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SahabIcon(Ic.CheckCircle, null, Modifier.size(16.dp), Palette.FocusCyan)
+            SahabIcon(Ic.CheckCircle, null, Modifier.size(16.dp), PrimeCyan)
             Text(
                 text = "متاح ضمن اشتراكك",
                 color = Color.White,
-                fontSize = if (compact) 12.sp else 14.sp,
+                fontSize = if (compact) 12.sp else 13.sp,
                 fontWeight = FontWeight.Bold,
             )
         }

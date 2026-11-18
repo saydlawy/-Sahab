@@ -31,7 +31,6 @@ import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.browse.layouts.classic.ClassicBrowseLayout
 import com.saydlawy.sahab.ui.browse.layouts.netflix.NetflixBrowseLayout
 import com.saydlawy.sahab.ui.browse.layouts.prime.PrimeBrowseLayout
-import com.saydlawy.sahab.ui.browse.layouts.tivimate.TiviMateBrowseLayout
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.SahabTopBar
@@ -204,13 +203,6 @@ fun BrowseScreen(
                     VodLayoutStyle.NETFLIX -> NetflixBrowseLayout(
                         route = route,
                         series = series,
-                        state = state,
-                        items = items,
-                        favoriteIds = favoriteIds,
-                        callbacks = callbacks,
-                    )
-                    VodLayoutStyle.TIVIMATE -> TiviMateBrowseLayout(
-                        route = route,
                         state = state,
                         items = items,
                         favoriteIds = favoriteIds,

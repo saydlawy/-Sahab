@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +32,7 @@ internal fun NetflixTop10Row(
     top10: List<Poster>,
     onOpenPoster: (Poster) -> Unit,
     onToggleFavorite: (Poster) -> Unit,
+    onFocusedPoster: (Poster) -> Unit = {},
 ) {
     if (top10.isEmpty()) return
     val rowState = rememberRestorableLazyListState("${screenKey}_netflix_top10")
@@ -40,7 +42,7 @@ internal fun NetflixTop10Row(
         LazyRow(
             state = rowState,
             contentPadding = PaddingValues(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             itemsIndexed(top10, key = { _, p -> "top10_${p.id}" }) { index, poster ->
                 Row(
@@ -50,9 +52,9 @@ internal fun NetflixTop10Row(
                     Box(Modifier.padding(bottom = 8.dp)) {
                         Text(
                             text = "${index + 1}",
-                            color = Palette.FocusCyan.copy(alpha = 0.72f),
-                            fontSize = 46.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White.copy(alpha = 0.78f),
+                            fontSize = 48.sp,
+                            fontWeight = FontWeight.Black,
                         )
                     }
                     PosterCard(
@@ -63,9 +65,10 @@ internal fun NetflixTop10Row(
                         subtitle = poster.year,
                         onClick = { onOpenPoster(poster) },
                         onLongClick = { onToggleFavorite(poster) },
+                        onFocused = { onFocusedPoster(poster) },
                         modifier = Modifier
-                            .width(126.dp)
-                            .restorableFocus(screenKey, "top10_${poster.id}"),
+                            .width(120.dp)
+                            .restorableFocus(screenKey, "top10_${poster.id}", isDefaultEntry = index == 0),
                     )
                 }
             }

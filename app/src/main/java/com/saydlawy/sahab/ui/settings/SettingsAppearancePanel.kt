@@ -250,33 +250,31 @@ private fun VodLayoutSelectorPanel(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             DotTitle(title, Palette.FocusCyan, fontSize = 18.sp)
             Text(subtitle, color = Palette.TextDim, fontSize = 12.sp)
-            VodLayoutStyle.entries.chunked(2).forEach { pair ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    pair.forEach { style ->
-                        val active = selected == style
-                        GlassCard(
-                            onClick = { onSelect(style) },
-                            selected = active,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .restorableFocus(Routes.SETTINGS, "${keyPrefix}_${style.id}"),
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                VodLayoutStyle.entries.forEach { style ->
+                    val active = selected == style
+                    GlassCard(
+                        onClick = { onSelect(style) },
+                        selected = active,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .restorableFocus(Routes.SETTINGS, "${keyPrefix}_${style.id}"),
+                    ) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Column(
-                                Modifier.fillMaxWidth().padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            LayoutWireframePreview(style, active)
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                LayoutWireframePreview(style, active)
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(style.labelAr, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
-                                    if (active) Tag("نشط", Palette.Emerald)
-                                }
-                                Text(style.descAr, color = Palette.TextDim, fontSize = 11.sp, maxLines = 2)
+                                Text(style.labelAr, color = Palette.Text, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                                if (active) Tag("نشط", Palette.Emerald)
                             }
+                            Text(style.descAr, color = Palette.TextDim, fontSize = 11.sp, maxLines = 2)
                         }
                     }
                 }
@@ -323,13 +321,6 @@ private fun LayoutWireframePreview(style: VodLayoutStyle, active: Boolean) {
                     repeat(5) {
                         Box(Modifier.weight(1f).height(12.dp).clip(RoundedCornerShape(3.dp)).background(cardColor))
                     }
-                }
-            }
-            VodLayoutStyle.TIVIMATE -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Box(Modifier.width(16.dp).height(34.dp).clip(RoundedCornerShape(3.dp)).background(barColor))
-                    Box(Modifier.weight(1f).height(34.dp).clip(RoundedCornerShape(3.dp)).background(cardColor))
-                    Box(Modifier.width(26.dp).height(34.dp).clip(RoundedCornerShape(3.dp)).background(barColor))
                 }
             }
         }

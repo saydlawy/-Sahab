@@ -146,6 +146,7 @@ class BrowseViewModel(
                             },
                         )
                     }
+                    hero.firstOrNull()?.let { fetchDetailsForHero(it) }
                     if (initialQuery.isNotBlank()) {
                         onQuery(initialQuery)
                     }
@@ -328,6 +329,10 @@ class BrowseViewModel(
                 ),
             )
         }
+        fetchDetailsForHero(poster)
+    }
+
+    private fun fetchDetailsForHero(poster: Poster) {
         focusDetailJob?.cancel()
         focusDetailJob = viewModelScope.launch {
             delay(180L)
