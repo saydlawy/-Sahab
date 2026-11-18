@@ -98,9 +98,15 @@ class Repository(
 
     suspend fun login(candidate: Account): UserInfo? {
         if (candidate.type == "M3U") {
+            if (candidate.m3uUrl.isBlank()) throw ApiException(Ar.errBadUrl)
+            val channels = m3uParser.fetch(candidate.m3uUrl)
+            if (channels.isEmpty()) {
+                throw ApiException("قائمة M3U فارغة أو لا تحتوي على قنوات صالحة")
+            }
             account = candidate
             userInfo = null
             clearCache(clearDisk = false)
+            cache["live_m3u"] = channels
             return null
         }
         val info = parseUserInfo(api.request(candidate, null))
@@ -384,15 +390,18 @@ class Repository(
 
     // Movies
 
-    suspend fun movieCategories(): List<Category> =
-        cachedPersistent("vod_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+    suspend fun movieCategories(): List<Category> {
+        if (requireAccount().type == "M3U") return emptyList()
+        return cachedPersistent("vod_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
             parseCategories(request("get_vod_categories"))
         }
+    }
 
     suspend fun peekAllMovies(): List<Poster>? =
         peekCachedList("vod:", ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS)
 
     suspend fun movies(categoryId: String?): List<Poster> {
+        if (requireAccount().type == "M3U") return emptyList()
         val key = "vod:${categoryId.orEmpty()}"
         if (!forceRefresh) {
             @Suppress("UNCHECKED_CAST")
@@ -436,15 +445,18 @@ class Repository(
 
     // Series
 
-    suspend fun seriesCategories(): List<Category> =
-        cachedPersistent("series_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
+    suspend fun seriesCategories(): List<Category> {
+        if (requireAccount().type == "M3U") return emptyList()
+        return cachedPersistent("series_cats", ListSerializer(Category.serializer()), CATEGORIES_TTL_MS) {
             parseCategories(request("get_series_categories"))
         }
+    }
 
     suspend fun peekAllSeries(): List<Poster>? =
         peekCachedList("series:", ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS)
 
     suspend fun seriesList(categoryId: String?): List<Poster> {
+        if (requireAccount().type == "M3U") return emptyList()
         val key = "series:${categoryId.orEmpty()}"
         if (!forceRefresh) {
             @Suppress("UNCHECKED_CAST")

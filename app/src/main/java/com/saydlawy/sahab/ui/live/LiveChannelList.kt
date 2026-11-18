@@ -311,7 +311,7 @@ internal fun ChannelRow(
             .fillMaxWidth()
             .restorableFocus(
                 screenKey = Routes.LIVE,
-                itemKey = "live_ch_${channel.id}",
+                itemKey = "live_ch_${channel.id}_$index",
                 isDefaultEntry = isDefaultEntry,
             )
             .then(

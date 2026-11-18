@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -88,6 +88,7 @@ import com.saydlawy.sahab.util.appVersion
 import com.saydlawy.sahab.util.formatDate
 import com.saydlawy.sahab.util.normalizeForSearch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -282,18 +283,26 @@ internal fun CustomChannelPickerDialog(
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-    val filteredChannels = remember(allChannels, query, selectedIds) {
-        val needle = query.normalizeForSearch().trim()
-        if (needle.isBlank()) {
-            val selectedFirst = allChannels.filter { it.id in selectedIds }
-            val others = allChannels.filter { it.id !in selectedIds }.take(150)
-            selectedFirst + others
-        } else {
-            allChannels.asSequence()
-                .filter { it.name.normalizeForSearch().contains(needle) }
-                .take(150)
-                .toList()
+    var filteredChannels by remember { mutableStateOf<List<Channel>>(emptyList()) }
+
+    LaunchedEffect(allChannels, query, selectedIds) {
+        if (query.isNotBlank()) {
+            delay(180L)
         }
+        val result = withContext(Dispatchers.Default) {
+            val needle = query.normalizeForSearch().trim()
+            if (needle.isBlank()) {
+                val selectedFirst = allChannels.filter { it.id in selectedIds }
+                val others = allChannels.filter { it.id !in selectedIds }.take(150)
+                selectedFirst + others
+            } else {
+                allChannels.asSequence()
+                    .filter { it.name.normalizeForSearch().contains(needle) }
+                    .take(150)
+                    .toList()
+            }
+        }
+        filteredChannels = result
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -348,7 +357,7 @@ internal fun CustomChannelPickerDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 4.dp),
                 ) {
-                    items(filteredChannels, key = { it.id }) { ch ->
+                    itemsIndexed(filteredChannels, key = { idx, ch -> "${ch.id}_$idx" }) { _, ch ->
                         val checked = ch.id in selectedIds
                         val logoUrl = remember(ch.icon, ch.name) {
                             ChannelLogoResolver.resolvePrimaryUrl(ch.icon, ch.name)

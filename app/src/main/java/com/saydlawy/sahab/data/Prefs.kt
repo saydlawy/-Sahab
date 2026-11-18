@@ -10,7 +10,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
+import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,11 +107,13 @@ class Prefs @JvmOverloads constructor(
 
     private fun createEncryptedPrefs(): SharedPreferences {
         val ctx = appContext ?: error("Context is required for EncryptedSharedPreferences")
-        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        val masterKey = MasterKey.Builder(ctx)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
         return EncryptedSharedPreferences.create(
-            SECURE_PREFS_NAME,
-            masterKeyAlias,
             ctx,
+            SECURE_PREFS_NAME,
+            masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )

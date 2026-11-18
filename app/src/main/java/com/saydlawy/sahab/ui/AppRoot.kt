@@ -121,7 +121,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
             container.syncCoordinator.syncFcmToken(context)
             val restoredAccount = container.syncCoordinator.performCloudRestoreAndMerge(
                 waitForMerge = false,
-                accountTimeoutMs = 4_000L,
+                accountTimeoutMs = 2_800L,
             )
             if (restoredAccount != null) {
                 container.repo.setAccount(restoredAccount)
@@ -434,12 +434,12 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                 onOpenCloudLogin = { nav.navigate(Routes.CLOUD_LOGIN) },
                 onLoggedOut = {
                     container.mergeCoordinator.reset()
-                    container.authManager.signOut()
+                    container.authManager.signOut(context)
                     container.repo.setAccount(null)
-                    container.appScope.launch {
+                    scope.launch {
                         container.clearAllLocalData(clearPrefsAccount = true)
+                        nav.navigate(Routes.CLOUD_LOGIN) { popUpTo(nav.graph.id) { inclusive = true } }
                     }
-                    nav.navigate(Routes.CLOUD_LOGIN) { popUpTo(nav.graph.id) { inclusive = true } }
                 },
             )
         }

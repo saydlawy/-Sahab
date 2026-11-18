@@ -21,18 +21,21 @@ interface CatalogMovieDao {
     @Query("SELECT * FROM catalog_movies WHERE sahabId IN (:ids) AND deleted = 0")
     suspend fun findByIds(ids: List<String>): List<CatalogMovieEntity>
 
-    @Query("SELECT * FROM catalog_movies WHERE novaStreamId = :streamId")
-    suspend fun findByStreamId(streamId: String): CatalogMovieEntity?
+    @Query("SELECT * FROM catalog_movies WHERE novaStreamId = :streamId AND mediaType = :mediaType LIMIT 1")
+    suspend fun findByStreamId(streamId: String, mediaType: String = "movie"): CatalogMovieEntity?
 
-    @Query("SELECT * FROM catalog_movies WHERE novaStreamId IN (:streamIds) AND deleted = 0")
-    suspend fun findByStreamIds(streamIds: List<String>): List<CatalogMovieEntity>
+    @Query("SELECT * FROM catalog_movies WHERE novaStreamId = :streamId AND mediaType = :mediaType AND deleted = 0 LIMIT 1")
+    suspend fun findByStreamIdAndType(streamId: String, mediaType: String): CatalogMovieEntity?
 
-    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND novaStreamId != '' ORDER BY novaAdded DESC LIMIT :limit")
-    suspend fun getRecentlyAdded(limit: Int): List<CatalogMovieEntity>
+    @Query("SELECT * FROM catalog_movies WHERE novaStreamId IN (:streamIds) AND mediaType = :mediaType AND deleted = 0")
+    suspend fun findByStreamIds(streamIds: List<String>, mediaType: String = "movie"): List<CatalogMovieEntity>
+
+    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND novaStreamId != '' ORDER BY novaAdded DESC LIMIT :limit")
+    suspend fun getRecentlyAdded(limit: Int, mediaType: String = "movie"): List<CatalogMovieEntity>
 
     @Query(
         "SELECT * FROM catalog_movies " +
-            "WHERE deleted = 0 AND novaStreamId != '' " +
+            "WHERE deleted = 0 AND mediaType = 'movie' AND novaStreamId != '' " +
             "AND year >= '2025' AND COALESCE(tmdbVoteCount, 0) >= 300 " +
             "AND CAST(rating AS REAL) >= 7.0 AND CAST(rating AS REAL) <= 9.2 " +
             "ORDER BY COALESCE(tmdbVoteCount, 0) DESC, CAST(rating AS REAL) DESC " +
@@ -46,17 +49,17 @@ interface CatalogMovieDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<CatalogMovieEntity>)
 
-    @Query("UPDATE catalog_movies SET lastSeen = :now, novaAdded = :added WHERE novaStreamId = :streamId")
-    suspend fun touch(streamId: String, added: Long, now: Long)
+    @Query("UPDATE catalog_movies SET lastSeen = :now, novaAdded = :added WHERE novaStreamId = :streamId AND mediaType = :mediaType")
+    suspend fun touch(streamId: String, added: Long, now: Long, mediaType: String = "movie")
 
-    @Query("UPDATE catalog_movies SET lastSeen = :now WHERE novaStreamId IN (:streamIds)")
-    suspend fun touchBulk(streamIds: List<String>, now: Long): Int
+    @Query("UPDATE catalog_movies SET lastSeen = :now WHERE novaStreamId IN (:streamIds) AND mediaType = :mediaType")
+    suspend fun touchBulk(streamIds: List<String>, now: Long, mediaType: String = "movie"): Int
 
     @Query("UPDATE catalog_movies SET deleted = 1 WHERE deleted = 0 AND lastSeen < :cutoff")
     suspend fun softDeleteBefore(cutoff: Long): Int
 
-    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND needsEnrichment = 1 ORDER BY novaAdded DESC LIMIT :limit")
-    suspend fun pendingEnrichment(limit: Int): List<CatalogMovieEntity>
+    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND needsEnrichment = 1 ORDER BY novaAdded DESC LIMIT :limit")
+    suspend fun pendingEnrichment(limit: Int, mediaType: String = "movie"): List<CatalogMovieEntity>
 
     @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND needsEnrichment = 1")
     suspend fun countPendingEnrichment(): Int
@@ -76,7 +79,7 @@ interface CatalogMovieDao {
             "plot = :plot, cast = :cast, director = :director, genre = :genre, " +
             "runtime = :runtime, rating = :rating, backdropUrl = :backdropUrl, " +
             "tmdbVoteCount = :voteCount, needsEnrichment = :status, lastEnriched = :now " +
-            "WHERE novaStreamId = :streamId"
+            "WHERE novaStreamId = :streamId AND mediaType = :mediaType"
     )
     suspend fun applyEnrichment(
         streamId: String,
@@ -94,13 +97,14 @@ interface CatalogMovieDao {
         voteCount: Int?,
         status: Int,
         now: Long,
+        mediaType: String = "movie",
     )
 
-    @Query("SELECT novaStreamId FROM catalog_movies WHERE deleted = 0")
-    suspend fun allStreamIds(): List<String>
+    @Query("SELECT novaStreamId FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType")
+    suspend fun allStreamIds(mediaType: String = "movie"): List<String>
 
-    @Query("UPDATE catalog_movies SET needsEnrichment = -1, lastEnriched = :now WHERE novaStreamId = :streamId")
-    suspend fun markFailed(streamId: String, now: Long)
+    @Query("UPDATE catalog_movies SET needsEnrichment = -1, lastEnriched = :now WHERE novaStreamId = :streamId AND mediaType = :mediaType")
+    suspend fun markFailed(streamId: String, now: Long, mediaType: String = "movie")
 
     @Query(
         "UPDATE catalog_movies SET " +

@@ -104,26 +104,6 @@ class TmdbApi(
     private val trimmedKey = apiKey.trim()
     private val isBearerV4Token = trimmedKey.startsWith("eyJ")
 
-    private suspend fun searchMovie(name: String, year: String): Int? {
-        val urlBuilder = "https://api.themoviedb.org/3/search/movie".toHttpUrl().newBuilder()
-            .addQueryParameter("query", name)
-            .addQueryParameter("language", "ar")
-        if (!isBearerV4Token) {
-            urlBuilder.addQueryParameter("api_key", trimmedKey)
-        }
-        if (year.length == 4) {
-            urlBuilder.addQueryParameter("year", year)
-        }
-        val text = execute(urlBuilder.build().toString()) ?: return null
-        return withContext(Dispatchers.Default) {
-            try {
-                json.decodeFromString<SearchResponse>(text).results.firstOrNull()?.id
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
-
     private suspend fun getMovieDetails(id: Int): TmdbMovie? {
         val urlBuilder = "https://api.themoviedb.org/3/movie/$id".toHttpUrl().newBuilder()
             .addQueryParameter("language", "ar")

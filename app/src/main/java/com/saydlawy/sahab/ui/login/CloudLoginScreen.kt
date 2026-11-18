@@ -26,8 +26,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.common.api.ApiException
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.appViewModel
@@ -53,6 +55,7 @@ class CloudLoginViewModel(private val container: AppContainer) : ViewModel() {
     fun onEmail(value: String) = _state.update { it.copy(email = value, error = null) }
     fun onPass(value: String) = _state.update { it.copy(pass = value, error = null) }
     fun toggleMode() = _state.update { it.copy(isRegisterMode = !it.isRegisterMode, error = null) }
+    fun onError(message: String) = _state.update { it.copy(loading = false, error = message) }
 
     fun signInWithGoogle(idToken: String, onSuccess: () -> Unit) {
         _state.update { it.copy(loading = true, error = null) }
@@ -112,13 +115,34 @@ fun CloudLoginScreen(
         runCatching { emailFocus.requestFocus() }
     }
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+    val scope = rememberCoroutineScope()
+    val googleSignIn: () -> Unit = {
+        scope.launch {
             try {
-                val account = task.getResult(ApiException::class.java)!!
-                account.idToken?.let { token -> vm.signInWithGoogle(token, onSuccess) }
-            } catch (e: ApiException) { /* Handle error */ }
+                val credentialManager = CredentialManager.create(context)
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setServerClientId(context.getString(com.saydlawy.sahab.R.string.default_web_client_id))
+                    .setFilterByAuthorizedAccounts(false)
+                    .build()
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(googleIdOption)
+                    .build()
+                val result = credentialManager.getCredential(context, request)
+                val credential = result.credential
+                if (credential is androidx.credentials.CustomCredential &&
+                    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                ) {
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    val token = googleIdTokenCredential.idToken
+                    vm.signInWithGoogle(token, onSuccess)
+                } else {
+                    vm.onError("تعذّر التحقق من بيانات اعتماد Google")
+                }
+            } catch (e: Exception) {
+                if (e !is androidx.credentials.exceptions.GetCredentialCancellationException) {
+                    vm.onError("فشل تسجيل الدخول عبر Google: ${e.localizedMessage ?: e.javaClass.simpleName}")
+                }
+            }
         }
     }
 
@@ -191,7 +215,7 @@ fun CloudLoginScreen(
 
             GlassButton(
                 text = "تسجيل الدخول باستخدام Google",
-                onClick = { launcher.launch(container.authManager.getGoogleSignInClient(context).signInIntent) },
+                onClick = googleSignIn,
                 primary = false,
                 modifier = Modifier.fillMaxWidth().focusRequester(googleFocus).focusProperties { down = skipFocus; up = loginFocus }
             )

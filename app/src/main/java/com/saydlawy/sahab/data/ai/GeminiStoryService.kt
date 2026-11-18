@@ -35,9 +35,10 @@ sealed class GeminiResult {
     data class Error(val message: String) : GeminiResult()
 }
 
-class GeminiStoryService {
+class GeminiStoryService(baseClient: OkHttpClient = OkHttpClient()) {
 
-    private val client = OkHttpClient.Builder()
+    private val client = baseClient.newBuilder()
+        .cache(null)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(75, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)

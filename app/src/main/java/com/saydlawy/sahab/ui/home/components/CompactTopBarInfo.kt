@@ -23,9 +23,8 @@ import com.saydlawy.sahab.data.weather.WeatherCondition
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -43,7 +42,7 @@ fun CompactTopBarInfo(modifier: Modifier = Modifier) {
     }
 
     val timeStr = remember(now) {
-        SimpleDateFormat("hh:mm a", Locale("ar")).format(Date(now))
+        formatNowMillis(now, "hh:mm a", Locale.forLanguageTag("ar"))
     }
 
     val isSunny = weather.condition == WeatherCondition.CLEAR_DAY || weather.condition == WeatherCondition.PARTLY_CLOUDY

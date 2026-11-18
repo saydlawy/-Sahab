@@ -101,6 +101,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -137,12 +138,17 @@ import com.saydlawy.sahab.util.ChannelLogoResolver
 // Design tokens from ExoPlayer/DESIGN.md & media-player/DESIGN.md
 @OptIn(UnstableApi::class)
 @Composable
-internal fun TracksDialog(tracks: Tracks, exo: ExoPlayer, onDismiss: () -> Unit) {
+internal fun TracksDialog(
+    tracks: Tracks,
+    exo: ExoPlayer,
+    trackSelectionParams: TrackSelectionParameters = exo.trackSelectionParameters,
+    onDismiss: () -> Unit,
+) {
     val video = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
     val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
     val text = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
-    val textOff = exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-    val hasVideoOverride = video.any { g -> exo.trackSelectionParameters.overrides.containsKey(g.mediaTrackGroup) }
+    val textOff = trackSelectionParams.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+    val hasVideoOverride = video.any { g -> trackSelectionParams.overrides.containsKey(g.mediaTrackGroup) }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(

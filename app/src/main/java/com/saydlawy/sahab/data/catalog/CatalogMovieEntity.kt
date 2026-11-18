@@ -23,7 +23,7 @@ import kotlinx.serialization.Serializable
 @Entity(
     tableName = "catalog_movies",
     indices = [
-        Index(value = ["novaStreamId"], unique = true),
+        Index(value = ["mediaType", "novaStreamId"], unique = true),
         Index(value = ["categoryId", "novaAdded"]),
         Index(value = ["needsEnrichment", "novaAdded"]),
         Index(value = ["tmdbId"]),

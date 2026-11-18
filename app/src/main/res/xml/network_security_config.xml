@@ -4,7 +4,6 @@
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">themoviedb.org</domain>
         <domain includeSubdomains="true">tmdb.org</domain>
-        <domain includeSubdomains="true">goal-api.com</domain>
         <domain includeSubdomains="true">github.com</domain>
         <domain includeSubdomains="true">githubusercontent.com</domain>
         <domain includeSubdomains="true">open-meteo.com</domain>

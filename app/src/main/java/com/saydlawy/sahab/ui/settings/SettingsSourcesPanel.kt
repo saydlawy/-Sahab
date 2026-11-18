@@ -108,13 +108,12 @@ internal fun InfoRow(label: String, value: String) {
 internal fun SourcesPanel(container: AppContainer) {
     val scope = rememberCoroutineScope()
     val activeAccount by container.prefs.account.collectAsStateWithLifecycle(initialValue = null)
+    val isSwitching by container.switchingAccount.collectAsStateWithLifecycle()
     var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
     var showAddDialog by remember { mutableStateOf(false) }
-    var isSwitching by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeAccount) {
         accounts = container.prefs.getAccounts()
-        isSwitching = false
     }
 
     GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 20.dp) {
@@ -143,7 +142,6 @@ internal fun SourcesPanel(container: AppContainer) {
                 GlassCard(
                     onClick = {
                         if (!isActive && !isSwitching) {
-                            isSwitching = true
                             container.switchAccount(acc)
                         }
                     },
@@ -162,11 +160,8 @@ internal fun SourcesPanel(container: AppContainer) {
                                 CircularProgressIndicator(color = Palette.Glow, modifier = Modifier.size(24.dp))
                             } else {
                                 GlassButton(text = "تفعيل", onClick = {
-                                    isSwitching = true
-                                    scope.launch(Dispatchers.IO) {
-                                        // التبديل الذكي: مسح الكاش ثم تفعيل الحساب الجديد
+                                    if (!isSwitching) {
                                         container.switchAccount(acc)
-                                        withContext(Dispatchers.Main) { isSwitching = false }
                                     }
                                 })
                             }
