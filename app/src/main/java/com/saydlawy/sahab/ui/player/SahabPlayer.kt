@@ -68,6 +68,57 @@ object SahabPlayer {
     private const val MEDIA_CACHE_DIR = "sahab_media_cache"
     private val CACHE_KEY_CREDENTIAL_REGEX = Regex("/(live|movie|series)/[^/]+/[^/]+/")
 
+    internal val leaseCoordinator = PlayerLeaseCoordinator()
+    private val playerHandles = java.util.Collections.synchronizedMap(
+        java.util.IdentityHashMap<ExoPlayer, ExoPlayerLeaseHandle>(),
+    )
+
+    private class ExoPlayerLeaseHandle(
+        private val player: ExoPlayer,
+        override val role: PlayerRole,
+    ) : LeasedPlayerHandle {
+        @Volatile
+        var onRevoked: (() -> Unit)? = null
+
+        override fun stopAndRelease() {
+            playerHandles.remove(player)
+            onRevoked?.invoke()
+            onRevoked = null
+            runCatching { player.stop() }
+            runCatching { player.clearMediaItems() }
+            runCatching { player.release() }
+        }
+    }
+
+    /**
+     * Binds an optional callback invoked when [player] is released or preempted by another player lease.
+     */
+    fun bindOnRelease(player: ExoPlayer, onReleased: () -> Unit) {
+        playerHandles[player]?.onRevoked = onReleased
+    }
+
+    /**
+     * Synchronously stops, clears, and releases [player] once via [leaseCoordinator].
+     */
+    fun releasePlayer(player: ExoPlayer?) {
+        if (player == null) return
+        val handle = playerHandles.remove(player)
+        if (handle != null) {
+            leaseCoordinator.release(handle)
+        } else {
+            runCatching { player.stop() }
+            runCatching { player.clearMediaItems() }
+            runCatching { player.release() }
+        }
+    }
+
+    /**
+     * Synchronously stops and releases any active preview player before fullscreen playback begins.
+     */
+    fun releasePreviewPlayers() {
+        leaseCoordinator.releaseByRole(PlayerRole.PREVIEW)
+    }
+
     fun warmUpMediaCache(context: Context) {
         getMediaCache(context)
     }
@@ -79,6 +130,8 @@ object SahabPlayer {
         isPreview: Boolean = false,
         accountHash: String = "anon",
     ): ExoPlayer {
+        // Release any existing active player lease before allocating a new ExoPlayer/MediaCodec instance.
+        leaseCoordinator.releaseAll()
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
@@ -187,6 +240,12 @@ object SahabPlayer {
             .setSeekBackIncrementMs(SEEK_STEP_MS)
             .setSeekForwardIncrementMs(SEEK_STEP_MS)
             .build()
+            .also { created ->
+                val role = if (isPreview) PlayerRole.PREVIEW else PlayerRole.FULLSCREEN
+                val handle = ExoPlayerLeaseHandle(created, role)
+                playerHandles[created] = handle
+                leaseCoordinator.acquire(handle)
+            }
     }
 
     /** Formats a live technical video badge from active tracks. */

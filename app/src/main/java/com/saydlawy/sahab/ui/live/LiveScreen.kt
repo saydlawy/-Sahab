@@ -214,6 +214,8 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     val playAt: (Int) -> Unit = { index ->
         if (!openingPlayer && channels.isNotEmpty() && index in channels.indices) {
             openingPlayer = true
+            previewChannel = null
+            SahabPlayer.releasePreviewPlayers()
             val snapshot = channels
             playScope.launch {
                 try {
@@ -233,8 +235,13 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     }
     val playChannel: (Channel) -> Unit = { ch ->
         val idx = channels.indexOfFirst { it.id == ch.id }
-        if (idx >= 0) playAt(idx)
-        else onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url)), 0))
+        if (idx >= 0) {
+            playAt(idx)
+        } else {
+            previewChannel = null
+            SahabPlayer.releasePreviewPlayers()
+            onPlay(PlayRequest(listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url)), 0))
+        }
     }
 
     val activePreview = previewChannel?.takeIf { it.id in channelIdSet }
@@ -329,7 +336,7 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
             onEditChannels = { list ->
                 showManageLists = false
                 editingList = list
-                scope.launch {
+                playScope.launch {
                     allChannelsForPicker = vm.allLiveChannels()
                     editingListIds = vm.listChannelIds(list.listId)
                 }

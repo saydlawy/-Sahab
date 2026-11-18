@@ -23,9 +23,63 @@ abstract class CatalogDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: CatalogDatabase? = null
 
+        private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
+            db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                if (nameIndex < 0) return false
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(nameIndex) == column) return true
+                }
+            }
+            return false
+        }
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "catalog_movies", "plotSource")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `plotSource` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!hasColumn(db, "catalog_movies", "plotConfidence")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `plotConfidence` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!hasColumn(db, "catalog_movies", "identifiedTitle")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `identifiedTitle` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!hasColumn(db, "catalog_movies", "mediaType")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `mediaType` TEXT NOT NULL DEFAULT 'movie'")
+                }
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "catalog_movies", "imdbId")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `imdbId` TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_catalog_movies_tmdbId ON catalog_movies(tmdbId)")
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_novaStreamId`")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_novaStreamId` ON `catalog_movies` (`mediaType`, `novaStreamId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_categoryId_novaAdded` ON `catalog_movies` (`categoryId`, `novaAdded`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_needsEnrichment_novaAdded` ON `catalog_movies` (`needsEnrichment`, `novaAdded`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_tmdbId` ON `catalog_movies` (`tmdbId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_lastSeen` ON `catalog_movies` (`lastSeen`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_deleted` ON `catalog_movies` (`deleted`)",
+                )
             }
         }
 
@@ -36,7 +90,7 @@ abstract class CatalogDatabase : RoomDatabase() {
                     CatalogDatabase::class.java,
                     "catalog.db",
                 )
-                    .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

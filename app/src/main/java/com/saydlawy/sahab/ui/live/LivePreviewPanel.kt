@@ -166,7 +166,7 @@ internal fun PreviewPanel(
 
     DisposableEffect(Unit) {
         onDispose {
-            previewExo?.release()
+            SahabPlayer.releasePlayer(previewExo)
             previewExo = null
         }
     }
@@ -221,7 +221,7 @@ internal fun PreviewPanel(
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         isScreenActive = false
-        previewExo?.release()
+        SahabPlayer.releasePlayer(previewExo)
         previewExo = null
     }
 
@@ -238,7 +238,7 @@ internal fun PreviewPanel(
             previewExo?.stop()
             previewExo?.clearMediaItems()
             if (ch == null) {
-                previewExo?.release()
+                SahabPlayer.releasePlayer(previewExo)
                 previewExo = null
             }
             videoReady = false
@@ -262,7 +262,14 @@ internal fun PreviewPanel(
             isLive = true,
             isPreview = true,
             accountHash = container.accountHash,
-        ).also { previewExo = it }
+        ).also { created ->
+            previewExo = created
+            SahabPlayer.bindOnRelease(created) {
+                if (previewExo === created) {
+                    previewExo = null
+                }
+            }
+        }
 
         exo.volume = if (muted) 0f else 1f
         exo.setMediaItem(MediaItem.fromUri(url))
@@ -287,7 +294,7 @@ internal fun PreviewPanel(
 
     val openFullScreen: () -> Unit = {
         // Fully release preview player before opening full-screen player (prevents dual MediaCodec/RAM usage)
-        previewExo?.release()
+        SahabPlayer.releasePlayer(previewExo)
         previewExo = null
         onPlay()
     }

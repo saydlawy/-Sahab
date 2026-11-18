@@ -190,6 +190,21 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         vm.saveProgress(exo.currentPosition, total)
     }
 
+    var isPlayerReleased by remember(exo) { mutableStateOf(false) }
+    val releasePlayerNow: () -> Unit = {
+        if (!isPlayerReleased) {
+            isPlayerReleased = true
+            runCatching { saveNow() }
+            runCatching { vm.flushRecents() }
+            runCatching { SahabMediaSessionBridge.detach(context, exo) }
+            SahabPlayer.releasePlayer(exo)
+        }
+    }
+    val exitPlayerNow: () -> Unit = {
+        releasePlayerNow()
+        onBack()
+    }
+
     val goTo: (Int) -> Unit = { target ->
         val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
         if (vm.goTo(target, exo.currentPosition, total)) {
@@ -288,9 +303,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             if (!isTv && activity != null) {
                 activity.requestedOrientation = previousOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
-            saveNow()
-            vm.flushRecents()
-            exo.release()
+            releasePlayerNow()
         }
     }
 
@@ -425,9 +438,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    LaunchedEffect(exo) {
+    LaunchedEffect(exo, isPlayerReleased) {
         var ticks = 0
-        while (true) {
+        while (!isPlayerReleased) {
             if (controlsVisible || showEpisodesDrawer || displayMode == DisplayMode.PHONE_PORTRAIT) {
                 val cur = exo.currentPosition.coerceAtLeast(0L)
                 val buf = exo.bufferedPosition.coerceAtLeast(cur)
@@ -435,6 +448,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                 vm.onProgressUpdate(cur, buf, dur)
             }
             delay(500)
+            if (isPlayerReleased) break
             ticks++
             if (ticks >= 60) {
                 ticks = 0
@@ -485,15 +499,12 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    BackHandler(
-        enabled = showEpisodesDrawer ||
-            (showQuickChannelsDrawer && isLive) ||
-            (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT),
-    ) {
+    BackHandler(enabled = true) {
         when {
             showEpisodesDrawer -> showEpisodesDrawer = false
             showQuickChannelsDrawer && isLive -> showQuickChannelsDrawer = false
-            else -> controlsVisible = false
+            controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT -> controlsVisible = false
+            else -> exitPlayerNow()
         }
     }
 
@@ -548,7 +559,8 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     controlsVisible = false
                     true
                 } else {
-                    false
+                    exitPlayerNow()
+                    true
                 }
             }
             else -> {
@@ -675,7 +687,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                         controlsVisible = !controlsVisible
                         interactions++
                     },
-                    onBack = onBack,
+                    onBack = exitPlayerNow,
                     onTogglePlay = togglePlay,
                     onSeekBy = seekBy,
                     onSeekTo = { target ->
@@ -723,7 +735,12 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                                 player = exo
                             }
                         },
-                        update = { it.resizeMode = ResizeModes[resizeIndex % ResizeModes.size] },
+                        update = {
+                            it.resizeMode = ResizeModes[resizeIndex % ResizeModes.size]
+                            if (isPlayerReleased && it.player != null) {
+                                it.player = null
+                            }
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -780,7 +797,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                             showDrawer = if (isLive) showQuickChannelsDrawer else showEpisodesDrawer,
                             activeBitrateText = activeBitrateText,
                             playFocus = playFocus,
-                            onBack = onBack,
+                            onBack = exitPlayerNow,
                             onTogglePlay = togglePlay,
                             onSeekBy = seekBy,
                             onSeekTo = { target ->
@@ -883,7 +900,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                                     primary = true,
                                     autoFocus = true,
                                 )
-                                GlassButton(Ar.back, onBack)
+                                GlassButton(Ar.back, exitPlayerNow)
                             }
                         }
                     }

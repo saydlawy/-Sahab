@@ -79,4 +79,20 @@ class RepositoryTest {
         assertEquals(1, loaded.size)
         assertEquals(loaded, repo.peekShortEpg("55", 2))
     }
+
+    @Test
+    fun movieDetails_fetchesAndParsesDetailsBySingleId() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"info":{"name":"الرسالة","plot":"قصة تاريخية","genre":"تاريخي","releasedate":"1976-01-01","duration":"177m","rating":"8.5","backdrop_path":["https://img/bg.jpg"]},"movie_data":{"name":"الرسالة","container_extension":"mp4"}}""",
+            ),
+        )
+        val details = repo.movieDetails("777")
+        assertEquals("777", details.id)
+        assertEquals("الرسالة", details.name)
+        assertEquals("قصة تاريخية", details.plot)
+        assertEquals("1976", details.year)
+        assertEquals("177m", details.duration)
+        assertEquals("8.5", details.rating)
+    }
 }

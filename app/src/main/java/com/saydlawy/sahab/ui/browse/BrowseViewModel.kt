@@ -352,7 +352,7 @@ class BrowseViewModel(
                         )
                     }
                 } else {
-                    val d = repo.movieDetails(poster.id, poster.name, poster.image, poster.ext)
+                    val d = repo.movieDetails(poster.id)
                     _state.update {
                         it.copy(
                             focusedDetails = FocusedPosterDetails(
