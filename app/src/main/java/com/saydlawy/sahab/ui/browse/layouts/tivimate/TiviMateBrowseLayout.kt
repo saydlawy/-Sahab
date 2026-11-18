@@ -199,14 +199,15 @@ private fun TiviMateTitleColumn(
                 itemsIndexed(items, key = { idx, p -> "tm_${p.id}_$idx" }) { index, poster ->
                     val isFav = poster.id in favoriteIds
                     val isFocusedItem = state.focusedDetails?.poster?.id == poster.id
+                    val focusKey = "tm_item_${poster.id}"
                     GlassCard(
-                        onClick = { callbacks.onOpenPoster(poster) },
+                        onClick = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                         onLongClick = { callbacks.onToggleFavorite(poster) },
                         selected = isFocusedItem,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .restorableFocus(route, "tm_item_${poster.id}", isDefaultEntry = index == 0),
+                            .restorableFocus(route, focusKey, isDefaultEntry = index == 0),
                     ) { focused ->
                         if (focused) {
                             LaunchedEffect(poster.id) { callbacks.onPosterFocused(poster) }

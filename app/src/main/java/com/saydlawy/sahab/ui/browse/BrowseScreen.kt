@@ -52,7 +52,7 @@ fun BrowseScreen(
     val savedCategory = remember(route) { focusNav.getSelectedCategory(route) }
     val savedQuery = remember(route) { focusNav.getSearchQuery(route) }
 
-    val vm = appViewModel { BrowseViewModel(it, series, savedCategory, savedQuery) }
+    val vm = appViewModel(key = route) { BrowseViewModel(it, series, savedCategory, savedQuery) }
     val state by vm.state.collectAsStateWithLifecycle()
     val kind = if (series) Kind.SERIES else Kind.MOVIE
 
@@ -141,6 +141,10 @@ fun BrowseScreen(
             onQuery = vm::onQuery,
             onOpenPoster = { poster ->
                 focusNav.markNavigateFrom(route, "poster_${poster.id}")
+                onOpenItem(poster.id)
+            },
+            onOpenPosterWithKey = { poster, focusKey ->
+                focusNav.markNavigateFrom(route, focusKey)
                 onOpenItem(poster.id)
             },
             onToggleFavorite = vm::toggleFavorite,

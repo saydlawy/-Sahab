@@ -95,9 +95,12 @@ class SimpleFactory(private val build: () -> ViewModel) : ViewModelProvider.Fact
 }
 
 @Composable
-inline fun <reified VM : ViewModel> appViewModel(noinline build: (AppContainer) -> VM): VM {
+inline fun <reified VM : ViewModel> appViewModel(
+    key: String? = null,
+    noinline build: (AppContainer) -> VM,
+): VM {
     val container = LocalContainer.current
-    return viewModel<VM>(factory = SimpleFactory { build(container) })
+    return viewModel<VM>(key = key, factory = SimpleFactory { build(container) })
 }
 
 object Routes {

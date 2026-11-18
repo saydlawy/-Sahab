@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,10 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -109,6 +112,7 @@ fun CloudLoginScreen(
     val emailFocus = remember { FocusRequester() }
     val passFocus = remember { FocusRequester() }
     val loginFocus = remember { FocusRequester() }
+    val toggleModeFocus = remember { FocusRequester() }
     val googleFocus = remember { FocusRequester() }
     val skipFocus = remember { FocusRequester() }
 
@@ -184,7 +188,9 @@ fun CloudLoginScreen(
                         onValueChange = vm::onEmail,
                         placeholder = "البريد الإلكتروني",
                         keyboardType = KeyboardType.Email,
-                        modifier = Modifier.fillMaxWidth().focusRequester(emailFocus).focusProperties { down = passFocus }
+                        imeAction = ImeAction.Next,
+                        modifier = Modifier.fillMaxWidth(),
+                        inputModifier = Modifier.focusRequester(emailFocus).focusProperties { down = passFocus },
                     )
 
                     GlassTextField(
@@ -193,7 +199,8 @@ fun CloudLoginScreen(
                         placeholder = "كلمة المرور",
                         keyboardType = KeyboardType.Password,
                         password = true,
-                        modifier = Modifier.fillMaxWidth().focusRequester(passFocus).focusProperties { down = loginFocus; up = emailFocus }
+                        modifier = Modifier.fillMaxWidth(),
+                        inputModifier = Modifier.focusRequester(passFocus).focusProperties { down = loginFocus; up = emailFocus },
                     )
 
                     state.error?.let {
@@ -204,10 +211,21 @@ fun CloudLoginScreen(
                         text = if (state.loading) "جاري الاتصال..." else if (state.isRegisterMode) "إنشاء حساب" else "تسجيل الدخول",
                         onClick = { if (!state.loading) vm.submit(onSuccess) },
                         primary = true,
-                        modifier = Modifier.fillMaxWidth().focusRequester(loginFocus).focusProperties { down = googleFocus; up = passFocus }
+                        modifier = Modifier.fillMaxWidth().focusRequester(loginFocus).focusProperties { down = toggleModeFocus; up = passFocus }
                     )
 
-                    TextButton(onClick = vm::toggleMode) {
+                    var toggleFocused by remember { mutableStateOf(false) }
+                    TextButton(
+                        onClick = vm::toggleMode,
+                        modifier = Modifier
+                            .focusRequester(toggleModeFocus)
+                            .focusProperties { up = loginFocus; down = googleFocus }
+                            .onFocusChanged { toggleFocused = it.isFocused }
+                            .then(
+                                if (toggleFocused) Modifier.border(1.5.dp, Palette.FocusCyan, RoundedCornerShape(10.dp))
+                                else Modifier,
+                            ),
+                    ) {
                         Text(if (state.isRegisterMode) "لديك حساب؟ سجل دخولك" else "ليس لديك حساب؟ أنشئ حساباً", color = Palette.Glow)
                     }
                 }
@@ -219,7 +237,7 @@ fun CloudLoginScreen(
                 text = "تسجيل الدخول باستخدام Google",
                 onClick = googleSignIn,
                 primary = false,
-                modifier = Modifier.fillMaxWidth().focusRequester(googleFocus).focusProperties { down = skipFocus; up = loginFocus }
+                modifier = Modifier.fillMaxWidth().focusRequester(googleFocus).focusProperties { down = skipFocus; up = toggleModeFocus }
             )
 
             Spacer(Modifier.height(10.dp))

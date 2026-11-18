@@ -91,9 +91,9 @@ fun TrendingMoviesSection(
         ) {
             itemsIndexed(
                 items = movies,
-                key = { _, item -> "trending_${item.novaStreamId.ifEmpty { item.sahabId }}" },
+                key = { _, item -> "${rowKey}_${item.novaStreamId.ifEmpty { item.sahabId }}" },
             ) { index, movie ->
-                val itemFocusKey = "trending_${movie.novaStreamId.ifEmpty { movie.sahabId }}"
+                val itemFocusKey = "${rowKey}_${movie.novaStreamId.ifEmpty { movie.sahabId }}"
                 TrendingMovieCard(
                     movie = movie,
                     isNew = index < 4 || movie.year >= "2025",

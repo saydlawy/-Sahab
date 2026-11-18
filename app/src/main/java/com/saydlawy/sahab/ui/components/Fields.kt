@@ -67,6 +67,7 @@ fun GlassTextField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    inputModifier: Modifier = Modifier,
     placeholder: String = "",
     leading: ImageVector? = null,
     keyboardType: KeyboardType = KeyboardType.Text,
@@ -116,7 +117,7 @@ fun GlassTextField(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().then(inputModifier),
                 singleLine = true,
                 textStyle = textStyle,
                 cursorBrush = SolidColor(Palette.Glow),
@@ -124,7 +125,11 @@ fun GlassTextField(
                 visualTransformation = if (password && !reveal) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
                 keyboardActions = KeyboardActions(
-                    onNext = { focusManager.moveFocus(FocusDirection.Down) },
+                    onNext = {
+                        if (!focusManager.moveFocus(FocusDirection.Next)) {
+                            focusManager.moveFocus(FocusDirection.Down)
+                        }
+                    },
                     onDone = {
                         focusManager.clearFocus()
                         onImeAction()
@@ -298,5 +303,28 @@ fun CategoryPane(
                 Chip(category.name, category.id == selectedId, { onSelect(category.id) })
             }
         }
+    }
+}
+
+@Composable
+fun HttpSecurityWarningBanner() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Palette.Gold.copy(alpha = 0.14f))
+            .border(1.dp, Palette.Gold.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Ic.Warning, contentDescription = null, tint = Palette.Gold, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "تنبيه: الاتصال عبر HTTP غير مشفّر. يُفضّل استخدام https:// إذا كان مزود الخدمة يدعمه.",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = Palette.Text,
+            modifier = Modifier.weight(1f),
+        )
     }
 }

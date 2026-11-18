@@ -82,6 +82,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -500,6 +504,10 @@ internal fun GradientTimelineBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(22.dp)
+                .semantics {
+                    contentDescription = "شريط تقدم التشغيل"
+                    progressBarRangeInfo = ProgressBarRangeInfo(shown, 0f..1f)
+                }
                 .then(
                     if (onSeekToFraction != null) {
                         Modifier

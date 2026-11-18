@@ -80,7 +80,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
-    val vm = appViewModel { MovieDetailViewModel(it, id) }
+    val vm = appViewModel(key = "movie_$id") { MovieDetailViewModel(it, id) }
     val state by vm.state.collectAsStateWithLifecycle()
     val aiState by vm.aiState.collectAsStateWithLifecycle()
     val refreshingMetadata by vm.refreshingMetadata.collectAsStateWithLifecycle()

@@ -196,17 +196,19 @@ internal fun LiveChannelsDrawer(
                 },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            val anchorIdx = currentIndex.takeIf { it in playlist.indices } ?: 0
             itemsIndexed(
                 playlist,
                 key = { idx, c -> "${c.id}_$idx" },
                 contentType = { _, _ -> "drawer_channel_row" },
             ) { idx, ch ->
                 val active = idx == currentIndex
+                val isFocusAnchor = idx == anchorIdx
                 var focused by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(if (active) Modifier.focusRequester(drawerFocus) else Modifier)
+                        .then(if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier)
                         .clip(RoundedCornerShape(12.dp))
                         .background(
                             when {
@@ -357,10 +359,17 @@ internal fun VodEpisodesDrawer(
             ) {
                 items(seasons, key = { it }) { seasonNum ->
                     val selected = seasonNum == selectedSeason
+                    var seasonFocused by remember { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (selected) OsdPrimary else OsdSurfaceHigh.copy(alpha = 0.80f))
+                            .onFocusChanged { seasonFocused = it.isFocused }
+                            .border(
+                                width = if (seasonFocused) 1.5.dp else 1.dp,
+                                color = if (seasonFocused) OsdCyan else Color.Transparent,
+                                shape = RoundedCornerShape(12.dp),
+                            )
                             .clickable { selectedSeason = seasonNum }
                             .padding(horizontal = 16.dp, vertical = 7.dp),
                     ) {
@@ -391,8 +400,10 @@ internal fun VodEpisodesDrawer(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (seasonEpisodes.isNotEmpty()) {
-                itemsIndexed(seasonEpisodes, key = { _, ep -> ep.id }) { _, ep ->
+                val anchorEpIdx = seasonEpisodes.indexOfFirst { it.id == currentItem.id }.let { if (it >= 0) it else 0 }
+                itemsIndexed(seasonEpisodes, key = { _, ep -> ep.id }) { epIdx, ep ->
                     val isCurrent = ep.id == currentItem.id
+                    val isFocusAnchor = epIdx == anchorEpIdx
                     val isWatched = currentEpisodeObj != null &&
                         (ep.season < currentEpisodeObj.season ||
                             (ep.season == currentEpisodeObj.season && ep.number < currentEpisodeObj.number))
@@ -414,13 +425,15 @@ internal fun VodEpisodesDrawer(
                         isNext = isNext,
                         progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
                         remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
-                        modifier = if (isCurrent) Modifier.focusRequester(drawerFocus) else Modifier,
+                        modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
                         onClick = { onSelectEpisode(ep) },
                     )
                 }
             } else {
+                val anchorPlayIdx = currentIndex.takeIf { it in playlist.indices } ?: 0
                 itemsIndexed(playlist, key = { i, p -> "${p.id}_$i" }) { idx, p ->
                     val isCurrent = idx == currentIndex
+                    val isFocusAnchor = idx == anchorPlayIdx
                     val isWatched = idx < currentIndex
                     val isNext = idx == currentIndex + 1
                     val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
@@ -438,7 +451,7 @@ internal fun VodEpisodesDrawer(
                         isNext = isNext,
                         progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
                         remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
-                        modifier = if (isCurrent) Modifier.focusRequester(drawerFocus) else Modifier,
+                        modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
                         onClick = { onSelectPlaylistIndex(idx) },
                     )
                 }

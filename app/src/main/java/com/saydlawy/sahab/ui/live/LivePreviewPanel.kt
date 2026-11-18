@@ -316,13 +316,19 @@ internal fun PreviewPanel(
             shape = RoundedCornerShape(appDp(24)),
             padding = appDp(12),
         ) {
+            var previewFocused by remember { mutableStateOf(false) }
             Box(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(appDp(16)))
                     .background(Color.Black)
-                    .border(appDp(1), Color.White.copy(alpha = 0.10f), RoundedCornerShape(appDp(16)))
+                    .onFocusChanged { previewFocused = it.isFocused }
+                    .border(
+                        width = if (previewFocused) appDp(2.5f) else appDp(1),
+                        color = if (previewFocused) Palette.FocusCyan else Color.White.copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(appDp(16)),
+                    )
                     .clickable(enabled = channel != null, onClick = openFullScreen),
             ) {
                 AndroidView(

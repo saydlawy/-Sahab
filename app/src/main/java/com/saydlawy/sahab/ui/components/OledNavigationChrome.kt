@@ -3,7 +3,6 @@ package com.saydlawy.sahab.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,11 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.ui.DisplayMode
@@ -90,17 +84,6 @@ private fun ChromeTabItem(tab: ChromeTab, current: String?, onTab: (String) -> U
                 else Modifier,
             )
             .onFocusChanged { focused = it.isFocused }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
-                ) {
-                    onTab(tab.route)
-                    true
-                } else {
-                    false
-                }
-            }
-            .focusable()
             .clickable { onTab(tab.route) }
             .padding(horizontal = 7.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

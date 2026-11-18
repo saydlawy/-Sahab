@@ -75,15 +75,16 @@ internal fun NetflixBrowseLayout(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         itemsIndexed(items, key = { _, p -> "nf_search_${p.id}" }) { index, poster ->
+                            val focusKey = "nf_search_${poster.id}"
                             PosterCard(
                                 title = poster.name,
                                 imageUrl = poster.image,
                                 badge = poster.rating,
                                 quality = qualityOf(poster.name),
                                 subtitle = poster.year,
-                                onClick = { callbacks.onOpenPoster(poster) },
+                                onClick = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                                 onLongClick = { callbacks.onToggleFavorite(poster) },
-                                modifier = Modifier.restorableFocus(route, "nf_search_${poster.id}", isDefaultEntry = index == 0),
+                                modifier = Modifier.restorableFocus(route, focusKey, isDefaultEntry = index == 0),
                             )
                         }
                     }
@@ -124,7 +125,7 @@ internal fun NetflixBrowseLayout(
                     NetflixTop10Row(
                         screenKey = route,
                         top10 = state.top10Items,
-                        onOpenPoster = callbacks.onOpenPoster,
+                        onOpenPoster = { poster -> callbacks.onOpenPosterWithKey(poster, "top10_${poster.id}") },
                         onToggleFavorite = callbacks.onToggleFavorite,
                     )
                 }
@@ -140,17 +141,18 @@ internal fun NetflixBrowseLayout(
                         contentPadding = PaddingValues(horizontal = 2.dp),
                     ) {
                         items(group.posters, key = { "nf_${group.category.id}_${it.id}" }) { poster ->
+                            val focusKey = "nf_${group.category.id}_${poster.id}"
                             PosterCard(
                                 title = poster.name,
                                 imageUrl = poster.image,
                                 badge = poster.rating,
                                 quality = qualityOf(poster.name),
                                 subtitle = poster.year,
-                                onClick = { callbacks.onOpenPoster(poster) },
+                                onClick = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                                 onLongClick = { callbacks.onToggleFavorite(poster) },
                                 modifier = Modifier
                                     .width(128.dp)
-                                    .restorableFocus(route, "nf_${group.category.id}_${poster.id}"),
+                                    .restorableFocus(route, focusKey),
                             )
                         }
                     }
@@ -168,15 +170,18 @@ internal fun NetflixBrowseLayout(
                         )
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(items.take(40), key = { "nf_fb_${it.id}" }) { poster ->
+                                val focusKey = "nf_fb_${poster.id}"
                                 PosterCard(
                                     title = poster.name,
                                     imageUrl = poster.image,
                                     badge = poster.rating,
                                     quality = qualityOf(poster.name),
                                     subtitle = poster.year,
-                                    onClick = { callbacks.onOpenPoster(poster) },
+                                    onClick = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                                     onLongClick = { callbacks.onToggleFavorite(poster) },
-                                    modifier = Modifier.width(128.dp),
+                                    modifier = Modifier
+                                        .width(128.dp)
+                                        .restorableFocus(route, focusKey),
                                 )
                             }
                         }

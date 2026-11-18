@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.ServerUrl
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,7 +81,7 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
             return
         }
 
-        val server = normalizeServer(current.server)
+        val server = ServerUrl.normalizeServer(current.server)
         if (server == null) {
             _state.update { it.copy(error = Ar.errBadUrl) }
             return
@@ -112,16 +113,5 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
                 _state.update { it.copy(loading = false, error = e.userMessage()) }
             }
         }
-    }
-
-    /** Keeps only scheme, host and port: "host:8080/anything" becomes "http://host:8080". */
-    private fun normalizeServer(raw: String): String? {
-        var text = raw.trim().replace(" ", "")
-        if (text.isEmpty()) return null
-        if (!text.startsWith("http://", ignoreCase = true) && !text.startsWith("https://", ignoreCase = true)) {
-            text = "http://$text"
-        }
-        val match = Regex("^(https?://[^/?#]+)", RegexOption.IGNORE_CASE).find(text) ?: return null
-        return match.groupValues[1].trimEnd('/')
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -75,6 +76,7 @@ import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.GlassTextField
+import com.saydlawy.sahab.ui.components.HttpSecurityWarningBanner
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.SearchBox
@@ -139,17 +141,17 @@ internal fun SourcesPanel(container: AppContainer) {
 
             accounts.forEach { acc ->
                 val isActive = acc.id == activeAccount?.id
-                GlassCard(
-                    onClick = {
-                        if (!isActive && !isSwitching) {
-                            container.switchAccount(acc)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
+                GlassPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (isActive) Modifier.border(1.5.dp, Palette.FocusCyan.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                            else Modifier,
+                        ),
                     shape = RoundedCornerShape(16.dp),
-                    selected = isActive
+                    padding = 16.dp,
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(acc.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             Text(if (acc.type == "M3U") "رابط M3U مباشر" else acc.server, fontSize = 12.sp, color = Palette.TextDim)
@@ -223,7 +225,13 @@ internal fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onA
 
     Dialog(onDismissRequest = onDismiss) {
         GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 22.dp) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding(),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 Text("إضافة مصدر جديد", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Text)
                 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -244,6 +252,10 @@ internal fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onA
                 } else {
                     GlassTextField(value = m3uUrl, onValueChange = { m3uUrl = it }, placeholder = "رابط M3U المباشر (http://...)", modifier = Modifier.fillMaxWidth())
                 }
+                val activeUrl = (if (selectedTab == "XTREAM") server else m3uUrl).trim()
+                if (activeUrl.isNotEmpty() && !activeUrl.startsWith("https://", ignoreCase = true)) {
+                    HttpSecurityWarningBanner()
+                }
                 errorMsg?.let { msg ->
                     Text(msg, fontSize = 12.sp, color = Palette.Gold)
                 }
@@ -253,13 +265,17 @@ internal fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onA
                         text = if (loading) "جاري الفحص..." else "حفظ",
                         onClick = {
                             if (loading) return@GlassButton
+                            val normalizedServer = if (selectedTab == "XTREAM") {
+                                com.saydlawy.sahab.util.ServerUrl.normalizeServer(server)
+                            } else null
                             val validUrl = if (selectedTab == "XTREAM") {
-                                server.trim().startsWith("http") && user.isNotBlank() && pass.isNotBlank()
+                                normalizedServer != null && user.isNotBlank() && pass.isNotBlank()
                             } else {
-                                m3uUrl.trim().startsWith("http")
+                                m3uUrl.trim().startsWith("http://", ignoreCase = true) ||
+                                    m3uUrl.trim().startsWith("https://", ignoreCase = true)
                             }
                             if (!validUrl) {
-                                errorMsg = "تأكد من إدخال رابط صحيح يبدأ بـ http مع كامل البيانات."
+                                errorMsg = "تأكد من إدخال رابط صحيح مع كامل البيانات."
                                 return@GlassButton
                             }
                             errorMsg = null
@@ -267,7 +283,7 @@ internal fun AddSourceDialog(container: AppContainer, onDismiss: () -> Unit, onA
                             scope.launch(Dispatchers.IO) {
                                 try {
                                     val acc = if (selectedTab == "XTREAM") {
-                                        Account(name = name.ifBlank { "Xtream Server" }, type = "XTREAM", server = server.trim(), user = user.trim(), pass = pass)
+                                        Account(name = name.ifBlank { "Xtream Server" }, type = "XTREAM", server = normalizedServer!!, user = user.trim(), pass = pass)
                                     } else {
                                         Account(name = name.ifBlank { "M3U List" }, type = "M3U", m3uUrl = m3uUrl.trim())
                                     }

@@ -3,13 +3,20 @@ package com.saydlawy.sahab.ui.player
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Brush
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.saydlawy.sahab.AppContainer
+import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
 import com.saydlawy.sahab.ui.theme.Palette
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // Design tokens from ExoPlayer/DESIGN.md & media-player/DESIGN.md
 internal val OsdSurfaceLowest get() = Palette.color("OsdSurfaceLowest")
@@ -45,14 +52,34 @@ internal val TimelineProgressBrush get() = Brush.horizontalGradient(listOf(OsdPr
 @Composable
 fun PlayerScreen(container: AppContainer, onBack: () -> Unit) {
     val themeCustomization = LocalThemeCustomization.current
-    val request = remember { container.playback ?: container.restorePendingPlayback() }
-    if (request == null || request.items.isEmpty()) {
-        LaunchedEffect(Unit) { onBack() }
+    val initialPlayback = remember { container.playback }
+    var loadFinished by remember { mutableStateOf(initialPlayback != null) }
+    var exited by remember { mutableStateOf(false) }
+    val request by produceState<PlayRequest?>(initialValue = initialPlayback, Unit) {
+        if (initialPlayback != null) {
+            value = initialPlayback
+            loadFinished = true
+        } else {
+            value = withContext(Dispatchers.IO) { container.restorePendingPlayback() }
+            loadFinished = true
+        }
+    }
+    if (loadFinished && (request == null || request!!.items.isEmpty())) {
+        LaunchedEffect(Unit) {
+            if (!exited) {
+                exited = true
+                onBack()
+            }
+        }
         return
     }
+    val resolvedRequest = request ?: return
     val exitPlayer: () -> Unit = {
-        container.clearPendingPlayback()
-        onBack()
+        if (!exited) {
+            exited = true
+            container.clearPendingPlayback()
+            onBack()
+        }
     }
-    PlayerContent(container, request, exitPlayer)
+    PlayerContent(container, resolvedRequest, exitPlayer)
 }

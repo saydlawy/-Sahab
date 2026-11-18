@@ -626,18 +626,19 @@ internal fun PhonePortraitPlayerScreen(
                                 title = ep.title,
                                 plot = ep.plot.ifBlank { "حلقة كاملة من ${item.title}" },
                                 imageUrl = ep.image.ifBlank { seriesDetails?.cover.orEmpty() }.ifBlank { item.icon },
-                                durationText = ep.duration.ifBlank { "45:00" },
+                                durationText = ep.duration,
                                 isCurrent = isCurrent,
                                 isWatched = isWatched,
                                 isNext = isNext,
-                                progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.45f,
-                                remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 25,
+                                progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
+                                remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
                                 onClick = { onSelectEpisode(ep) },
                             )
                         }
                     } else {
                         itemsIndexed(playlist, key = { i, p -> "${p.id}_$i" }) { idx, p ->
                             val isCurrent = idx == currentIndex
+                            val isWatched = idx < currentIndex
                             val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
                             val curPos = progState?.position ?: 0L
                             val curDur = progState?.duration ?: 0L
@@ -646,12 +647,12 @@ internal fun PhonePortraitPlayerScreen(
                                 title = p.subtitle.ifBlank { p.title },
                                 plot = p.title,
                                 imageUrl = p.icon,
-                                durationText = if (isCurrent && curDur > 0L) formatDuration(curDur) else "FHD",
+                                durationText = if (isCurrent && curDur > 0L) formatDuration(curDur) else "",
                                 isCurrent = isCurrent,
-                                isWatched = idx < currentIndex,
+                                isWatched = isWatched,
                                 isNext = idx == currentIndex + 1,
-                                progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.5f,
-                                remainingMinutes = 25,
+                                progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
+                                remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
                                 onClick = { onSelectPlaylistIndex(idx) },
                             )
                         }
@@ -683,8 +684,8 @@ internal fun PhonePortraitTimelineSection(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0.85f
-        val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0.95f
+        val progressFraction = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        val bufferedFraction = if (duration > 0L) (bufferedPosition.toFloat() / duration).coerceIn(progressFraction, 1f) else 0f
         GradientTimelineBar(
             progress = progressFraction,
             buffered = bufferedFraction,

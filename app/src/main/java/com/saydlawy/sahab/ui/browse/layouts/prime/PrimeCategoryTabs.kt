@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.ui.browse.layouts.prime
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.saydlawy.sahab.data.Category
+import com.saydlawy.sahab.ui.DisplayMode
+import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.browse.ALL_CAT_ID
 import com.saydlawy.sahab.ui.browse.FAV_CAT_ID
 import com.saydlawy.sahab.ui.browse.RECENTS_CAT_ID
@@ -31,20 +34,11 @@ internal fun PrimeCategoryTabs(
     onSelect: (String) -> Unit,
 ) {
     val rowState = rememberRestorableLazyListState("${screenKey}_prime_tabs")
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        SearchBox(
-            value = query,
-            onValueChange = onQuery,
-            placeholder = Ar.searchTitles,
-            modifier = Modifier.fillMaxWidth(0.28f),
-        )
+    val isPortrait = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
+    val chipsRow: @Composable (Modifier) -> Unit = { rowMod ->
         LazyRow(
             state = rowState,
-            modifier = Modifier.weight(1f),
+            modifier = rowMod,
             contentPadding = PaddingValues(horizontal = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -82,6 +76,35 @@ internal fun PrimeCategoryTabs(
                     Modifier.restorableFocus(screenKey, "prime_cat_${cat.id}"),
                 )
             }
+        }
+    }
+
+    if (isPortrait) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SearchBox(
+                value = query,
+                onValueChange = onQuery,
+                placeholder = Ar.searchTitles,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            chipsRow(Modifier.fillMaxWidth())
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SearchBox(
+                value = query,
+                onValueChange = onQuery,
+                placeholder = Ar.searchTitles,
+                modifier = Modifier.fillMaxWidth(0.28f),
+            )
+            chipsRow(Modifier.weight(1f))
         }
     }
 }

@@ -58,6 +58,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -244,7 +245,12 @@ internal fun ChannelRow(
     val programs by produceState<Pair<EpgProgramEntity?, EpgProgramEntity?>>(
         initialValue = null to null,
         channel.id,
+        channel.epgId,
     ) {
+        if (channel.epgId.isBlank()) {
+            value = null to null
+            return@produceState
+        }
         // LIVE-01: rows that only fly past during a fast scroll leave composition before this
         // delay ends, so they never hit Room (avoids hundreds of EPG queries/sec on 10k lists).
         kotlinx.coroutines.delay(EPG_ROW_SETTLE_MS)
@@ -442,8 +448,9 @@ internal fun LiveBadge() {
         Box(
             Modifier
                 .size(appDp(6))
+                .graphicsLayer { alpha = dotAlpha }
                 .clip(CircleShape)
-                .background(Palette.Live.copy(alpha = dotAlpha)),
+                .background(Palette.Live),
         )
         Text(Ar.liveBadge, fontSize = appSp(10), fontWeight = FontWeight.Bold, color = Palette.Live)
     }

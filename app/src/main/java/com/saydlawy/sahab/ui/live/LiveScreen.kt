@@ -510,6 +510,13 @@ internal fun PhoneLandscapeLiveLayout(
                 item(key = ALL_CAT_ID) {
                     Chip(Ar.all, state.selectedId == ALL_CAT_ID, { onSelect(ALL_CAT_ID) })
                 }
+                item(key = "manage_custom_lists") {
+                    Chip("إدارة القوائم", false, onManageLists)
+                }
+                items(state.customLists, key = { "custom_${it.listId}" }) { list ->
+                    val key = "$CUSTOM_LIST_PREFIX${list.listId}"
+                    Chip(list.name, state.selectedId == key, { onSelect(key) })
+                }
                 items(state.categories, key = { it.id }) { cat ->
                     Chip(cat.name, cat.id == state.selectedId, { onSelect(cat.id) })
                 }
@@ -622,6 +629,9 @@ internal fun PhonePortraitLiveLayout(
             item(key = ALL_CAT_ID) {
                 Chip(Ar.all, state.selectedId == ALL_CAT_ID, { onSelect(ALL_CAT_ID) })
             }
+            item(key = "manage_custom_lists") {
+                Chip("إدارة القوائم", false, onManageLists)
+            }
             items(state.customLists, key = { "custom_${it.listId}" }) { list ->
                 val key = "$CUSTOM_LIST_PREFIX${list.listId}"
                 Chip(list.name, state.selectedId == key, { onSelect(key) })
@@ -654,3 +664,6 @@ internal fun appSp(n: Int): TextUnit = (n * LocalAppScale.current).sp
 
 @Composable
 internal fun appDp(n: Int): Dp = (n * LocalAppScale.current).dp
+
+@Composable
+internal fun appDp(n: Float): Dp = (n * LocalAppScale.current).dp

@@ -125,7 +125,9 @@ class BrowseViewModel(
                     val initialItems = if (targetCat == ALL_CAT_ID || targetCat == FAV_CAT_ID || targetCat == RECENTS_CAT_ID) {
                         cachedAll
                     } else {
-                        cachedAll.filter { it.categoryId == targetCat }.ifEmpty { cachedAll }
+                        withContext(Dispatchers.Default) {
+                            cachedAll.filter { it.categoryId == targetCat }.ifEmpty { cachedAll }
+                        }
                     }
                     _state.update {
                         it.copy(
@@ -230,23 +232,37 @@ class BrowseViewModel(
         }
         val cachedPool = searchPool
         if (!cachedPool.isNullOrEmpty()) {
-            val filtered = cachedPool.filter { it.categoryId == categoryId }
-            if (filtered.isNotEmpty()) {
-                _state.update {
-                    it.copy(
-                        selectedId = categoryId,
-                        items = filtered,
-                        loadingItems = false,
-                        error = null,
-                    )
+            _state.update { it.copy(selectedId = categoryId, loadingItems = cachedPool.size > 400, error = null) }
+            itemsJob = viewModelScope.launch {
+                val filtered = if (cachedPool.size > 400) {
+                    withContext(Dispatchers.Default) { cachedPool.filter { it.categoryId == categoryId } }
+                } else {
+                    cachedPool.filter { it.categoryId == categoryId }
                 }
-                return
+                if (filtered.isNotEmpty()) {
+                    _state.update {
+                        it.copy(
+                            selectedId = categoryId,
+                            items = filtered,
+                            loadingItems = false,
+                            error = null,
+                        )
+                    }
+                    return@launch
+                }
+                fetchCategoryItems(categoryId)
             }
+            return
         }
 
         _state.update { it.copy(selectedId = categoryId, loadingItems = true, error = null) }
         itemsJob = viewModelScope.launch {
-            try {
+            fetchCategoryItems(categoryId)
+        }
+    }
+
+    private suspend fun fetchCategoryItems(categoryId: String) {
+        try {
                 val targetId = if (categoryId == ALL_CAT_ID) null else categoryId
                 val items = fetchItems(targetId)
                 if (categoryId == ALL_CAT_ID) updateSearchPool(items)
@@ -264,7 +280,6 @@ class BrowseViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(loadingItems = false, items = emptyList(), error = e.userMessage()) }
             }
-        }
     }
 
     fun onQuery(query: String) {

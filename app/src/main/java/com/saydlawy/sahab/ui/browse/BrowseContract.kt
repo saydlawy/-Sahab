@@ -27,6 +27,7 @@ data class BrowseLayoutCallbacks(
     val onSelectCategory: (String) -> Unit,
     val onQuery: (String) -> Unit,
     val onOpenPoster: (Poster) -> Unit,
+    val onOpenPosterWithKey: (Poster, String) -> Unit = { poster, _ -> onOpenPoster(poster) },
     val onToggleFavorite: (Poster) -> Unit,
     val onPosterFocused: (Poster) -> Unit,
     val onPlayRecent: (RecentItem) -> Unit,

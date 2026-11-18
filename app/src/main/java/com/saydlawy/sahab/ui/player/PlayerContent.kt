@@ -27,7 +27,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -438,25 +441,26 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    LaunchedEffect(exo, isPlayerReleased) {
-        var ticks = 0
+    LaunchedEffect(exo, isPlayerReleased, controlsVisible, showEpisodesDrawer, displayMode) {
+        if (isPlayerReleased) return@LaunchedEffect
+        val shouldTickUi = controlsVisible || showEpisodesDrawer || displayMode == DisplayMode.PHONE_PORTRAIT
+        if (!shouldTickUi) return@LaunchedEffect
         while (!isPlayerReleased) {
-            if (controlsVisible || showEpisodesDrawer || displayMode == DisplayMode.PHONE_PORTRAIT) {
-                val cur = exo.currentPosition.coerceAtLeast(0L)
-                val buf = exo.bufferedPosition.coerceAtLeast(cur)
-                val dur = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
-                vm.onProgressUpdate(cur, buf, dur)
-            }
+            val cur = exo.currentPosition.coerceAtLeast(0L)
+            val buf = exo.bufferedPosition.coerceAtLeast(cur)
+            val dur = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+            vm.onProgressUpdate(cur, buf, dur)
             delay(500)
-            if (isPlayerReleased) break
-            ticks++
-            if (ticks >= 60) {
-                ticks = 0
-                if (exo.isPlaying) {
-                    val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-                    vm.saveProgressIfVod(exo.currentPosition, total)
-                }
-            }
+        }
+    }
+
+    LaunchedEffect(exo, isPlayerReleased, isLive, isPlaying) {
+        if (isPlayerReleased || isLive || !isPlaying) return@LaunchedEffect
+        while (!isPlayerReleased && isPlaying) {
+            delay(30_000L)
+            if (isPlayerReleased || !exo.isPlaying) break
+            val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+            vm.saveProgressIfVod(exo.currentPosition, total)
         }
     }
 
@@ -783,7 +787,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                         visible = controlsVisible && !isInPipMode && error == null && LocalThemeCustomization.current.isVisible("player_controls"),
                         enter = fadeIn(tween(220)),
                         exit = fadeOut(tween(180)),
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.displayCutout),
                     ) {
                         UnifiedFullscreenPlayerOsd(
                             item = item,
@@ -830,7 +836,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                             visible = showQuickChannelsDrawer && error == null,
                             enter = slideInHorizontally(tween(260)) { it } + fadeIn(tween(200)),
                             exit = slideOutHorizontally(tween(220)) { it } + fadeOut(tween(160)),
-                            modifier = Modifier.align(Alignment.CenterStart),
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .windowInsetsPadding(WindowInsets.displayCutout),
                         ) {
                             LiveChannelsDrawer(
                                 playlist = playlist,
@@ -853,7 +861,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                             visible = showEpisodesDrawer && error == null,
                             enter = slideInHorizontally(tween(260)) { it } + fadeIn(tween(200)),
                             exit = slideOutHorizontally(tween(220)) { it } + fadeOut(tween(160)),
-                            modifier = Modifier.align(Alignment.CenterStart),
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .windowInsetsPadding(WindowInsets.displayCutout),
                         ) {
                             VodEpisodesDrawer(
                                 currentItem = item,

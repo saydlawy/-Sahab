@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -313,16 +314,27 @@ internal fun FeaturedChannelsSection(
                 )
             }
 
+            var seeAllFocused by remember { mutableStateOf(false) }
             Text(
                 text = "عرض الكل",
-                color = Palette.FocusCyan,
+                color = if (seeAllFocused) Color.White else Palette.FocusCyan,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .restorableFocus(Routes.HOME, "home_live_see_all")
+                    .onFocusChanged { seeAllFocused = it.isFocused }
+                    .then(
+                        if (seeAllFocused) {
+                            Modifier
+                                .background(Palette.FocusCyan.copy(alpha = 0.22f))
+                                .border(1.5.dp, Palette.FocusCyan, RoundedCornerShape(8.dp))
+                        } else {
+                            Modifier
+                        },
+                    )
                     .clickable(onClick = onSeeAll)
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
 
@@ -407,15 +419,14 @@ internal fun LiveChannelReferenceCard(
     modifier: Modifier = Modifier,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val focusedRaw by interaction.collectIsFocusedAsState()
+    val focused by interaction.collectIsFocusedAsState()
     val isTv = LocalIsTv.current
-    val focused = focusedRaw && isTv
     val pressed by interaction.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
         targetValue = when {
             pressed -> 0.96f
-            focused -> 1.06f
+            focused && isTv -> 1.06f
             else -> 1f
         },
         animationSpec = tween(140),

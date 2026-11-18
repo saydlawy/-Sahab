@@ -91,7 +91,7 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
-    val vm = appViewModel { SeriesDetailViewModel(it, id) }
+    val vm = appViewModel(key = "series_$id") { SeriesDetailViewModel(it, id) }
     val state by vm.state.collectAsStateWithLifecycle()
     val aiState by vm.aiState.collectAsStateWithLifecycle()
     val container = LocalContainer.current

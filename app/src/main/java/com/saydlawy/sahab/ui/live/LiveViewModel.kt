@@ -1,7 +1,6 @@
 package com.saydlawy.sahab.ui.live
 
 import com.saydlawy.sahab.data.channel.ChannelListEntity
-import com.saydlawy.sahab.data.channel.ChannelListItemEntity
 import com.saydlawy.sahab.data.channel.EpgProgramEntity
 import android.view.ViewGroup
 import androidx.annotation.OptIn
@@ -131,8 +130,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import androidx.compose.runtime.Immutable
@@ -146,6 +148,7 @@ data class LiveUiState(
     val hiddenChannelIds: Set<String> = emptySet(),
     val selectedId: String? = ALL_CAT_ID,
     val channels: List<Channel> = emptyList(),
+    val visibleChannels: List<Channel> = emptyList(),
     val categoryCounts: Map<String, Int> = emptyMap(),
     val totalCount: Int = 0,
     val query: String = "",
@@ -155,8 +158,6 @@ data class LiveUiState(
     val searching: Boolean = false,
     val error: String? = null,
 ) {
-    val visibleChannels: List<Channel>
-        get() = (searchResults ?: channels).filterNot { it.id in hiddenChannelIds }
     val busy: Boolean get() = loadingChannels || searching
 }
 
@@ -165,11 +166,28 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
     private val repo = container.repo
     private val _state = MutableStateFlow(LiveUiState())
     val state = _state.asStateFlow()
+    private val visibleMutex = Mutex()
 
     private var channelsJob: Job? = null
     private var searchJob: Job? = null
     private var searchPool: List<Channel>? = null
     private var indexedPool: List<Pair<Channel, String>>? = null
+
+    private suspend fun updateWithVisible(transform: (LiveUiState) -> LiveUiState) {
+        visibleMutex.withLock {
+            val candidate = transform(_state.value)
+            val source = candidate.searchResults ?: candidate.channels
+            val hidden = candidate.hiddenChannelIds
+            val visible = when {
+                hidden.isEmpty() -> source
+                source.size <= 200 -> source.filterNot { it.id in hidden }
+                else -> withContext(Dispatchers.Default) { source.filterNot { it.id in hidden } }
+            }
+            _state.update { latest ->
+                transform(latest).copy(visibleChannels = visible)
+            }
+        }
+    }
 
     private suspend fun updateSearchPool(channels: List<Channel>) {
         searchPool = channels
@@ -187,13 +205,16 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 
     private fun observeCustomTvState() {
         viewModelScope.launch {
-            dao.observeLists().collect { lists ->
-                _state.update { it.copy(customLists = lists) }
+            container.prefs.activeAccountId.collectLatest { accId ->
+                dao.observeLists(accId).collect { lists ->
+                    _state.update { it.copy(customLists = lists) }
+                }
             }
         }
         viewModelScope.launch {
             dao.observeHiddenIds().collect { hidden ->
-                _state.update { it.copy(hiddenChannelIds = hidden.toSet()) }
+                val hiddenSet = hidden.toSet()
+                updateWithVisible { it.copy(hiddenChannelIds = hiddenSet) }
             }
         }
     }
@@ -219,7 +240,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                 if (!cachedAll.isNullOrEmpty()) {
                     updateSearchPool(cachedAll)
                     val counts = computeCounts(cachedAll)
-                    _state.update {
+                    updateWithVisible {
                         it.copy(
                             categories = categories,
                             selectedId = ALL_CAT_ID,
@@ -250,7 +271,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                     if (allChannels.isNotEmpty()) {
                         updateSearchPool(allChannels)
                         val counts = computeCounts(allChannels)
-                        _state.update { current ->
+                        updateWithVisible { current ->
                             current.copy(
                                 totalCount = allChannels.size,
                                 categoryCounts = counts + current.categoryCounts,
@@ -278,7 +299,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                 val pool = allLiveChannels()
                 val byId = pool.associateBy { it.id }
                 val listChannels = orderedIds.mapNotNull { byId[it] }
-                _state.update {
+                updateWithVisible {
                     it.copy(
                         selectedId = categoryId,
                         channels = listChannels,
@@ -291,26 +312,30 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
         }
         if (categoryId == FAV_CAT_ID) {
             val pool = searchPool
-            _state.update {
-                it.copy(
-                    selectedId = FAV_CAT_ID,
-                    channels = pool ?: it.channels,
-                    loadingChannels = false,
-                    error = null,
-                )
+            viewModelScope.launch {
+                updateWithVisible {
+                    it.copy(
+                        selectedId = FAV_CAT_ID,
+                        channels = pool ?: it.channels,
+                        loadingChannels = false,
+                        error = null,
+                    )
+                }
             }
             return
         }
         if (categoryId == ALL_CAT_ID) {
             val cached = searchPool
             if (!cached.isNullOrEmpty()) {
-                _state.update {
-                    it.copy(
-                        selectedId = ALL_CAT_ID,
-                        channels = cached,
-                        loadingChannels = false,
-                        error = null,
-                    )
+                viewModelScope.launch {
+                    updateWithVisible {
+                        it.copy(
+                            selectedId = ALL_CAT_ID,
+                            channels = cached,
+                            loadingChannels = false,
+                            error = null,
+                        )
+                    }
                 }
                 return
             }
@@ -321,7 +346,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                 val targetId = if (categoryId == ALL_CAT_ID) null else categoryId
                 val channels = repo.liveChannels(targetId)
                 if (categoryId == ALL_CAT_ID) updateSearchPool(channels)
-                _state.update {
+                updateWithVisible {
                     it.copy(
                         channels = channels,
                         loadingChannels = false,
@@ -333,7 +358,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update {
+                updateWithVisible {
                     it.copy(loadingChannels = false, channels = emptyList(), error = e.userMessage())
                 }
             }
@@ -345,7 +370,9 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
         searchJob?.cancel()
         val needle = query.normalizeForSearch().trim()
         if (needle.length < 2) {
-            _state.update { it.copy(searchResults = null, searching = false) }
+            viewModelScope.launch {
+                updateWithVisible { it.copy(searchResults = null, searching = false) }
+            }
             return
         }
         searchJob = viewModelScope.launch {
@@ -365,11 +392,11 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                         .take(300)
                         .toList()
                 }
-                _state.update { it.copy(searchResults = results, searching = false) }
+                updateWithVisible { it.copy(searchResults = results, searching = false) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { it.copy(searching = false, searchResults = emptyList(), error = e.userMessage()) }
+                updateWithVisible { it.copy(searching = false, searchResults = emptyList(), error = e.userMessage()) }
             }
         }
     }
@@ -398,12 +425,14 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
         if (clean.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
+            val accId = container.prefs.currentActiveAccountId()
             dao.upsertList(
                 ChannelListEntity(
                     listId = java.util.UUID.randomUUID().toString(),
                     name = clean,
                     createdAt = now,
                     updatedAt = now,
+                    accountId = accId,
                 )
             )
         }
@@ -411,8 +440,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 
     fun deleteCustomList(listId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.clearListItems(listId)
-            dao.deleteList(listId)
+            dao.deleteListAndItems(listId)
             if (_state.value.selectedId == "$CUSTOM_LIST_PREFIX$listId") {
                 withContext(Dispatchers.Main) { select(ALL_CAT_ID) }
             }
@@ -421,14 +449,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 
     fun saveListChannels(listId: String, orderedChannelIds: List<String>) {
         viewModelScope.launch(Dispatchers.IO) {
-            dao.clearListItems(listId)
-            if (orderedChannelIds.isNotEmpty()) {
-                dao.upsertListItems(
-                    orderedChannelIds.mapIndexed { idx, id ->
-                        ChannelListItemEntity(listId = listId, streamId = id, position = idx)
-                    }
-                )
-            }
+            dao.replaceListItems(listId, orderedChannelIds)
             if (_state.value.selectedId == "$CUSTOM_LIST_PREFIX$listId") {
                 withContext(Dispatchers.Main) { select("$CUSTOM_LIST_PREFIX$listId") }
             }
@@ -437,18 +458,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 
     fun toggleChannelInList(listId: String, channelId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val current = dao.itemsOfList(listId).toMutableList()
-            if (!current.remove(channelId)) {
-                current.add(channelId)
-            }
-            dao.clearListItems(listId)
-            if (current.isNotEmpty()) {
-                dao.upsertListItems(
-                    current.mapIndexed { idx, id ->
-                        ChannelListItemEntity(listId = listId, streamId = id, position = idx)
-                    }
-                )
-            }
+            dao.toggleChannelInList(listId, channelId)
             if (_state.value.selectedId == "$CUSTOM_LIST_PREFIX$listId") {
                 withContext(Dispatchers.Main) { select("$CUSTOM_LIST_PREFIX$listId") }
             }
@@ -468,18 +478,15 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
         if (idx < 0 || idx == target) return
         val moved = current.removeAt(idx)
         current.add(target, moved)
-        _state.update { it.copy(channels = current) }
+        viewModelScope.launch {
+            updateWithVisible { it.copy(channels = current) }
+        }
 
         val selected = _state.value.selectedId
         viewModelScope.launch(Dispatchers.IO) {
             if (selected != null && selected.startsWith(CUSTOM_LIST_PREFIX)) {
                 val listId = selected.removePrefix(CUSTOM_LIST_PREFIX)
-                dao.clearListItems(listId)
-                dao.upsertListItems(
-                    current.mapIndexed { i, ch ->
-                        ChannelListItemEntity(listId = listId, streamId = ch.id, position = i)
-                    }
-                )
+                dao.replaceListItems(listId, current.map { it.id })
             } else {
                 val now = System.currentTimeMillis()
                 dao.setSortOrder(current[idx].id, idx, now)
