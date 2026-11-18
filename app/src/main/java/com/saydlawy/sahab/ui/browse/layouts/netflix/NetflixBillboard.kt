@@ -28,6 +28,7 @@ import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
+import com.saydlawy.sahab.ui.browse.layouts.prime.formatHeroRuntime
 import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.RemoteImage
@@ -123,15 +124,15 @@ internal fun NetflixHeroInfo(
         Text(
             text = item.poster.name,
             color = Color.White,
-            fontSize = if (compact) 22.sp else 32.sp,
+            fontSize = if (compact) 20.sp else 26.sp,
             fontWeight = FontWeight.Black,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         val metaParts = listOf(
             item.year,
             item.genre.substringBefore(",").trim(),
-            item.runtime,
+            formatHeroRuntime(item.runtime),
         ).filter { it.isNotBlank() }
         if (item.rating.isNotBlank() || metaParts.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -113,9 +113,15 @@ internal fun PrimeBrowseLayout(
     Box(Modifier.fillMaxSize().background(Palette.CinematicBg)) {
         PrimeBackdrop(heroDetails)
 
-        if (showMessage) {
-            Column(Modifier.fillMaxSize().padding(horizontal = hPad, vertical = 8.dp)) {
-                tabs()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = hPad, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            tabs()
+
+            if (showMessage) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when {
                         state.busy -> SkeletonGrid(columnWidth = 118.dp)
@@ -123,31 +129,24 @@ internal fun PrimeBrowseLayout(
                         else -> MessageBox(if (state.selectedId == FAV_CAT_ID) Ar.noFavorites else Ar.noTitles)
                     }
                 }
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = columns,
-                state = gridState,
-                modifier = Modifier.fillMaxSize().focusRestorer(),
-                contentPadding = PaddingValues(start = hPad, end = hPad, top = 8.dp, bottom = 28.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                item(key = "prime_header", span = { GridItemSpan(maxLineSpan) }) {
-                    Column(
-                        Modifier.fillMaxWidth().height(if (isPhone) 280.dp else 252.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        tabs()
-                        PrimeHeroInfo(
-                            details = heroDetails,
-                            rank = rank,
-                            modifier = Modifier
-                                .fillMaxWidth(if (isPhone) 1f else 0.54f)
-                                .padding(bottom = 4.dp),
-                        )
-                    }
+            } else {
+                if (homeMode) {
+                    PrimeHeroInfo(
+                        details = heroDetails,
+                        rank = rank,
+                        modifier = Modifier
+                            .fillMaxWidth(if (isPhone) 1f else 0.56f)
+                            .padding(bottom = 2.dp),
+                    )
                 }
+                LazyVerticalGrid(
+                    columns = columns,
+                    state = gridState,
+                    modifier = Modifier.weight(1f).fillMaxWidth().focusRestorer(),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
 
                 if (homeMode) {
                     if (state.top10Items.isNotEmpty()) {
@@ -184,6 +183,7 @@ internal fun PrimeBrowseLayout(
                     }
                 }
             }
+        }
         }
     }
 }

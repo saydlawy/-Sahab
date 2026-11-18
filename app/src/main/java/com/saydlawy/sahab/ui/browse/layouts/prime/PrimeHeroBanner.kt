@@ -111,16 +111,17 @@ internal fun PrimeHeroInfo(
         Text(
             text = item.poster.name,
             color = Color.White,
-            fontSize = if (compact) 22.sp else 30.sp,
+            fontSize = if (compact) 20.sp else 26.sp,
             fontWeight = FontWeight.Black,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         val ratingValue = item.rating.toDoubleOrNull()
+        val formattedRuntime = formatHeroRuntime(item.runtime)
         val metaTail = listOf(
             item.year,
             item.genre.substringBefore(",").trim(),
-            item.runtime,
+            formattedRuntime,
         ).filter { it.isNotBlank() }.joinToString("  •  ")
         if (ratingValue != null || metaTail.isNotBlank()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -168,4 +169,36 @@ internal fun PrimeHeroInfo(
             )
         }
     }
+}
+
+/** Formats raw IPTV duration strings (e.g. "01:25:23.648" or "105") into clean Arabic runtime text. */
+internal fun formatHeroRuntime(raw: String): String {
+    val clean = raw.trim().substringBefore('.').trim()
+    if (clean.isBlank()) return ""
+    val parts = clean.split(":")
+    if (parts.size == 3) {
+        val h = parts[0].toIntOrNull() ?: return clean
+        val m = parts[1].toIntOrNull() ?: return clean
+        return when {
+            h > 0 && m > 0 -> "${h}س ${m}د"
+            h > 0 -> "${h}س"
+            m > 0 -> "${m}د"
+            else -> ""
+        }
+    }
+    if (parts.size == 2) {
+        val m = parts[0].toIntOrNull() ?: return clean
+        return if (m > 0) "${m}د" else ""
+    }
+    clean.toIntOrNull()?.let { mins ->
+        val h = mins / 60
+        val m = mins % 60
+        return when {
+            h > 0 && m > 0 -> "${h}س ${m}د"
+            h > 0 -> "${h}س"
+            m > 0 -> "${m}د"
+            else -> ""
+        }
+    }
+    return clean
 }

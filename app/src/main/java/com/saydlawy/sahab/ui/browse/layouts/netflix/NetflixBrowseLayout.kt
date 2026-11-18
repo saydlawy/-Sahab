@@ -147,25 +147,25 @@ internal fun NetflixBrowseLayout(
                 return@Column
             }
 
+            if (heroDetails != null) {
+                NetflixHeroInfo(
+                    details = heroDetails,
+                    series = series,
+                    isFavorite = heroDetails.poster.id in favoriteIds,
+                    onOpen = callbacks.onOpenPoster,
+                    onToggleFavorite = callbacks.onToggleFavorite,
+                    modifier = Modifier
+                        .fillMaxWidth(if (isPhone) 1f else 0.56f)
+                        .padding(top = 4.dp, bottom = 2.dp),
+                )
+            }
+
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth().focusRestorer(),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 26.dp),
             ) {
-                item(key = "nf_hero_info") {
-                    Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
-                        NetflixHeroInfo(
-                            details = heroDetails,
-                            series = series,
-                            isFavorite = heroDetails?.poster?.id in favoriteIds,
-                            onOpen = callbacks.onOpenPoster,
-                            onToggleFavorite = callbacks.onToggleFavorite,
-                            modifier = Modifier.fillMaxWidth(if (isPhone) 1f else 0.56f),
-                        )
-                    }
-                }
-
                 if (state.top10Items.isNotEmpty()) {
                     item(key = "nf_top10") {
                         NetflixTop10Row(
