@@ -448,4 +448,24 @@ class DatabaseMigrationRegressionTest {
         assertEquals(1, db.tableRows["catalog_movies"]!!.size)
         assertEquals("tmdb:550", db.tableRows["catalog_movies"]!![0]["sahabId"])
     }
+
+    @Test
+    fun channelDatabase_migration2To3_addsAccountIdAndPreservesCustomLists() {
+        val db = RecordingSqliteDatabase()
+        db.defineTable(
+            name = "channel_lists",
+            columns = listOf("listId", "name", "icon", "sortOrder", "sortMode", "createdAt", "updatedAt"),
+            rows = listOf(
+                mapOf("listId" to "custom_1", "name" to "أخبار", "icon" to "", "sortOrder" to 0, "sortMode" to "custom", "createdAt" to 100L, "updatedAt" to 100L),
+            ),
+        )
+
+        ChannelDatabase.MIGRATION_2_3.migrate(db)
+
+        assertTrue(db.tables["channel_lists"]!!.contains("accountId"))
+        assertTrue(db.indices.containsKey("index_channel_lists_accountId"))
+        assertEquals(1, db.tableRows["channel_lists"]!!.size)
+        assertEquals("custom_1", db.tableRows["channel_lists"]!![0]["listId"])
+        assertEquals("أخبار", db.tableRows["channel_lists"]!![0]["name"])
+    }
 }

@@ -4,7 +4,10 @@ import android.content.SharedPreferences
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -78,6 +81,27 @@ class PrefsTest {
         assertFalse(after.contains(srvKey))
         assertFalse(after.contains(usrKey))
         assertFalse(after.contains(pwdKey))
+    }
+
+    @Test
+    fun favoritesFlow_deduplicatesIdenticalUnrelatedDataStoreWrites() = runTest {
+        val fakeSecure = InMemorySharedPreferences()
+        val ds = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { File(tempFolder.root, "prefs_distinct.preferences_pb") },
+        )
+        val prefs = Prefs(context = null, secureStoreOverride = fakeSecure, dataStoreOverride = ds)
+        val emissions = mutableListOf<List<FavItem>>()
+        val job = launch {
+            prefs.favorites.collect { emissions.add(it) }
+        }
+        advanceUntilIdle()
+        prefs.setShowRecents(false)
+        prefs.setShowRecents(true)
+        advanceUntilIdle()
+        // Unrelated preference writes must not re-emit identical favorite lists.
+        assertEquals(1, emissions.size)
+        job.cancel()
     }
 
     private class InMemorySharedPreferences : SharedPreferences {

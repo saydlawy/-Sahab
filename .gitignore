@@ -23,6 +23,21 @@ sahab_installed.apk
 
 # Python Scripts (Temporary fix scripts)
 *.py
+__pycache__/
+
+# Build, Gradle, Kotlin & IDE artifacts
+build/
+app/build/
+.gradle/
+.kotlin/
+.idea/
+*.iml
+*.apk
+*.aab
+*.ap_
+*.zip
+dl/
+_local_archive/
 
 google-services-b64.txt
 *.log

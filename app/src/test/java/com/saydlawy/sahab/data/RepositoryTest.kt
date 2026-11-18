@@ -1,18 +1,27 @@
 package com.saydlawy.sahab.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.util.concurrent.TimeUnit
 
 class RepositoryTest {
+
+    @get:Rule
+    val tempFolder = TemporaryFolder()
 
     private lateinit var server: MockWebServer
     private lateinit var repo: Repository
@@ -94,5 +103,65 @@ class RepositoryTest {
         assertEquals("1976", details.year)
         assertEquals("177m", details.duration)
         assertEquals("8.5", details.rating)
+    }
+
+    @Test
+    fun cachedPersistent_leaderCancellationDoesNotAbortIndependentAwaiter() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setBodyDelay(150, TimeUnit.MILLISECONDS)
+                .setResponseCode(200)
+                .setBody("""[{"category_id":"1","category_name":"أولى"}]"""),
+        )
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("""[{"category_id":"2","category_name":"ثانية"}]"""),
+        )
+
+        val leader = async { repo.liveCategories(forceNetwork = false) }
+        delay(20)
+        val follower = async { repo.liveCategories() }
+        leader.cancel(CancellationException("caller navigated away"))
+
+        val result = follower.await()
+        assertTrue(result.isNotEmpty())
+    }
+
+    @Test
+    fun m3uAccountsWithDifferentUrls_doNotShareDiskCache() = runTest {
+        val disk = DiskCache(tempFolder.root)
+        val diskRepo = Repository(
+            api = XtreamApi(OkHttpClient()),
+            tmdb = TmdbApi(OkHttpClient(), ""),
+            disk = disk,
+        )
+        val base = server.url("/").toString().trimEnd('/')
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                #EXTM3U
+                #EXTINF:-1 group-title="A",Channel One
+                http://stream.one/1.m3u8
+                """.trimIndent(),
+            ),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                #EXTM3U
+                #EXTINF:-1 group-title="B",Channel Two
+                http://stream.two/2.m3u8
+                """.trimIndent(),
+            ),
+        )
+
+        diskRepo.setAccount(Account(id = "m3u-1", type = "M3U", m3uUrl = "$base/list1.m3u"))
+        val first = diskRepo.liveChannels(null)
+        assertEquals(listOf("Channel One"), first.map { it.name })
+
+        diskRepo.setAccount(Account(id = "m3u-2", type = "M3U", m3uUrl = "$base/list2.m3u"))
+        val second = diskRepo.liveChannels(null)
+        assertEquals(listOf("Channel Two"), second.map { it.name })
     }
 }

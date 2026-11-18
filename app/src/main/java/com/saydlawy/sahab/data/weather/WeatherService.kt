@@ -1,15 +1,17 @@
 package com.saydlawy.sahab.data.weather
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONObject
 import java.util.Locale
 
 enum class WeatherCondition {
@@ -34,21 +36,27 @@ data class WeatherData(
 
 class WeatherService(
     private val client: OkHttpClient,
-    context: Context,
+    context: Context? = null,
+    prefsOverride: SharedPreferences? = null,
+    private val geoBaseUrl: String = "https://geocoding-api.open-meteo.com",
+    private val forecastBaseUrl: String = "https://api.open-meteo.com",
+    private val ipGeoUrl: String = "https://ipwho.is/?lang=ar",
 ) {
-    private val prefs = context.getSharedPreferences("sahab_weather_cache", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences? = prefsOverride
+        ?: context?.applicationContext?.getSharedPreferences("sahab_weather_cache", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val _weather = MutableStateFlow(loadCachedWeather())
     val weather: StateFlow<WeatherData> = _weather.asStateFlow()
 
     private var lastFetchMs: Long = 0L
 
-    fun getManualCity(): String = prefs.getString("manual_city", "") ?: ""
+    fun getManualCity(): String = prefs?.getString("manual_city", "") ?: ""
 
     suspend fun setManualCity(cityName: String): Boolean {
         val trimmed = cityName.trim()
         if (trimmed.isEmpty()) {
-            prefs.edit().remove("manual_city").remove("manual_lat").remove("manual_lon").apply()
+            prefs?.edit()?.remove("manual_city")?.remove("manual_lat")?.remove("manual_lon")?.apply()
             refreshIfNeeded(force = true)
             return true
         }
@@ -56,27 +64,27 @@ class WeatherService(
             runCatching {
                 val encoded = java.net.URLEncoder.encode(trimmed, "UTF-8")
                 val req = Request.Builder()
-                    .url("https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=1&language=ar")
+                    .url("${geoBaseUrl.trimEnd('/')}/v1/search?name=$encoded&count=1&language=ar")
                     .build()
                 client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use null
                     val body = resp.body?.string().orEmpty()
-                    val arr = JSONObject(body).optJSONArray("results")
-                    if (arr != null && arr.length() > 0) {
-                        val item = arr.getJSONObject(0)
-                        Triple(
-                            item.getDouble("latitude").toFloat(),
-                            item.getDouble("longitude").toFloat(),
-                            item.optString("name", trimmed).ifBlank { trimmed },
-                        )
-                    } else null
+                    if (body.isBlank()) return@use null
+                    val parsed = json.decodeFromString(GeoSearchResponse.serializer(), body)
+                    val item = parsed.results.firstOrNull() ?: return@use null
+                    Triple(
+                        item.latitude.toFloat(),
+                        item.longitude.toFloat(),
+                        item.name.ifBlank { trimmed },
+                    )
                 }
             }.getOrNull()
         } ?: return false
-        prefs.edit()
-            .putString("manual_city", geo.third)
-            .putFloat("manual_lat", geo.first)
-            .putFloat("manual_lon", geo.second)
-            .apply()
+        prefs?.edit()
+            ?.putString("manual_city", geo.third)
+            ?.putFloat("manual_lat", geo.first)
+            ?.putFloat("manual_lon", geo.second)
+            ?.apply()
         refreshIfNeeded(force = true)
         return true
     }
@@ -90,15 +98,17 @@ class WeatherService(
         withContext(Dispatchers.IO) {
             try {
                 // 1. Manual city override first, else IP geolocation
-                val manualCity = prefs.getString("manual_city", "").orEmpty()
-                val hasManual = manualCity.isNotBlank() && prefs.contains("manual_lat") && prefs.contains("manual_lon")
+                val manualCity = prefs?.getString("manual_city", "").orEmpty()
+                val hasManual = manualCity.isNotBlank() &&
+                    prefs?.contains("manual_lat") == true &&
+                    prefs.contains("manual_lon")
                 val loc = if (hasManual) null else fetchIpLocation()
-                val lat = if (hasManual) prefs.getFloat("manual_lat", 29.37f).toDouble() else (loc?.first ?: 29.37)
-                val lon = if (hasManual) prefs.getFloat("manual_lon", 47.98f).toDouble() else (loc?.second ?: 47.98)
+                val lat = if (hasManual) prefs?.getFloat("manual_lat", 29.37f)?.toDouble() ?: 29.37 else (loc?.first ?: 29.37)
+                val lon = if (hasManual) prefs?.getFloat("manual_lon", 47.98f)?.toDouble() ?: 47.98 else (loc?.second ?: 47.98)
                 val rawCity = if (hasManual) manualCity else (loc?.third ?: "Kuwait City")
 
                 // 2. Real-time weather from Open-Meteo
-                val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code,is_day&timezone=auto"
+                val url = "${forecastBaseUrl.trimEnd('/')}/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code,is_day&timezone=auto"
                 val req = Request.Builder()
                     .url(url)
                     .header("User-Agent", "Sahab/1.0 (Android)")
@@ -107,11 +117,11 @@ class WeatherService(
                 client.newCall(req).execute().use { res ->
                     if (!res.isSuccessful) return@withContext
                     val body = res.body?.string() ?: return@withContext
-                    val json = JSONObject(body)
-                    val current = json.getJSONObject("current")
-                    val temp = current.getDouble("temperature_2m").toInt()
-                    val code = current.getInt("weather_code")
-                    val isDay = current.getInt("is_day") == 1
+                    val parsed = json.decodeFromString(OpenMeteoResponse.serializer(), body)
+                    val current = parsed.current ?: return@withContext
+                    val temp = current.temperature_2m.toInt()
+                    val code = current.weather_code
+                    val isDay = current.is_day == 1
 
                     val (condition, text) = mapWmoCode(code, isDay)
                     val arabCity = translateCity(rawCity)
@@ -130,7 +140,7 @@ class WeatherService(
                     saveCachedWeather(data)
                 }
             } catch (e: Exception) {
-                Log.w("WeatherService", "Weather refresh failed: ${e.message}")
+                runCatching { Log.w("WeatherService", "Weather refresh failed: ${e.message}") }
             }
         }
     }
@@ -138,23 +148,55 @@ class WeatherService(
     private fun fetchIpLocation(): Triple<Double, Double, String>? {
         return try {
             val req = Request.Builder()
-                .url("https://ipwho.is/?lang=ar")
+                .url(ipGeoUrl)
                 .header("User-Agent", "Sahab/1.0 (Android)")
                 .build()
             client.newCall(req).execute().use { res ->
                 if (!res.isSuccessful) return null
                 val body = res.body?.string() ?: return null
-                val json = JSONObject(body)
-                if (!json.optBoolean("success", true)) return null
-                val lat = json.getDouble("latitude")
-                val lon = json.getDouble("longitude")
-                val city = json.optString("city", "Kuwait City")
+                val parsed = json.decodeFromString(IpWhoResponse.serializer(), body)
+                if (!parsed.success) return null
+                val lat = parsed.latitude ?: return null
+                val lon = parsed.longitude ?: return null
+                val city = parsed.city.ifBlank { "Kuwait City" }
                 Triple(lat, lon, city)
             }
         } catch (_: Exception) {
             null
         }
     }
+
+    @Serializable
+    private data class GeoSearchResponse(
+        val results: List<GeoCityDto> = emptyList(),
+    )
+
+    @Serializable
+    private data class GeoCityDto(
+        val latitude: Double,
+        val longitude: Double,
+        val name: String = "",
+    )
+
+    @Serializable
+    private data class OpenMeteoResponse(
+        val current: OpenMeteoCurrentDto? = null,
+    )
+
+    @Serializable
+    private data class OpenMeteoCurrentDto(
+        val temperature_2m: Double = 24.0,
+        val weather_code: Int = 0,
+        val is_day: Int = 1,
+    )
+
+    @Serializable
+    private data class IpWhoResponse(
+        val success: Boolean = true,
+        val latitude: Double? = null,
+        val longitude: Double? = null,
+        val city: String = "Kuwait City",
+    )
 
     private fun mapWmoCode(code: Int, isDay: Boolean): Pair<WeatherCondition, String> {
         return when (code) {
@@ -205,24 +247,25 @@ class WeatherService(
     }
 
     private fun loadCachedWeather(): WeatherData {
-        val temp = prefs.getInt("cached_temp", 24)
-        val city = prefs.getString("cached_city", "الكويت") ?: "الكويت"
-        val codeName = prefs.getString("cached_cond", WeatherCondition.CLEAR_DAY.name) ?: WeatherCondition.CLEAR_DAY.name
+        val store = prefs ?: return WeatherData()
+        val temp = store.getInt("cached_temp", 24)
+        val city = store.getString("cached_city", "الكويت") ?: "الكويت"
+        val codeName = store.getString("cached_cond", WeatherCondition.CLEAR_DAY.name) ?: WeatherCondition.CLEAR_DAY.name
         val cond = try { WeatherCondition.valueOf(codeName) } catch (_: Exception) { WeatherCondition.CLEAR_DAY }
-        val text = prefs.getString("cached_text", "صافٍ") ?: "صافٍ"
-        val isDay = prefs.getBoolean("cached_is_day", true)
-        val loaded = prefs.getBoolean("cached_loaded", false)
+        val text = store.getString("cached_text", "صافٍ") ?: "صافٍ"
+        val isDay = store.getBoolean("cached_is_day", true)
+        val loaded = store.getBoolean("cached_loaded", false)
         return WeatherData(temp, city, cond, text, isDay, loaded)
     }
 
     private fun saveCachedWeather(data: WeatherData) {
-        prefs.edit()
-            .putInt("cached_temp", data.tempC)
-            .putString("cached_city", data.city)
-            .putString("cached_cond", data.condition.name)
-            .putString("cached_text", data.conditionText)
-            .putBoolean("cached_is_day", data.isDay)
-            .putBoolean("cached_loaded", true)
-            .apply()
+        prefs?.edit()
+            ?.putInt("cached_temp", data.tempC)
+            ?.putString("cached_city", data.city)
+            ?.putString("cached_cond", data.condition.name)
+            ?.putString("cached_text", data.conditionText)
+            ?.putBoolean("cached_is_day", data.isDay)
+            ?.putBoolean("cached_loaded", true)
+            ?.apply()
     }
 }

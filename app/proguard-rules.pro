@@ -10,14 +10,11 @@
 }
 -keep @kotlinx.serialization.Serializable class * { *; }
 
-# Keep Room entities/DAOs, and WorkManager workers (Serializable models kept above)
+# Keep Room entities & DAOs
 -keep class * extends androidx.room.RoomDatabase { *; }
 -keep @androidx.room.Entity class * { *; }
 -keep @androidx.room.Dao interface * { *; }
 -dontwarn androidx.room.paging.**
--keep class * extends androidx.work.CoroutineWorker {
-    public <init>(android.content.Context, androidx.work.WorkerParameters);
-}
 
 # OkHttp & Coroutines
 -dontwarn okhttp3.**
