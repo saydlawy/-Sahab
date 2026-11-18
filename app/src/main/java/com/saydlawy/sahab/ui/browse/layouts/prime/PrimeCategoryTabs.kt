@@ -159,7 +159,7 @@ internal fun PrimeCategoryTabs(
                     contentAlignment = Alignment.Center,
                 ) {
                     SahabIcon(
-                        icon = Ic.Search,
+                        imageVector = Ic.Search,
                         contentDescription = Ar.searchTitles,
                         modifier = Modifier.size(20.dp),
                         tint = if (searchBtnFocused) Color.Black else Color.White,
