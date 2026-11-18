@@ -213,11 +213,12 @@ class CatalogSync(
 
         // 1. البحث في السحابة (Firebase) أولاً (إلا عند طلب التحديث اليدوي القسري)
         if (!force) {
-            val cloudData = firebaseCatalog.getCatalogItem(existing.sahabId)
+            val cloudLookupId = existing.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
+                ?: existing.sahabId
+            val cloudData = firebaseCatalog.getCatalogItem(cloudLookupId)
             if (cloudData != null && cloudData.plot.isNotBlank()) {
                 dao.applyEnrichment(
                     streamId = streamId,
-                    newId = cloudData.sahabId,
                     tmdbId = cloudData.tmdbId,
                     titleEn = cloudData.titleEn,
                     year = cloudData.year,
@@ -254,7 +255,6 @@ class CatalogSync(
             val newId = CatalogMovieEntity.idFromTmdb(movie.id)
             dao.applyEnrichment(
                 streamId = streamId,
-                newId = newId,
                 tmdbId = movie.id,
                 titleEn = movie.title,
                 year = movie.releaseDate.take(4),
@@ -274,10 +274,8 @@ class CatalogSync(
             }
         } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {
             // Weak match — store data but keep needsEnrichment=1 for potential retry
-            val newId = CatalogMovieEntity.idFromTmdb(movie.id)
             dao.applyEnrichment(
                 streamId = streamId,
-                newId = newId,
                 tmdbId = movie.id,
                 titleEn = movie.title,
                 year = movie.releaseDate.take(4),

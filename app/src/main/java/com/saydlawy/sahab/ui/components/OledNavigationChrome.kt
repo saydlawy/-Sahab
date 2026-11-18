@@ -3,6 +3,7 @@ package com.saydlawy.sahab.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,10 +15,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.ui.DisplayMode
@@ -32,7 +43,6 @@ private val chromeTabs = listOf(
     ChromeTab(Routes.LIVE, "البث", Ic.Tv),
     ChromeTab(Routes.MOVIES, "الأفلام", Ic.Movie),
     ChromeTab(Routes.SERIES, "المسلسلات", Ic.Series),
-    ChromeTab(Routes.SPORTS, Ar.sports, Ic.Football),
     ChromeTab(Routes.FAVORITES, Ar.favorites, Ic.Heart),
 )
 
@@ -64,13 +74,39 @@ internal fun OledNavigationChrome(current: String?, onTab: (String) -> Unit, mod
 @Composable
 private fun ChromeTabItem(tab: ChromeTab, current: String?, onTab: (String) -> Unit, vertical: Boolean) {
     val selected = current == tab.route
+    var focused by remember { mutableStateOf(false) }
+    val bgColor = when {
+        focused -> Palette.CardSurfaceElevated
+        selected -> Palette.CardSurfaceElevated.copy(alpha = 0.7f)
+        else -> Color.Transparent
+    }
+    val tint = if (focused || selected) Palette.FocusCyan else Palette.TextMuted
     Column(
-        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (selected) Palette.CardSurfaceElevated else Color.Transparent)
-            .clickable { onTab(tab.route) }.padding(horizontal = 7.dp, vertical = 6.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(bgColor)
+            .then(
+                if (focused) Modifier.border(1.5.dp, Palette.FocusCyan, RoundedCornerShape(12.dp))
+                else Modifier,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
+                ) {
+                    onTab(tab.route)
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusable()
+            .clickable { onTab(tab.route) }
+            .padding(horizontal = 7.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        SahabIcon(tab.icon, tab.label, Modifier.size(if (vertical) 20.dp else 22.dp), if (selected) Palette.FocusCyan else Palette.TextMuted)
-        if (vertical) Text(tab.label, color = if (selected) Palette.FocusCyan else Palette.TextMuted, fontSize = 9.sp, maxLines = 1)
+        SahabIcon(tab.icon, tab.label, Modifier.size(if (vertical) 20.dp else 22.dp), tint)
+        if (vertical) Text(tab.label, color = tint, fontSize = 9.sp, maxLines = 1)
     }
 }

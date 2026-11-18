@@ -7,7 +7,6 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,7 +27,7 @@ import com.saydlawy.sahab.R
 import com.saydlawy.sahab.data.ThemeCustomization
 import com.saydlawy.sahab.data.ThemePreferences
 
-private fun colorMapForTheme(themeId: String): Map<String, Color> {
+private fun colorMapForTheme(themeId: String, oledAccentPreset: String = "oled_cyan"): Map<String, Color> {
     val cosmic = mutableMapOf(
         "DeepBlue" to Color(0xFF0B0F24), "TextMuted" to Color(0xFF94A3B8),
         "CinematicBg" to Color(0xFF0B0D17), "CinematicBgSecondary" to Color(0xFF101322),
@@ -53,12 +52,6 @@ private fun colorMapForTheme(themeId: String): Map<String, Color> {
         "OsdCyan" to Color(0xFF00FBFB), "OsdTertiary" to Color(0xFFC4C1FB),
         "OsdOnSurface" to Color(0xFFE7DEFA), "OsdOnSurfaceVariant" to Color(0xFFCFC2D7),
         "OsdOutline" to Color(0xFF988CA0), "OsdOutlineVariant" to Color(0xFF4C4354),
-        "SportSurface" to Color(0xFF0C0919), "SportContainer" to Color(0xFF151026),
-        "SportContainerHigh" to Color(0xFF1F1838), "SportContainerHighest" to Color(0xFF2B224C),
-        "SportPrimary" to Color(0xFFDCB8FF), "SportViolet" to Color(0xFF8A2BE2),
-        "SportVioletDark" to Color(0xFF7928CA), "SportCyan" to Color(0xFF00FBFB),
-        "SportLiveRed" to Color(0xFFFF334B), "SportGold" to Color(0xFFF5A623),
-        "SportEmerald" to Color(0xFF34D399), "SportTextMuted" to Color(0xFFA9AEC7),
     )
     when (themeId) {
         "cosmic_glass_pro" -> {
@@ -66,39 +59,7 @@ private fun colorMapForTheme(themeId: String): Map<String, Color> {
             cosmic["GlassStrong"] = Color(0xCC12122D)
             cosmic["GlassBorder"] = Color(0x26FFFFFF)
         }
-        "oled_cinema" -> {
-            cosmic["DeepBlue"] = Color(0xFF050608)
-            cosmic["CinematicBg"] = Color.Black
-            cosmic["CinematicBgSecondary"] = Color(0xFF050608)
-            cosmic["BgTop"] = Color(0xFF050608)
-            cosmic["CardSurface"] = Color(0xFF0C0C0D)
-            cosmic["CardSurfaceElevated"] = Color(0xFF1F2436)
-            cosmic["CardBorderIdle"] = Color(0xFF1F2436)
-            cosmic["Royal"] = Color(0xFFE11D48)
-            cosmic["Blue"] = Color(0xFF0EA5E9)
-            cosmic["FocusCyan"] = Color(0xFF0EA5E9)
-            cosmic["FocusBlueGlow"] = Color(0xFF0EA5E9)
-            cosmic["Glow"] = Color(0xFF0EA5E9)
-            cosmic["Glass"] = Color(0xE60C0C0D)
-            cosmic["GlassStrong"] = Color(0xF20C0C0D)
-            cosmic["GlassBorder"] = Color(0xFF1F2436)
-            cosmic["InputBg"] = Color(0xFF0C0C0D)
-            cosmic["DialogBg"] = Color(0xF20C0C0D)
-            cosmic["OsdSurfaceLowest"] = Color.Black
-            cosmic["OsdSurfaceLow"] = Color(0xFF0C0C0D)
-            cosmic["OsdSurfaceContainer"] = Color(0xFF0C0C0D)
-            cosmic["OsdSurfaceHigh"] = Color(0xFF1F2436)
-            cosmic["OsdSurfaceHighest"] = Color(0xFF1F2436)
-            cosmic["OsdPrimaryContainer"] = Color(0xFFE11D48)
-            cosmic["OsdCyan"] = Color(0xFF0EA5E9)
-            cosmic["SportSurface"] = Color(0xFF050608)
-            cosmic["SportContainer"] = Color(0xFF0C0C0D)
-            cosmic["SportContainerHigh"] = Color(0xFF1F2436)
-            cosmic["SportContainerHighest"] = Color(0xFF1F2436)
-            cosmic["SportViolet"] = Color(0xFFE11D48)
-            cosmic["SportVioletDark"] = Color(0xFFB9143B)
-            cosmic["SportCyan"] = Color(0xFF0EA5E9)
-        }
+        "oled_cinema" -> applyOledCinemaTokens(cosmic, oledAccentPreset)
         "dynamic_bento" -> {
             cosmic["Glass"] = Color.White.copy(alpha = 0.12f)
             cosmic["GlassStrong"] = Color.White.copy(alpha = 0.12f)
@@ -108,7 +69,8 @@ private fun colorMapForTheme(themeId: String): Map<String, Color> {
     return cosmic
 }
 
-fun themeBaseColor(themeId: String, token: String): Color = colorMapForTheme(themeId)[token] ?: Color.Magenta
+fun themeBaseColor(themeId: String, token: String, oledAccentPreset: String = "oled_cyan"): Color =
+    colorMapForTheme(themeId, oledAccentPreset)[token] ?: Color.Magenta
 
 private fun parseThemeColor(value: String): Color? {
     val hex = value.trim().removePrefix("#")
@@ -122,7 +84,7 @@ private fun parseThemeColor(value: String): Color? {
 
 private fun resolvedColors(settings: ThemePreferences): Map<String, Color> {
     val id = settings.selectedThemeId
-    val base = colorMapForTheme(id).toMutableMap()
+    val base = colorMapForTheme(id, settings.oledAccentPreset).toMutableMap()
     settings.customization(id).colorOverrides.forEach { (key, value) ->
         parseThemeColor(value)?.let { color -> if (key in base) base[key] = color }
     }
@@ -138,6 +100,7 @@ private fun resolvedColors(settings: ThemePreferences): Map<String, Color> {
 /** Dynamic palette backed by persisted theme state; every screen observes the same tokens. */
 object Palette {
     private var colors by mutableStateOf(colorMapForTheme("cosmic_glass"))
+    internal fun install(resolved: Map<String, Color>) { colors = resolved }
     internal fun install(settings: ThemePreferences) { colors = resolvedColors(settings) }
     fun color(token: String): Color = colors[token] ?: Color.Magenta
     private fun token(name: String) = color(name)
@@ -197,9 +160,7 @@ val ThemeColorTokenNames = listOf(
     "TextDim", "DialogBg", "Danger", "ProgressStart", "OsdSurfaceLowest", "OsdSurfaceLow",
     "OsdSurfaceContainer", "OsdSurfaceHigh", "OsdSurfaceHighest", "OsdPrimary", "OsdPrimaryContainer",
     "OsdOnPrimary", "OsdCyan", "OsdTertiary", "OsdOnSurface", "OsdOnSurfaceVariant", "OsdOutline",
-    "OsdOutlineVariant", "SportSurface", "SportContainer", "SportContainerHigh", "SportContainerHighest",
-    "SportPrimary", "SportViolet", "SportVioletDark", "SportCyan", "SportLiveRed", "SportGold",
-    "SportEmerald", "SportTextMuted",
+    "OsdOutlineVariant",
 )
 
 val ThemeColorLabels = mapOf(
@@ -220,12 +181,7 @@ val ThemeColorLabels = mapOf(
     "OsdPrimaryContainer" to "المشغل: الإجراء", "OsdOnPrimary" to "المشغل: نص الإجراء",
     "OsdCyan" to "المشغل: التركيز", "OsdTertiary" to "المشغل: ثالثي", "OsdOnSurface" to "المشغل: النص",
     "OsdOnSurfaceVariant" to "المشغل: نص ثانوي", "OsdOutline" to "المشغل: الحد",
-    "OsdOutlineVariant" to "المشغل: حد ثانوي", "SportSurface" to "الرياضة: الخلفية",
-    "SportContainer" to "الرياضة: الحاوية", "SportContainerHigh" to "الرياضة: حاوية مرتفعة",
-    "SportContainerHighest" to "الرياضة: أعلى حاوية", "SportPrimary" to "الرياضة: أساسي",
-    "SportViolet" to "الرياضة: بنفسجي", "SportVioletDark" to "الرياضة: بنفسجي داكن",
-    "SportCyan" to "الرياضة: تركيز", "SportLiveRed" to "الرياضة: مباشر", "SportGold" to "الرياضة: ذهبي",
-    "SportEmerald" to "الرياضة: نجاح", "SportTextMuted" to "الرياضة: نص ثانوي",
+    "OsdOutlineVariant" to "المشغل: حد ثانوي",
 )
 
 /**
@@ -246,10 +202,15 @@ fun SahabTheme(
     content: @Composable () -> Unit,
 ) {
     val customization = remember(settings) { settings.customization() }
-    val colors = remember(settings) { resolvedColors(settings) }
+    val colors = remember(settings) {
+        val resolved = resolvedColors(settings)
+        Palette.install(resolved)
+        resolved
+    }
     val sourceDensity = LocalDensity.current
-    val scaledDensity = remember(sourceDensity, customization.fontScale) {
-        Density(density = sourceDensity.density, fontScale = (sourceDensity.fontScale * customization.fontScale).coerceIn(0.7f, 1.6f))
+    val tvFontBoost = if (com.saydlawy.sahab.ui.LocalIsTv.current) 1.06f else 1f
+    val scaledDensity = remember(sourceDensity, customization.fontScale, tvFontBoost) {
+        Density(density = sourceDensity.density, fontScale = (sourceDensity.fontScale * customization.fontScale * tvFontBoost).coerceIn(0.7f, 1.65f))
     }
     val selectedFont = remember(customization.fontFamily) {
         when (customization.fontFamily) {
@@ -259,7 +220,6 @@ fun SahabTheme(
             else -> CairoFamily
         }
     }
-    SideEffect { Palette.install(settings) }
     val scheme = darkColorScheme(
         primary = colors["Royal"] ?: Color(0xFF8E45FF),
         secondary = colors["Glow"] ?: Color(0xFF7DC4FF),
@@ -287,6 +247,7 @@ fun SahabTheme(
         labelSmall = base.labelSmall.copy(fontFamily = selectedFont),
     )
     CompositionLocalProvider(
+        LocalSahabColors provides colors,
         LocalThemePreferences provides settings,
         LocalThemeCustomization provides customization,
         LocalDensity provides scaledDensity,
@@ -307,8 +268,12 @@ fun SahabTheme(
     }
 }
 
+val LocalSahabColors = compositionLocalOf { colorMapForTheme("cosmic_glass") }
 val LocalThemePreferences = compositionLocalOf { ThemePreferences() }
 val LocalThemeCustomization = compositionLocalOf { ThemeCustomization() }
 
-fun ThemeCustomization.isVisible(componentId: String): Boolean = componentVisibility[componentId] ?: true
+fun ThemeCustomization.isVisible(componentId: String): Boolean = when (componentId) {
+    "global_navigation", "details_actions", "player_controls" -> true
+    else -> componentVisibility[componentId] ?: true
+}
 fun ThemeCustomization.placement(componentId: String, fallback: String = "end"): String = componentPlacement[componentId] ?: fallback

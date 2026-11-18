@@ -135,7 +135,7 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                             onClick = {
                                 when (favorite.kind) {
                                     Kind.LIVE -> onPlay(
-                                        PlayRequest(listOf(PlayItem(Kind.LIVE, favorite.id, favorite.name, icon = favorite.icon)), 0),
+                                        PlayRequest(listOf(PlayItem(Kind.LIVE, favorite.id, favorite.name, icon = favorite.icon, url = favorite.url)), 0),
                                     )
                                     Kind.MOVIE -> onOpen(Routes.movie(favorite.id))
                                     else -> onOpen(Routes.series(favorite.id))

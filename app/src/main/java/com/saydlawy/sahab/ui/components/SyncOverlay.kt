@@ -40,7 +40,7 @@ fun SyncOverlay(visible: Boolean, modifier: Modifier = Modifier) {
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF1E1B3A).copy(alpha = 0.94f))
+                .background(Palette.DialogBg)
                 .border(1.dp, Palette.Royal.copy(alpha = 0.55f), RoundedCornerShape(24.dp))
                 .padding(horizontal = 18.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -52,7 +52,7 @@ interface CatalogMovieDao {
     @Query("UPDATE catalog_movies SET lastSeen = :now, novaAdded = :added WHERE novaStreamId = :streamId AND mediaType = :mediaType")
     suspend fun touch(streamId: String, added: Long, now: Long, mediaType: String = "movie")
 
-    @Query("UPDATE catalog_movies SET lastSeen = :now WHERE novaStreamId IN (:streamIds) AND mediaType = :mediaType")
+    @Query("UPDATE catalog_movies SET lastSeen = :now, deleted = 0 WHERE novaStreamId IN (:streamIds) AND mediaType = :mediaType")
     suspend fun touchBulk(streamIds: List<String>, now: Long, mediaType: String = "movie"): Int
 
     @Query("UPDATE catalog_movies SET deleted = 1 WHERE deleted = 0 AND lastSeen < :cutoff")
@@ -75,7 +75,7 @@ interface CatalogMovieDao {
 
     @Query(
         "UPDATE catalog_movies SET " +
-            "sahabId = :newId, tmdbId = :tmdbId, titleEn = :titleEn, year = :year, " +
+            "tmdbId = :tmdbId, titleEn = :titleEn, year = :year, " +
             "plot = :plot, cast = :cast, director = :director, genre = :genre, " +
             "runtime = :runtime, rating = :rating, backdropUrl = :backdropUrl, " +
             "tmdbVoteCount = :voteCount, needsEnrichment = :status, lastEnriched = :now " +
@@ -83,7 +83,6 @@ interface CatalogMovieDao {
     )
     suspend fun applyEnrichment(
         streamId: String,
-        newId: String,
         tmdbId: Int?,
         titleEn: String,
         year: String,
@@ -100,7 +99,7 @@ interface CatalogMovieDao {
         mediaType: String = "movie",
     )
 
-    @Query("SELECT novaStreamId FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType")
+    @Query("SELECT novaStreamId FROM catalog_movies WHERE mediaType = :mediaType")
     suspend fun allStreamIds(mediaType: String = "movie"): List<String>
 
     @Query("UPDATE catalog_movies SET needsEnrichment = -1, lastEnriched = :now WHERE novaStreamId = :streamId AND mediaType = :mediaType")

@@ -169,9 +169,9 @@ fun PosterCard(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
                                 0.0f to Color.Transparent,
-                                0.48f to Color(0x330B0D17),
-                                0.76f to Color(0xCC0B0D17),
-                                1.0f to Color(0xF80B0D17),
+                                0.48f to Palette.CinematicBg.copy(alpha = 0.20f),
+                                0.76f to Palette.CinematicBg.copy(alpha = 0.80f),
+                                1.0f to Palette.CinematicBg.copy(alpha = 0.97f),
                             ),
                         ),
                     ),
@@ -246,7 +246,7 @@ fun PosterCard(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xCC1E2336))
+                                    .background(Palette.CardSurfaceElevated.copy(alpha = 0.85f))
                                     .border(0.8.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 5.dp, vertical = 1.dp),
                             ) {

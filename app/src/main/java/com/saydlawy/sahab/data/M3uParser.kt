@@ -1,21 +1,41 @@
 package com.saydlawy.sahab.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import java.io.IOException
 import java.util.UUID
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class M3uParser(private val client: OkHttpClient) {
 
     suspend fun fetch(url: String): List<Channel> = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw ApiException("فشل تحميل قائمة M3U: ${response.code}")
+        val call = client.newCall(request)
+        val response = suspendCancellableCoroutine<Response> { cont ->
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    if (cont.isActive) cont.resume(response) else response.close()
+                }
+            })
+        }
+        response.use { resp ->
+            if (!resp.isSuccessful) {
+                throw ApiException("فشل تحميل قائمة M3U: ${resp.code}")
             }
 
-            response.body?.charStream()?.buffered()?.useLines { lines ->
+            resp.body?.charStream()?.buffered()?.useLines { lines ->
                 parseLines(lines)
             } ?: emptyList()
         }
@@ -55,6 +75,7 @@ class M3uParser(private val client: OkHttpClient) {
                             url = line,
                         )
                     )
+                    if (channels.size >= MAX_CHANNELS) break
                 }
                 currentName = ""; currentLogo = ""; currentGroup = ""; currentEpgId = ""; hasExtInf = false
             }
@@ -63,6 +84,7 @@ class M3uParser(private val client: OkHttpClient) {
     }
 
     private companion object {
+        const val MAX_CHANNELS = 25_000
         val LOGO_REGEX = Regex("tvg-logo=\"([^\"]*)\"")
         val GROUP_REGEX = Regex("group-title=\"([^\"]*)\"")
         val EPG_REGEX = Regex("tvg-id=\"([^\"]*)\"")

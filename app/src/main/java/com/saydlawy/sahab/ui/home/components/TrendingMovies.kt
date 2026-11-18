@@ -48,6 +48,9 @@ import com.saydlawy.sahab.ui.theme.Palette
 fun TrendingMoviesSection(
     movies: List<CatalogMovieEntity>,
     onMovieClick: (CatalogMovieEntity) -> Unit,
+    title: String = "أفلام مقترحة لك",
+    iconEmoji: String = "🔥",
+    rowKey: String = "home_trending_movies_row",
 ) {
     if (movies.isEmpty()) return
 
@@ -55,7 +58,7 @@ fun TrendingMoviesSection(
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
     val horizPad = if (isTvOrTablet) 24.dp else 14.dp
     val cardWidth = if (isTvOrTablet) 148.dp else 130.dp
-    val rowState = rememberRestorableLazyListState("home_trending_movies_row")
+    val rowState = rememberRestorableLazyListState(rowKey)
 
     Column(
         modifier = Modifier
@@ -70,11 +73,11 @@ fun TrendingMoviesSection(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "🔥",
+                text = iconEmoji,
                 fontSize = if (isTvOrTablet) 17.sp else 15.sp,
             )
             Text(
-                text = "أفلام مقترحة لك",
+                text = title,
                 color = Color.White,
                 fontSize = if (isTvOrTablet) 17.sp else 15.sp,
                 fontWeight = FontWeight.ExtraBold,

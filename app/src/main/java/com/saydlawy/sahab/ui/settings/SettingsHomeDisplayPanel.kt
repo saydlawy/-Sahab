@@ -103,13 +103,11 @@ internal fun HomeCustomizationPanel(
     showLiveChannels: Boolean,
     showRecommended: Boolean,
     showQuickCategories: Boolean,
-    showMatches: Boolean,
     homeChannelsLayout: HomeChannelsLayout,
     onToggleShowRecents: () -> Unit,
     onToggleShowLive: () -> Unit,
     onToggleShowRecommended: () -> Unit,
     onToggleShowQuickCategories: () -> Unit,
-    onToggleShowMatches: () -> Unit,
     onSelectLayout: (HomeChannelsLayout) -> Unit,
     onClearRecents: () -> Unit,
     modifier: Modifier = Modifier,
@@ -164,14 +162,6 @@ internal fun HomeCustomizationPanel(
                 checked = showQuickCategories,
                 itemKey = "settings_toggle_quick_cats",
                 onToggle = onToggleShowQuickCategories,
-            )
-
-            SettingsSwitchRow(
-                title = "عرض قسم مباريات اليوم",
-                subtitle = "إظهار جدول مباريات اليوم المباشرة والقادمة في أسفل الرئيسية",
-                checked = showMatches,
-                itemKey = "settings_toggle_matches",
-                onToggle = onToggleShowMatches,
             )
 
             Spacer(Modifier.height(4.dp))

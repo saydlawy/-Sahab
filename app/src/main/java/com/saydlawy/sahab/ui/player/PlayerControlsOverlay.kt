@@ -148,6 +148,7 @@ internal fun UnifiedFullscreenPlayerOsd(
     progressFlow: StateFlow<PlaybackProgress>,
     playbackSpeed: Float,
     showDrawer: Boolean,
+    activeBitrateText: String? = null,
     playFocus: FocusRequester,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -230,13 +231,21 @@ internal fun UnifiedFullscreenPlayerOsd(
 
             Spacer(Modifier.width(12.dp))
 
-            Text(
-                nowTime,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = OsdOnSurface,
-                maxLines = 1,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!activeBitrateText.isNullOrBlank()) {
+                    FormatChip(label = activeBitrateText, textColor = OsdCyan)
+                }
+                Text(
+                    nowTime,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = OsdOnSurface,
+                    maxLines = 1,
+                )
+            }
         }
 
         // 2. Unified Compact Bottom Bar: Timeline + 1 Row of Controls

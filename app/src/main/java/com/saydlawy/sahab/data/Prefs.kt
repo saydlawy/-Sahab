@@ -66,11 +66,12 @@ class Prefs @JvmOverloads constructor(
         val ShowLiveChannelsOnHome = booleanPreferencesKey("show_live_channels_on_home")
         val ShowRecommendedOnHome = booleanPreferencesKey("show_recommended_on_home")
         val ShowQuickCategoriesOnHome = booleanPreferencesKey("show_quick_categories_on_home")
-        val ShowMatchesOnHome = booleanPreferencesKey("show_matches_on_home")
         val HomeChannelsLayoutKey = stringPreferencesKey("home_channels_layout")
         val HomeChannelsSourceKey = stringPreferencesKey("home_channels_source")
         val HomeChannelsCategoryIdKey = stringPreferencesKey("home_channels_category_id")
         val HomeCustomChannelIdsKey = stringPreferencesKey("home_custom_channel_ids")
+        val MoviesLayoutStyleKey = stringPreferencesKey("movies_layout_style")
+        val SeriesLayoutStyleKey = stringPreferencesKey("series_layout_style")
         val LastSyncTime = longPreferencesKey("last_sync_time")
         val LastCatalogSyncTime = longPreferencesKey("last_catalog_sync_time")
         val LastChannelSyncTime = longPreferencesKey("last_channel_sync_time")
@@ -233,11 +234,21 @@ class Prefs @JvmOverloads constructor(
 
     val showQuickCategoriesOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowQuickCategoriesOnHome] ?: true }
 
-    val showMatchesOnHome: Flow<Boolean> = store.data.map { it[Keys.ShowMatchesOnHome] ?: true }
-
     val homeChannelsLayout: Flow<HomeChannelsLayout> = store.data.map {
         val raw = it[Keys.HomeChannelsLayoutKey]
         if (raw == HomeChannelsLayout.GRID.name) HomeChannelsLayout.GRID else HomeChannelsLayout.CAROUSEL
+    }
+
+    val moviesLayoutStyle: Flow<VodLayoutStyle> = store.data.map {
+        val raw = it[Keys.MoviesLayoutStyleKey]
+        runCatching { if (raw != null) VodLayoutStyle.valueOf(raw) else VodLayoutStyle.CLASSIC }
+            .getOrDefault(VodLayoutStyle.CLASSIC)
+    }
+
+    val seriesLayoutStyle: Flow<VodLayoutStyle> = store.data.map {
+        val raw = it[Keys.SeriesLayoutStyleKey]
+        runCatching { if (raw != null) VodLayoutStyle.valueOf(raw) else VodLayoutStyle.CLASSIC }
+            .getOrDefault(VodLayoutStyle.CLASSIC)
     }
 
     val homeChannelsSource: Flow<HomeChannelsSource> = store.data.map {
@@ -273,12 +284,16 @@ class Prefs @JvmOverloads constructor(
         store.edit { it[Keys.ShowQuickCategoriesOnHome] = show }
     }
 
-    suspend fun setShowMatchesOnHome(show: Boolean) {
-        store.edit { it[Keys.ShowMatchesOnHome] = show }
-    }
-
     suspend fun setHomeChannelsLayout(layout: HomeChannelsLayout) {
         store.edit { it[Keys.HomeChannelsLayoutKey] = layout.name }
+    }
+
+    suspend fun setMoviesLayoutStyle(style: VodLayoutStyle) {
+        store.edit { it[Keys.MoviesLayoutStyleKey] = style.name }
+    }
+
+    suspend fun setSeriesLayoutStyle(style: VodLayoutStyle) {
+        store.edit { it[Keys.SeriesLayoutStyleKey] = style.name }
     }
 
     suspend fun setHomeChannelsSource(source: HomeChannelsSource) {
@@ -472,6 +487,18 @@ class Prefs @JvmOverloads constructor(
         }
     }
 
+    suspend fun setOledAccentPreset(presetId: String) {
+        store.edit { preferences ->
+            val current = preferences[Keys.ThemePreferencesKey]
+                ?.let { raw -> runCatching { json.decodeFromString(ThemePreferences.serializer(), raw) }.getOrNull() }
+                ?: ThemePreferences()
+            preferences[Keys.ThemePreferencesKey] = json.encodeToString(
+                ThemePreferences.serializer(),
+                current.copy(oledAccentPreset = presetId),
+            )
+        }
+    }
+
     suspend fun setThemeCustomization(themeId: String, customization: ThemeCustomization) {
         updateThemeCustomization(themeId) { customization }
     }
@@ -506,6 +533,7 @@ class Prefs @JvmOverloads constructor(
     }
 
     suspend fun toggleFavorite(item: FavItem) {
+        ensureAccountLoaded()
         val accId = item.accountId.ifBlank { currentActiveAccountId() }
         val scopedItem = if (item.accountId == accId) item else item.copy(accountId = accId)
         store.edit { p ->
@@ -519,6 +547,7 @@ class Prefs @JvmOverloads constructor(
     }
 
     suspend fun positionOf(kind: String, id: String): Long {
+        ensureAccountLoaded()
         val accId = currentActiveAccountId()
         return recents.first().firstOrNull {
             it.accountId == accId && it.kind == kind && it.id == id
@@ -527,6 +556,7 @@ class Prefs @JvmOverloads constructor(
 
     /** Live channels are remembered without a position; finished movies and episodes are dropped. */
     suspend fun recordPlayback(item: RecentItem) {
+        ensureAccountLoaded()
         val accId = item.accountId.ifBlank { currentActiveAccountId() }
         val scopedItem = if (item.accountId == accId) item else item.copy(accountId = accId)
         store.edit { p ->

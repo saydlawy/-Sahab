@@ -87,12 +87,11 @@ fun LiveVideoStallWatchdog(
                 continue
             }
             recoveries++
-            Log.w(
-                TAG,
-                "Live video stall: no frame for ${frozenFor}ms while audio advanced " +
-                    "${audioAdvanced}ms (rendered=$rendered, dropped=${counters.droppedBufferCount}) " +
-                    "-> recovery #$recoveries",
-            )
+            val stallMsg = "Live video stall: no frame for ${frozenFor}ms while audio advanced " +
+                "${audioAdvanced}ms (rendered=$rendered, dropped=${counters.droppedBufferCount}) " +
+                "-> recovery #$recoveries"
+            Log.w(TAG, stallMsg)
+            runCatching { com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log(stallMsg) }
             // stop() resets the renderers, which releases the deadlocked MediaCodec instance.
             player.stop()
             val escalated = recoveries >= 2 && escalate()

@@ -25,6 +25,10 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
     }
 
     fun load() {
+        refreshMetadata()
+    }
+
+    fun refreshMetadata() {
         viewModelScope.launch {
             _state.update { DetailUiState(loading = true) }
             try {

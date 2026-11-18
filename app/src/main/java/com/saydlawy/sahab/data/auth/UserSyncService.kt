@@ -35,6 +35,9 @@ data class CloudPreferences(
     val homeChannelsLayout: String = "CAROUSEL",
     val homeChannelsSource: String = "AUTO",
     val homeChannelsCategoryId: String = "",
+    val moviesLayoutStyle: String = "CLASSIC",
+    val seriesLayoutStyle: String = "CLASSIC",
+    val updatedAt: Long = 0L,
 )
 
 sealed class CloudFetchResult<out T> {
@@ -72,8 +75,12 @@ object CloudAccountCrypto {
     private fun deriveV2Key(pin: String, salt: ByteArray): SecretKeySpec {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, 256)
-        val encoded = factory.generateSecret(spec).encoded
-        return SecretKeySpec(encoded, "AES")
+        return try {
+            val encoded = factory.generateSecret(spec).encoded
+            SecretKeySpec(encoded, "AES")
+        } finally {
+            spec.clearPassword()
+        }
     }
 
     private fun legacyKeyFor(uid: String): SecretKeySpec {
@@ -320,7 +327,8 @@ class UserSyncService(
 
     suspend fun saveFavorites(favs: List<FavItem>) {
         val uid = currentUid ?: return
-        val jsonStr = json.encodeToString(favSerializer, favs)
+        val capped = if (favs.size > MAX_CLOUD_FAVS) favs.take(MAX_CLOUD_FAVS) else favs
+        val jsonStr = json.encodeToString(favSerializer, capped)
         writeWithRetry("favorites", uid) {
             db.collection("users").document(uid).collection("data").document("favorites")
                 .set(mapOf("json" to jsonStr))
@@ -355,7 +363,8 @@ class UserSyncService(
 
     suspend fun saveRecents(recents: List<RecentItem>) {
         val uid = currentUid ?: return
-        val jsonStr = json.encodeToString(recentSerializer, recents)
+        val capped = if (recents.size > MAX_CLOUD_RECENTS) recents.take(MAX_CLOUD_RECENTS) else recents
+        val jsonStr = json.encodeToString(recentSerializer, capped)
         writeWithRetry("recents", uid) {
             db.collection("users").document(uid).collection("data").document("recents")
                 .set(mapOf("json" to jsonStr))
@@ -395,11 +404,15 @@ class UserSyncService(
 
     suspend fun savePreferences(prefs: CloudPreferences) {
         val uid = currentUid ?: return
+        val ts = if (prefs.updatedAt > 0L) prefs.updatedAt else System.currentTimeMillis()
         val data = mapOf(
             "lightEffects" to prefs.lightEffects,
             "homeChannelsLayout" to prefs.homeChannelsLayout,
             "homeChannelsSource" to prefs.homeChannelsSource,
             "homeChannelsCategoryId" to prefs.homeChannelsCategoryId,
+            "moviesLayoutStyle" to prefs.moviesLayoutStyle,
+            "seriesLayoutStyle" to prefs.seriesLayoutStyle,
+            "updatedAt" to ts,
         )
         writeWithRetry("preferences", uid) {
             db.collection("users").document(uid).collection("data").document("preferences").set(data)
@@ -419,6 +432,9 @@ class UserSyncService(
                                 homeChannelsLayout = s.getString("homeChannelsLayout") ?: "CAROUSEL",
                                 homeChannelsSource = s.getString("homeChannelsSource") ?: "AUTO",
                                 homeChannelsCategoryId = s.getString("homeChannelsCategoryId") ?: "",
+                                moviesLayoutStyle = s.getString("moviesLayoutStyle") ?: "CLASSIC",
+                                seriesLayoutStyle = s.getString("seriesLayoutStyle") ?: "CLASSIC",
+                                updatedAt = s.getLong("updatedAt") ?: 0L,
                             )
                         )
                     )
@@ -431,4 +447,9 @@ class UserSyncService(
 
     suspend fun getPreferences(): CloudPreferences? =
         (fetchPreferences() as? CloudFetchResult.Success)?.data
+
+    private companion object {
+        const val MAX_CLOUD_FAVS = 800
+        const val MAX_CLOUD_RECENTS = 150
+    }
 }

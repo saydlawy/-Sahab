@@ -9,8 +9,6 @@ object Ar {
     const val brand = "سحاب"
     const val brandTagline = "البث التلفزيوني الذكي للشاشات الكبيرة"
     const val home = "الرئيسية"
-    const val sports = "الرياضة"
-    const val sportsSoon = "قريباً — قسم الرياضة والمباريات الحية"
     const val profile = "الحساب"
     const val all = "الكل"
     const val dpadReady = "D-Pad Ready"

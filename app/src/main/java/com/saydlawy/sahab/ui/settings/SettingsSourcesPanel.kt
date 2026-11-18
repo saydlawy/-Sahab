@@ -303,6 +303,10 @@ internal fun ActiveSourceDetailsPanel(
     onSyncNow: () -> Unit,
 ) {
     if (account == null) return
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var liveInfo by remember(account.id, info) { mutableStateOf(info) }
+    var refreshingInfo by remember { mutableStateOf(false) }
 
     GlassPanel(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), strong = true, padding = 20.dp) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -319,8 +323,8 @@ internal fun ActiveSourceDetailsPanel(
                     Text(if (account.type == "M3U") "رابط M3U" else account.server, fontSize = 13.sp, color = Palette.Glow)
                 }
             }
-            if (account.type == "XTREAM" && info != null) {
-                Tag(info.status.ifBlank { "Active" }, Palette.Emerald)
+            if (account.type == "XTREAM" && liveInfo != null) {
+                Tag(liveInfo?.status.orEmpty().ifBlank { "Active" }, Palette.Emerald)
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -328,13 +332,13 @@ internal fun ActiveSourceDetailsPanel(
         if (account.type == "XTREAM") {
             InfoRow("الخادم", hostOf(account.server))
             InfoRow("اسم المستخدم", account.user)
-            if (info != null) {
-                InfoRow("الحالة", if (info.status.isBlank()) "Active" else info.status)
-                val expiry = info.expiry
+            liveInfo?.let { currentInfo ->
+                InfoRow("الحالة", if (currentInfo.status.isBlank()) "Active" else currentInfo.status)
+                val expiry = currentInfo.expiry
                 InfoRow("ينتهي الاشتراك", if (expiry == null || expiry <= 0L) Ar.subscriptionOpenShort else formatDate(expiry))
-                if (info.maxConnections.isNotBlank()) {
-                    val maxText = if (info.maxConnections == "0") "غير محدود" else info.maxConnections
-                    InfoRow("الأجهزة المتصلة", "${info.activeConnections.ifBlank { "0" }} / $maxText")
+                if (currentInfo.maxConnections.isNotBlank()) {
+                    val maxText = if (currentInfo.maxConnections == "0") "غير محدود" else currentInfo.maxConnections
+                    InfoRow("الأجهزة المتصلة", "${currentInfo.activeConnections.ifBlank { "0" }} / $maxText")
                 }
             }
         } else {
@@ -342,13 +346,38 @@ internal fun ActiveSourceDetailsPanel(
         }
         
         Spacer(Modifier.height(12.dp))
-        GlassButton(
-            text = "تحديث ومزامنة القنوات الآن",
-            onClick = onSyncNow,
-            icon = Ic.Refresh,
-            primary = true,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (account.type == "XTREAM") {
+                GlassButton(
+                    text = if (refreshingInfo) "جاري تحديث الاشتراك..." else "تحديث بيانات الاشتراك",
+                    onClick = {
+                        if (refreshingInfo) return@GlassButton
+                        refreshingInfo = true
+                        scope.launch(Dispatchers.IO) {
+                            val result = runCatching { container.repo.refreshUserInfo() }
+                            withContext(Dispatchers.Main) {
+                                refreshingInfo = false
+                                result.onSuccess { updated ->
+                                    liveInfo = updated
+                                    Toast.makeText(context, "تم تحديث بيانات الاشتراك", Toast.LENGTH_SHORT).show()
+                                }.onFailure { err ->
+                                    Toast.makeText(context, err.message ?: "تعذر تحديث بيانات الاشتراك", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    },
+                    icon = Ic.Person,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            GlassButton(
+                text = "تحديث ومزامنة القنوات الآن",
+                onClick = onSyncNow,
+                icon = Ic.Refresh,
+                primary = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 

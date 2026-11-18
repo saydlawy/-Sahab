@@ -136,6 +136,7 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                         aiState = aiState,
                         onGenerateStory = { vm.generateAiStory() },
                         onToggleFavorite = { vm.toggleFavorite(details) },
+                        onRefresh = { vm.refreshMetadata() },
                         onPlay = onPlay,
                     )
                 }
@@ -162,6 +163,7 @@ private fun SeriesContent(
     aiState: com.saydlawy.sahab.data.ai.AiGenerationState,
     onGenerateStory: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onRefresh: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
 ) {
     val focusNav = LocalFocusNavigation.current
@@ -226,6 +228,7 @@ private fun SeriesContent(
                                 aiState = aiState,
                                 onGenerateStory = onGenerateStory,
                                 onToggleFavorite = onToggleFavorite,
+                                onRefresh = onRefresh,
                                 onPlay = onPlay,
                                 modifier = Modifier.weight(1f),
                             )
@@ -246,6 +249,7 @@ private fun SeriesContent(
                                 aiState = aiState,
                                 onGenerateStory = onGenerateStory,
                                 onToggleFavorite = onToggleFavorite,
+                                onRefresh = onRefresh,
                                 onPlay = onPlay,
                                 modifier = Modifier.weight(1f),
                             )
@@ -268,6 +272,7 @@ private fun SeriesContent(
                                 aiState = aiState,
                                 onGenerateStory = onGenerateStory,
                                 onToggleFavorite = onToggleFavorite,
+                                onRefresh = onRefresh,
                                 onPlay = onPlay,
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -365,6 +370,7 @@ private fun SeriesInfoPanel(
     aiState: com.saydlawy.sahab.data.ai.AiGenerationState,
     onGenerateStory: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onRefresh: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -451,6 +457,13 @@ private fun SeriesInfoPanel(
                 size = 54.dp,
                 selected = isFavorite,
                 tint = if (isFavorite) Palette.Live else Palette.Glow,
+            )
+            GlassIconButton(
+                icon = Ic.Refresh,
+                description = Ar.refreshData,
+                onClick = onRefresh,
+                size = 54.dp,
+                tint = Palette.FocusCyan,
             )
         }
 

@@ -92,7 +92,13 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val account = Account(server, current.user.trim(), current.pass.trim())
+                val account = Account(
+                    name = current.user.trim().ifBlank { "My TV" },
+                    type = "XTREAM",
+                    server = server,
+                    user = current.user.trim(),
+                    pass = current.pass.trim(),
+                )
                 container.repo.login(account)
                 container.prefs.saveAccount(account)
                 // حفظ في السحابة إذا كان المستخدم مسجل دخول

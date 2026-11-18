@@ -82,7 +82,6 @@ fun HomeScreen(
     val showLiveChannels by container.prefs.showLiveChannelsOnHome.collectAsStateWithLifecycle(initialValue = true)
     val showRecommended by container.prefs.showRecommendedOnHome.collectAsStateWithLifecycle(initialValue = true)
     val showQuickCategories by container.prefs.showQuickCategoriesOnHome.collectAsStateWithLifecycle(initialValue = true)
-    val showMatches by container.prefs.showMatchesOnHome.collectAsStateWithLifecycle(initialValue = true)
 
     val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(
         initialValue = HomeChannelsLayout.CAROUSEL,
@@ -99,7 +98,7 @@ fun HomeScreen(
 
     val featuredChannels = homeState.featuredChannels
     val trendingMovies = homeState.trendingMovies
-    val todayMatches = homeState.todayMatches
+    val topRatedMovies = homeState.topRatedMovies
 
     LaunchedEffect(
         container.repo.account,
@@ -140,7 +139,7 @@ fun HomeScreen(
                         when (item.kind) {
                             Kind.LIVE -> onPlay(
                                 PlayRequest(
-                                    listOf(PlayItem(Kind.LIVE, item.id, item.title, icon = item.icon)),
+                                    listOf(PlayItem(Kind.LIVE, item.id, item.title, icon = item.icon, url = item.url)),
                                     0,
                                 ),
                             )
@@ -219,12 +218,11 @@ fun HomeScreen(
             ) {
                 val sectionDefaultOrder = listOf(
                     "section_continue_watching", "section_live_channels", "section_trending_movies",
-                    "section_quick_categories", "section_today_matches",
+                    "section_top_rated", "section_quick_categories",
                 )
                 val orderedHomeSections = when (themeCustomization.componentPlacement["home_sections"]) {
-                    "live_first" -> listOf("section_live_channels", "section_continue_watching", "section_trending_movies", "section_quick_categories", "section_today_matches")
-                    "movies_first" -> listOf("section_trending_movies", "section_continue_watching", "section_live_channels", "section_quick_categories", "section_today_matches")
-                    "matches_first" -> listOf("section_today_matches", "section_continue_watching", "section_live_channels", "section_trending_movies", "section_quick_categories")
+                    "live_first" -> listOf("section_live_channels", "section_continue_watching", "section_trending_movies", "section_top_rated", "section_quick_categories")
+                    "movies_first" -> listOf("section_trending_movies", "section_top_rated", "section_continue_watching", "section_live_channels", "section_quick_categories")
                     else -> sectionDefaultOrder
                 }
                 val visibleHomeSections = orderedHomeSections.filter { section ->
@@ -232,8 +230,8 @@ fun HomeScreen(
                         "section_continue_watching" -> showRecents && themeCustomization.isVisible("home_continue") && continueWatchingItems.isNotEmpty()
                         "section_live_channels" -> showLiveChannels && themeCustomization.isVisible("home_live_channels")
                         "section_trending_movies" -> showRecommended && themeCustomization.isVisible("home_recommendations")
+                        "section_top_rated" -> showRecommended && themeCustomization.isVisible("home_recommendations") && topRatedMovies.isNotEmpty()
                         "section_quick_categories" -> showQuickCategories && themeCustomization.isVisible("home_categories")
-                        "section_today_matches" -> showMatches && themeCustomization.isVisible("home_matches")
                         else -> false
                     }
                 }
@@ -243,11 +241,10 @@ fun HomeScreen(
                             vertical = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT,
                             channelCount = featuredChannels.size,
                             movieCount = trendingMovies.size,
-                            matchCount = todayMatches.size,
                             placement = themeCustomization.componentPlacement["home_highlights"] ?: "start",
                             onLive = { onOpen(Routes.LIVE) },
                             onMovies = { onOpen(Routes.MOVIES) },
-                            onSports = { onOpen(Routes.SPORTS) },
+                            onSeries = { onOpen(Routes.SERIES) },
                         )
                     }
                 }
@@ -285,14 +282,17 @@ fun HomeScreen(
                             movies = trendingMovies,
                             onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
                         )
+                        "section_top_rated" -> TrendingMoviesSection(
+                            movies = topRatedMovies,
+                            onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
+                            title = "الأعلى تقييماً",
+                            iconEmoji = "⭐",
+                            rowKey = "home_top_rated_row",
+                        )
                         "section_quick_categories" -> QuickCategoriesSection(
                             onOpenLive = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_live"); onOpen(Routes.LIVE) },
                             onOpenMovies = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_movies"); onOpen(Routes.MOVIES) },
                             onOpenSeries = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_series"); onOpen(Routes.SERIES) },
-                        )
-                        "section_today_matches" -> TodayMatchesSection(
-                            matches = todayMatches,
-                            onOpenSports = { matchKey -> focusNav.markNavigateFrom(Routes.HOME, matchKey); onOpen(Routes.SPORTS) },
                         )
                         else -> Unit
                     }
@@ -316,19 +316,18 @@ private fun BentoHomeHighlights(
     vertical: Boolean,
     channelCount: Int,
     movieCount: Int,
-    matchCount: Int,
     placement: String,
     onLive: () -> Unit,
     onMovies: () -> Unit,
-    onSports: () -> Unit,
+    onSeries: () -> Unit,
 ) {
     val live = Triple("البث المباشر", "$channelCount قناة", onLive)
     val movies = Triple("أفلام مقترحة", "$movieCount عملاً", onMovies)
-    val sports = Triple("مباريات اليوم", "$matchCount مباراة", onSports)
+    val series = Triple("المسلسلات", "تصفح المكتبة", onSeries)
     val highlights = when (placement) {
-        "center" -> listOf(movies, live, sports)
-        "end" -> listOf(sports, movies, live)
-        else -> listOf(live, movies, sports)
+        "center" -> listOf(movies, live, series)
+        "end" -> listOf(series, movies, live)
+        else -> listOf(live, movies, series)
     }
     if (vertical) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

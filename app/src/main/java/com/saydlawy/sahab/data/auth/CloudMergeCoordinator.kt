@@ -90,11 +90,15 @@ class CloudMergeCoordinator {
         fetchCloudPrefs: suspend () -> CloudFetchResult<CloudPreferences>,
         applyPrefs: suspend (CloudPreferences) -> Unit,
         timeoutMs: Long = DEFAULT_FETCH_TIMEOUT_MS,
+        localUpdatedAt: () -> Long = { 0L },
     ): Boolean {
         val result = withTimeoutOrNull(timeoutMs) { fetchCloudPrefs() } ?: CloudFetchResult.Error()
         return when (result) {
             is CloudFetchResult.Success -> {
-                applyPrefs(result.data)
+                val localTs = localUpdatedAt()
+                if (result.data.updatedAt == 0L || localTs == 0L || result.data.updatedAt >= localTs) {
+                    applyPrefs(result.data)
+                }
                 prefsMergeDone = true
                 true
             }

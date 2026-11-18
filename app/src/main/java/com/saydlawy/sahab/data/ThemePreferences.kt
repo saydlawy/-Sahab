@@ -20,6 +20,7 @@ data class ThemeCustomization(
 @Serializable
 data class ThemePreferences(
     val selectedThemeId: String = "cosmic_glass",
+    val oledAccentPreset: String = "oled_cyan",
     val customizations: Map<String, ThemeCustomization> = emptyMap(),
 ) {
     fun customization(themeId: String = selectedThemeId): ThemeCustomization =

@@ -94,11 +94,14 @@ service cloud.firestore {
               hasOnlyAllowedFields(['json']) &&
               ('json' in data) && data.json is string && data.json.size() <= 262144) ||
              (docId == 'preferences' &&
-              hasOnlyAllowedFields(['lightEffects', 'homeChannelsLayout', 'homeChannelsSource', 'homeChannelsCategoryId']) &&
+              hasOnlyAllowedFields(['lightEffects', 'homeChannelsLayout', 'homeChannelsSource', 'homeChannelsCategoryId', 'moviesLayoutStyle', 'seriesLayoutStyle', 'updatedAt']) &&
               (!('lightEffects' in data) || data.lightEffects is bool) &&
               isValidOptionalString('homeChannelsLayout', 1, 32) &&
               isValidOptionalString('homeChannelsSource', 1, 32) &&
-              isValidOptionalString('homeChannelsCategoryId', 0, 128));
+              isValidOptionalString('homeChannelsCategoryId', 0, 128) &&
+              isValidOptionalString('moviesLayoutStyle', 1, 32) &&
+              isValidOptionalString('seriesLayoutStyle', 1, 32) &&
+              isValidOptionalInt('updatedAt', 0, 9999999999999));
     }
 
     function catalogAllowedFields() {
@@ -169,12 +172,21 @@ service cloud.firestore {
         allow create, update: if isOwner(uid) && isValidUserDataDoc(docId, request.resource.data);
         allow delete: if isOwner(uid);
       }
+
+      match /custom_catalog/{docId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && isValidCatalogPayload(request.resource.data);
+        allow delete: if isOwner(uid);
+      }
     }
 
     match /global_catalog/{docId} {
       allow read: if true;
-      allow create: if isAuthenticated() && isValidCatalogPayload(request.resource.data);
+      allow create: if isAuthenticated() &&
+                       docId.matches('^tmdb:[0-9]+$') &&
+                       isValidCatalogPayload(request.resource.data);
       allow update: if isAuthenticated() &&
+                       docId.matches('^tmdb:[0-9]+$') &&
                        isValidCatalogPayload(request.resource.data) &&
                        originalEnrichmentUnchanged();
       allow delete: if false;

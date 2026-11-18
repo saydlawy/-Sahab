@@ -105,8 +105,9 @@ fun SettingsScreen(
 
     val savedCategory = focusNav.getSelectedCategory(Routes.SETTINGS)
     var selectedCategory by remember(isWide) {
-        mutableStateOf<String?>(savedCategory ?: if (isWide) "customize" else null)
+        mutableStateOf<String?>(savedCategory ?: if (isWide) "appearance" else null)
     }
+    var showLogoutConfirm by remember { mutableStateOf(false) }
 
     val selectCat: (String?) -> Unit = { cat ->
         selectedCategory = cat
@@ -145,49 +146,41 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     SettingsMenuItem(
-                        title = "التخصيص والتحكم الكامل",
-                        subtitle = "أقسام الرئيسية، المظهر، والأداء",
+                        title = "المظهر وتصميم الشاشات",
+                        subtitle = "تخطيط الأفلام، المسلسلات، الثيمات، والأداء",
                         icon = Ic.Settings,
-                        isSelected = selectedCategory == "customize",
-                        itemKey = "settings_menu_customize",
+                        isSelected = selectedCategory == "appearance",
+                        itemKey = "settings_menu_appearance",
                         isDefault = true,
-                        onClick = { selectCat("customize") },
+                        onClick = { selectCat("appearance") },
                     )
                     SettingsMenuItem(
-                        title = "الثيمات وتخصيصها",
-                        subtitle = "اختيار ثيم وتعديل تفاصيل مظهره",
-                        icon = Ic.Settings,
-                        isSelected = selectedCategory == "themes",
-                        itemKey = "settings_menu_themes",
-                        onClick = { selectCat("themes") },
-                    )
-                    SettingsMenuItem(
-                        title = "قنوات الشاشة الرئيسية",
-                        subtitle = "اختيار وتحديد القنوات المعروضة بالرئيسية",
+                        title = "قوائم البث والتخصيص",
+                        subtitle = "قنوات الرئيسية، القوائم المخصصة، والمخفية",
                         icon = Ic.Tv,
-                        isSelected = selectedCategory == "home_channels",
-                        itemKey = "settings_menu_home_channels",
-                        onClick = { selectCat("home_channels") },
-                    )
-                    SettingsMenuItem(
-                        title = "الحساب السحابي",
-                        subtitle = "تسجيل الدخول ومزامنة البيانات",
-                        icon = Ic.Cloud,
-                        isSelected = selectedCategory == "cloud",
-                        itemKey = "settings_menu_cloud",
-                        onClick = { selectCat("cloud") },
+                        isSelected = selectedCategory == "custom_tv",
+                        itemKey = "settings_menu_custom_tv",
+                        onClick = { selectCat("custom_tv") },
                     )
                     SettingsMenuItem(
                         title = "المصادر والاشتراكات",
-                        subtitle = "إدارة مصادر القنوات (Xtream / M3U)",
+                        subtitle = "إدارة مصادر Xtream / M3U وتحديث الاشتراك",
                         icon = Ic.Tv,
                         isSelected = selectedCategory == "sources",
                         itemKey = "settings_menu_sources",
                         onClick = { selectCat("sources") },
                     )
                     SettingsMenuItem(
-                        title = "الذكاء الاصطناعي",
-                        subtitle = "إدارة مفاتيح Gemini لتوليد القصص",
+                        title = "الحساب السحابي والمزامنة",
+                        subtitle = "تسجيل الدخول، رمز التشفير، والمزامنة",
+                        icon = Ic.Cloud,
+                        isSelected = selectedCategory == "cloud",
+                        itemKey = "settings_menu_cloud",
+                        onClick = { selectCat("cloud") },
+                    )
+                    SettingsMenuItem(
+                        title = "الذكاء الاصطناعي (Gemini)",
+                        subtitle = "إدارة مفاتيح توليد قصص الأفلام",
                         icon = Ic.Cloud,
                         isSelected = selectedCategory == "ai",
                         itemKey = "settings_menu_ai",
@@ -197,7 +190,10 @@ fun SettingsScreen(
                     Spacer(Modifier.height(8.dp))
                     GlassButton(
                         text = Ar.logout,
-                        onClick = onLoggedOut,
+                        onClick = {
+                            focusNav.markNavigateFrom(Routes.SETTINGS, "settings_logout_btn")
+                            showLogoutConfirm = true
+                        },
                         icon = Ic.Close,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -212,7 +208,7 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    SettingsDetailContent(selectedCategory ?: "customize", container, context, onOpenCloudLogin, onLoggedOut)
+                    SettingsDetailContent(selectedCategory ?: "appearance", container, onOpenCloudLogin, onLoggedOut)
                 }
             }
         } else {
@@ -225,48 +221,40 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     SettingsMenuItem(
-                        title = "التخصيص والتحكم الكامل",
-                        subtitle = "أقسام الرئيسية، المظهر، والأداء",
+                        title = "المظهر وتصميم الشاشات",
+                        subtitle = "تخطيط الأفلام، المسلسلات، الثيمات، والأداء",
                         icon = Ic.Settings,
                         isSelected = false,
-                        itemKey = "settings_menu_customize",
-                        onClick = { selectCat("customize") },
+                        itemKey = "settings_menu_appearance",
+                        onClick = { selectCat("appearance") },
                     )
                     SettingsMenuItem(
-                        title = "الثيمات وتخصيصها",
-                        subtitle = "اختيار ثيم وتعديل تفاصيل مظهره",
-                        icon = Ic.Settings,
-                        isSelected = false,
-                        itemKey = "settings_menu_themes",
-                        onClick = { selectCat("themes") },
-                    )
-                    SettingsMenuItem(
-                        title = "قنوات الشاشة الرئيسية",
-                        subtitle = "اختيار وتحديد القنوات المعروضة بالرئيسية",
+                        title = "قوائم البث والتخصيص",
+                        subtitle = "قنوات الرئيسية، القوائم المخصصة، والمخفية",
                         icon = Ic.Tv,
                         isSelected = false,
-                        itemKey = "settings_menu_home_channels",
-                        onClick = { selectCat("home_channels") },
-                    )
-                    SettingsMenuItem(
-                        title = "الحساب السحابي",
-                        subtitle = "تسجيل الدخول ومزامنة البيانات",
-                        icon = Ic.Cloud,
-                        isSelected = false,
-                        itemKey = "settings_menu_cloud",
-                        onClick = { selectCat("cloud") },
+                        itemKey = "settings_menu_custom_tv",
+                        onClick = { selectCat("custom_tv") },
                     )
                     SettingsMenuItem(
                         title = "المصادر والاشتراكات",
-                        subtitle = "إدارة مصادر القنوات (Xtream / M3U)",
+                        subtitle = "إدارة مصادر Xtream / M3U وتحديث الاشتراك",
                         icon = Ic.Tv,
                         isSelected = false,
                         itemKey = "settings_menu_sources",
                         onClick = { selectCat("sources") },
                     )
                     SettingsMenuItem(
-                        title = "الذكاء الاصطناعي",
-                        subtitle = "إدارة مفاتيح Gemini لتوليد القصص",
+                        title = "الحساب السحابي والمزامنة",
+                        subtitle = "تسجيل الدخول، رمز التشفير، والمزامنة",
+                        icon = Ic.Cloud,
+                        isSelected = false,
+                        itemKey = "settings_menu_cloud",
+                        onClick = { selectCat("cloud") },
+                    )
+                    SettingsMenuItem(
+                        title = "الذكاء الاصطناعي (Gemini)",
+                        subtitle = "إدارة مفاتيح توليد قصص الأفلام",
                         icon = Ic.Cloud,
                         isSelected = false,
                         itemKey = "settings_menu_ai",
@@ -276,7 +264,7 @@ fun SettingsScreen(
                     Spacer(Modifier.height(16.dp))
                     GlassButton(
                         text = Ar.logout,
-                        onClick = onLoggedOut,
+                        onClick = { showLogoutConfirm = true },
                         icon = Ic.Close,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -309,8 +297,55 @@ fun SettingsScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
-                        SettingsDetailContent(selectedCategory, container, context, onOpenCloudLogin, onLoggedOut)
+                        SettingsDetailContent(selectedCategory, container, onOpenCloudLogin, onLoggedOut)
                     }
+                }
+            }
+        }
+    }
+
+    if (showLogoutConfirm) {
+        LogoutConfirmationDialog(
+            onConfirm = {
+                showLogoutConfirm = false
+                onLoggedOut()
+            },
+            onDismiss = {
+                showLogoutConfirm = false
+                focusNav.restoreAfterDialogDismiss(Routes.SETTINGS, "settings_logout_btn")
+            },
+        )
+    }
+}
+
+@Composable
+private fun LogoutConfirmationDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        GlassPanel(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            strong = true,
+            padding = 22.dp,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(Ar.logoutQuestion, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Palette.Text)
+                Text(Ar.logoutHint, fontSize = 13.sp, color = Palette.TextDim)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassButton(
+                        text = Ar.logout,
+                        onClick = onConfirm,
+                        primary = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    GlassButton(
+                        text = Ar.cancel,
+                        onClick = onDismiss,
+                        autoFocus = true,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -373,7 +408,6 @@ private fun SettingsMenuItem(
 private fun SettingsDetailContent(
     category: String?,
     container: AppContainer,
-    context: Context,
     onOpenCloudLogin: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
@@ -382,19 +416,18 @@ private fun SettingsDetailContent(
     val account: Account? = container.repo.account
     val info: UserInfo? = container.repo.userInfo
 
-    val light by container.prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
-    val showRecents by container.prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
-    val showLiveChannels by container.prefs.showLiveChannelsOnHome.collectAsStateWithLifecycle(initialValue = true)
-    val showRecommended by container.prefs.showRecommendedOnHome.collectAsStateWithLifecycle(initialValue = true)
-    val showQuickCategories by container.prefs.showQuickCategoriesOnHome.collectAsStateWithLifecycle(initialValue = true)
-    val showMatches by container.prefs.showMatchesOnHome.collectAsStateWithLifecycle(initialValue = true)
-    val homeChannelsLayout by container.prefs.homeChannelsLayout.collectAsStateWithLifecycle(initialValue = HomeChannelsLayout.CAROUSEL)
     val homeChannelsSource by container.prefs.homeChannelsSource.collectAsStateWithLifecycle(initialValue = HomeChannelsSource.AUTO)
     val homeChannelsCategoryId by container.prefs.homeChannelsCategoryId.collectAsStateWithLifecycle(initialValue = "")
     val homeCustomChannelIds by container.prefs.homeCustomChannelIds.collectAsStateWithLifecycle(initialValue = emptySet())
 
     when (category) {
-        "themes" -> ThemeCustomizationPanel(container.prefs)
+        "appearance", "customize", "themes" -> SettingsAppearancePanel(container = container)
+        "custom_tv", "home_channels" -> SettingsCustomTvPanel(
+            container = container,
+            homeChannelsSource = homeChannelsSource,
+            homeChannelsCategoryId = homeChannelsCategoryId,
+            homeCustomChannelIds = homeCustomChannelIds,
+        )
         "cloud" -> {
             CloudAccountPanel(
                 email = cloudUser?.email,
@@ -449,53 +482,6 @@ private fun SettingsDetailContent(
                             }
                         }
                     }
-                )
-            }
-        }
-        "home_channels" -> {
-            HomeChannelsSelectionPanel(
-                container = container,
-                source = homeChannelsSource,
-                selectedCategoryId = homeChannelsCategoryId,
-                customChannelIds = homeCustomChannelIds,
-                onSelectSource = { src -> scope.launch { container.prefs.setHomeChannelsSource(src) } },
-                onSelectCategory = { catId ->
-                    scope.launch {
-                        container.prefs.setHomeChannelsCategoryId(catId)
-                        container.prefs.setHomeChannelsSource(HomeChannelsSource.CATEGORY)
-                    }
-                },
-                onToggleCustomChannel = { chId ->
-                    scope.launch {
-                        container.prefs.toggleHomeCustomChannel(chId)
-                        container.prefs.setHomeChannelsSource(HomeChannelsSource.CUSTOM)
-                    }
-                },
-                onClearCustomChannels = {
-                    scope.launch { container.prefs.setHomeCustomChannelIds(emptySet()) }
-                },
-            )
-        }
-        "customize" -> {
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                HomeCustomizationPanel(
-                    showRecents = showRecents,
-                    showLiveChannels = showLiveChannels,
-                    showRecommended = showRecommended,
-                    showQuickCategories = showQuickCategories,
-                    showMatches = showMatches,
-                    homeChannelsLayout = homeChannelsLayout,
-                    onToggleShowRecents = { scope.launch { container.prefs.setShowRecents(!showRecents) } },
-                    onToggleShowLive = { scope.launch { container.prefs.setShowLiveChannelsOnHome(!showLiveChannels) } },
-                    onToggleShowRecommended = { scope.launch { container.prefs.setShowRecommendedOnHome(!showRecommended) } },
-                    onToggleShowQuickCategories = { scope.launch { container.prefs.setShowQuickCategoriesOnHome(!showQuickCategories) } },
-                    onToggleShowMatches = { scope.launch { container.prefs.setShowMatchesOnHome(!showMatches) } },
-                    onSelectLayout = { layout -> scope.launch { container.prefs.setHomeChannelsLayout(layout) } },
-                    onClearRecents = { scope.launch { container.prefs.restoreRecents(emptyList()) } },
-                )
-                AppearancePanel(
-                    light = light,
-                    onToggleLight = { scope.launch { container.prefs.setLightEffects(!light) } },
                 )
             }
         }

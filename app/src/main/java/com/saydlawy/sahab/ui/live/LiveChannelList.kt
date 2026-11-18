@@ -147,6 +147,7 @@ internal fun ChannelColumn(
     onPreview: (Channel) -> Unit,
     onPlayAt: (Int) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
+    onManageChannel: ((Channel) -> Unit)? = null,
     onGuide: (Channel) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
@@ -218,7 +219,7 @@ internal fun ChannelColumn(
                             isFavorite = channel.id in favoriteIds,
                             isDefaultEntry = index == 0,
                             onActivate = { onPlayAt(index) },
-                            onToggleFavorite = { onToggleFavorite(channel) },
+                            onToggleFavorite = { onManageChannel?.invoke(channel) ?: onToggleFavorite(channel) },
                         )
                     }
                 }

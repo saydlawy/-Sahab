@@ -132,13 +132,13 @@ fun GlassCard(
     val interaction = remember { MutableInteractionSource() }
     val focusedRaw by interaction.collectIsFocusedAsState()
     val isTv = LocalIsTv.current
-    val focused = focusedRaw && isTv
+    val focused = focusedRaw
     val pressed by interaction.collectIsPressedAsState()
     val light = LocalLightEffects.current
 
     val targetScale = when {
         pressed -> 0.97f
-        focused -> focusScale
+        focused && isTv -> focusScale
         else -> 1f
     }
     val spec: AnimationSpec<Float> = if (light) snap() else tween(140)

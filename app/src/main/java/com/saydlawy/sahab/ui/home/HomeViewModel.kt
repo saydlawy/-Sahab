@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkManager
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Channel
 import com.saydlawy.sahab.data.FavItem
@@ -12,33 +11,24 @@ import com.saydlawy.sahab.data.HomeChannelsSource
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
-import com.saydlawy.sahab.data.sports.Match
-import com.saydlawy.sahab.data.sports.MatchStatus
-import com.saydlawy.sahab.data.sports.SportsDatabase
-import com.saydlawy.sahab.data.sports.SyncScheduler
-import com.saydlawy.sahab.data.sports.toMatch
-import com.saydlawy.sahab.util.formatDayOffsetYmd
-import com.saydlawy.sahab.util.utcDateToLocalYmd
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 @Immutable
 data class HomeUiState(
     val featuredChannels: List<Channel> = emptyList(),
     val trendingMovies: List<CatalogMovieEntity> = emptyList(),
-    val todayMatches: List<Match> = emptyList(),
+    val topRatedMovies: List<CatalogMovieEntity> = emptyList(),
 )
 
 /**
- * M-18: Owns Home screen data loading (featured channels, instant/enriched movies, today's matches)
+ * M-18: Owns Home screen data loading (featured channels, instant/enriched movies)
  * outside Composable state.
  */
 class HomeViewModel(
@@ -53,10 +43,6 @@ class HomeViewModel(
 
     private var featuredJob: Job? = null
     private var trendingJob: Job? = null
-
-    init {
-        loadTodayMatches()
-    }
 
     fun refreshFeaturedChannels(
         source: HomeChannelsSource,
@@ -88,7 +74,11 @@ class HomeViewModel(
                 )
             }.getOrNull().orEmpty()
             if (instant.isNotEmpty()) {
-                _state.update { it.copy(trendingMovies = instant) }
+                val topInstant = instant
+                    .filter { (it.rating.toDoubleOrNull() ?: 0.0) > 0.0 }
+                    .sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+                    .take(18)
+                _state.update { it.copy(trendingMovies = instant, topRatedMovies = topInstant.ifEmpty { it.topRatedMovies }) }
             }
 
             val enriched = runCatching {
@@ -99,42 +89,11 @@ class HomeViewModel(
                 )
             }.getOrNull().orEmpty()
             if (enriched.isNotEmpty()) {
-                _state.update { it.copy(trendingMovies = enriched) }
-            }
-        }
-    }
-
-    fun loadTodayMatches() {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val dao = SportsDatabase.getInstance(appContext).matchDao()
-                var all = dao.getAllMatches().map { it.toMatch() }
-                if (all.isEmpty()) {
-                    val req = SyncScheduler.enqueueManualSyncNow(appContext)
-                    withTimeoutOrNull(45_000L) {
-                        WorkManager.getInstance(appContext)
-                            .getWorkInfoByIdFlow(req.id)
-                            .firstOrNull { it != null && it.state.isFinished }
-                    }
-                    all = dao.getAllMatches().map { it.toMatch() }
-                }
-                val todayStr = formatDayOffsetYmd(0)
-                val tomorrowStr = formatDayOffsetYmd(1)
-                val yesterdayStr = formatDayOffsetYmd(-1)
-
-                val todayList = all.filter {
-                    utcDateToLocalYmd(it.date, it.time) == todayStr || it.status == MatchStatus.LIVE
-                }
-                val combined = if (todayList.size >= 5) {
-                    todayList
-                } else {
-                    val nearby = all.filter {
-                        val localDate = utcDateToLocalYmd(it.date, it.time)
-                        localDate == tomorrowStr || localDate == yesterdayStr
-                    }
-                    (todayList + nearby + all).distinctBy { it.id }.take(12)
-                }
-                _state.update { it.copy(todayMatches = combined.take(12)) }
+                val topEnriched = enriched
+                    .filter { (it.rating.toDoubleOrNull() ?: 0.0) > 0.0 }
+                    .sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+                    .take(18)
+                _state.update { it.copy(trendingMovies = enriched, topRatedMovies = topEnriched.ifEmpty { it.topRatedMovies }) }
             }
         }
     }

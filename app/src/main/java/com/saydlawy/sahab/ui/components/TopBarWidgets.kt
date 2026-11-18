@@ -178,7 +178,6 @@ internal fun CinematicNavTab(
                 shape = shape,
             )
             .hoverable(interaction)
-            .focusable(interactionSource = interaction)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
                     (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
@@ -255,7 +254,6 @@ internal fun TopBarProfileButton(
                 color = if (focused || active) Palette.FocusCyan else Color.White.copy(alpha = 0.35f),
                 shape = CircleShape,
             )
-            .focusable(interactionSource = interaction)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown &&
                     (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)

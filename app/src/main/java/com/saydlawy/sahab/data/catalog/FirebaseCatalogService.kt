@@ -334,6 +334,7 @@ class FirebaseCatalogService {
 
     suspend fun saveCatalogItem(entity: CatalogMovieEntity) = suspendCancellableCoroutine { cont ->
         val aliases = aliasesFor(entity)
+        val tmdbDocId = entity.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
         val data = buildMap<String, Any?> {
             put("novaStreamId", entity.novaStreamId)
             put("titleAr", entity.titleAr)
@@ -356,21 +357,21 @@ class FirebaseCatalogService {
             put("tmdbVoteCount", entity.tmdbVoteCount)
             if (aliases.isNotEmpty()) put("aliases", aliases)
         }
-        collection.document(entity.sahabId).set(data, SetOptions.merge())
-            .addOnSuccessListener {
-                val pendingId = CatalogMovieEntity.idPending(entity.novaStreamId)
-                if (entity.novaStreamId.isNotBlank() && entity.sahabId != pendingId) {
-                    val redirectData = mapOf(
-                        "redirectTo" to entity.sahabId,
-                        "novaStreamId" to entity.novaStreamId,
-                    )
-                    collection.document(pendingId).set(redirectData, SetOptions.merge())
-                        .addOnCompleteListener { cont.resume(Unit) }
-                } else {
-                    cont.resume(Unit)
-                }
+        if (tmdbDocId != null) {
+            collection.document(tmdbDocId).set(data, SetOptions.merge())
+                .addOnCompleteListener { cont.resume(Unit) }
+        } else {
+            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (uid.isNullOrBlank()) {
+                cont.resume(Unit)
+                return@suspendCancellableCoroutine
             }
-            .addOnFailureListener { cont.resume(Unit) }
+            db.collection("users").document(uid)
+                .collection("custom_catalog")
+                .document(entity.sahabId)
+                .set(data, SetOptions.merge())
+                .addOnCompleteListener { cont.resume(Unit) }
+        }
     }
 
     suspend fun linkPendingAliasToTmdb(streamId: String, tmdbDocId: String, titleAr: String = "") {

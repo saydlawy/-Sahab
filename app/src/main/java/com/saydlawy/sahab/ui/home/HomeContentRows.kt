@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
@@ -44,17 +43,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.saydlawy.sahab.data.Channel
 import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
-import com.saydlawy.sahab.data.sports.Match
-import com.saydlawy.sahab.data.sports.MatchStatus
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
@@ -67,7 +62,6 @@ import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.ChannelLogoResolver
-import com.saydlawy.sahab.util.formatUtcClockToLocal
 
 // ============================================================================
 // SECTION B — تابع المشاهدة (Continue Watching)
@@ -182,10 +176,10 @@ internal fun ContinueWatchingCard(
                     .background(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.0f to Color(0x1A0B0D17),
-                                0.45f to Color(0x660B0D17),
-                                0.80f to Color(0xE60B0D17),
-                                1.0f to Color(0xF80B0D17),
+                                0.0f to Palette.CinematicBg.copy(alpha = 0.10f),
+                                0.45f to Palette.CinematicBg.copy(alpha = 0.40f),
+                                0.80f to Palette.CinematicBg.copy(alpha = 0.90f),
+                                1.0f to Palette.CinematicBg.copy(alpha = 0.97f),
                             ),
                         ),
                     ),
@@ -353,7 +347,7 @@ internal fun FeaturedChannelsSection(
                                     focusNav.markNavigateFrom(Routes.HOME, itemKey)
                                     onPlay(
                                         PlayRequest(
-                                            listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)),
+                                            listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url)),
                                             0,
                                         ),
                                     )
@@ -387,7 +381,7 @@ internal fun FeaturedChannelsSection(
                             focusNav.markNavigateFrom(Routes.HOME, itemKey)
                             onPlay(
                                 PlayRequest(
-                                    listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon)),
+                                    listOf(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url)),
                                     0,
                                 ),
                             )
@@ -546,217 +540,6 @@ internal fun LiveChannelReferenceCard(
                     .height(2.5.dp)
                     .clip(RoundedCornerShape(50))
                     .background(bottomAccent),
-            )
-        }
-    }
-}
-
-// ============================================================================
-// SECTION F — ⚽ مباريات اليوم (Today's Matches)
-// ============================================================================
-@Composable
-internal fun TodayMatchesSection(
-    matches: List<Match>,
-    onOpenSports: (String) -> Unit,
-) {
-    if (matches.isEmpty()) return
-    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
-    val horizPad = if (isTvOrTablet) 24.dp else 14.dp
-    val cardWidth = if (isTvOrTablet) 232.dp else 204.dp
-    val cardHeight = if (isTvOrTablet) 76.dp else 70.dp
-    val rowState = rememberRestorableLazyListState("home_today_matches_row")
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = horizPad),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Ic.Football,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(if (isTvOrTablet) 18.dp else 16.dp),
-                )
-                Text(
-                    text = "مباريات اليوم",
-                    color = Color.White,
-                    fontSize = if (isTvOrTablet) 17.sp else 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-            }
-
-            Text(
-                text = "جدول المباريات",
-                color = Palette.FocusCyan,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .restorableFocus(Routes.HOME, "home_matches_see_all")
-                    .clickable(onClick = { onOpenSports("home_matches_see_all") })
-                    .padding(horizontal = 6.dp, vertical = 3.dp),
-            )
-        }
-
-        LazyRow(
-            state = rowState,
-            contentPadding = PaddingValues(horizontal = horizPad, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            itemsIndexed(matches, key = { _, m -> "home_match_${m.id}" }) { index, match ->
-                val itemKey = "home_match_${match.id}"
-                TodayMatchCard(
-                    match = match,
-                    showLiveBadge = match.status == MatchStatus.LIVE,
-                    onClick = { onOpenSports(itemKey) },
-                    modifier = Modifier
-                        .size(width = cardWidth, height = cardHeight)
-                        .restorableFocus(Routes.HOME, itemKey),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun TodayMatchCard(
-    match: Match,
-    showLiveBadge: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val localTime = remember(match.time, match.date) {
-        formatUtcClockToLocal(match.time, match.date).ifBlank { "غير محدد" }
-    }
-
-    GlassCard(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        focusScale = 1.04f,
-    ) { focused ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (focused) Palette.CardSurfaceElevated else Palette.CardSurface),
-        ) {
-            if (focused) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(14.dp)),
-                )
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                TeamCrestBadge(
-                    logoUrl = match.homeTeam.logoUrl,
-                    teamName = match.homeTeam.name,
-                    size = 38.dp,
-                )
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 6.dp),
-                ) {
-                    val centerTopText = if (match.status == MatchStatus.LIVE || match.status == MatchStatus.FINISHED) {
-                        "${match.homeScore ?: 0} - ${match.awayScore ?: 0}"
-                    } else {
-                        localTime
-                    }
-                    Text(
-                        text = centerTopText,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = match.league.name,
-                        color = Palette.TextMuted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                TeamCrestBadge(
-                    logoUrl = match.awayTeam.logoUrl,
-                    teamName = match.awayTeam.name,
-                    size = 38.dp,
-                )
-            }
-
-            if (showLiveBadge) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(top = 5.dp, start = 8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Palette.LiveBadgeRed)
-                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                ) {
-                    Text(
-                        text = "مباشر",
-                        color = Color.White,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun TeamCrestBadge(
-    logoUrl: String,
-    teamName: String,
-    size: Dp,
-) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.08f))
-            .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
-            .padding(5.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (logoUrl.isNotBlank()) {
-            AsyncImage(
-                model = logoUrl,
-                contentDescription = teamName,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Text(
-                text = teamName.take(2),
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
             )
         }
     }

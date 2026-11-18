@@ -219,6 +219,14 @@ class Repository(
         if (item.url.isNotBlank() && item.url.startsWith("http")) {
             return item.url
         }
+        if (item.url.isBlank() && item.kind == Kind.LIVE) {
+            @Suppress("UNCHECKED_CAST")
+            val cachedUrl = (cache["live:"] as? List<Channel>)?.firstOrNull { it.id == item.id }?.url
+                ?: (cache["live_m3u"] as? List<Channel>)?.firstOrNull { it.id == item.id }?.url
+            if (!cachedUrl.isNullOrBlank() && cachedUrl.startsWith("http")) {
+                return cachedUrl
+            }
+        }
         val a = requireAccount()
         val user = encodeSegment(a.user)
         val pass = encodeSegment(a.pass)
@@ -271,6 +279,10 @@ class Repository(
             disk?.put(dKey, serializer, loaded)
             mine.complete(loaded)
             loaded
+        } catch (e: CancellationException) {
+            inFlight.remove(dKey, mine)
+            mine.cancel(e)
+            throw e
         } catch (t: Throwable) {
             mine.completeExceptionally(t)
             throw t
@@ -499,6 +511,19 @@ class Repository(
         getEpgMem(key)?.let { (time, list) ->
             if (System.currentTimeMillis() - time < EPG_TTL_MS) return list
         }
+        val dao = channelDao
+        if (dao != null) {
+            val ch = runCatching { dao.findById(streamId) }.getOrNull()
+            if (ch != null && ch.epgId.isNotBlank()) {
+                val nowSec = System.currentTimeMillis() / 1000
+                val local = runCatching { dao.programsForChannel(ch.epgId, nowSec) }.getOrNull().orEmpty()
+                if (local.isNotEmpty()) {
+                    val mapped = local.take(limit).map { Program(it.title, it.description, it.start, it.end) }
+                    putEpgMem(key, System.currentTimeMillis() to mapped)
+                    return mapped
+                }
+            }
+        }
         val dKey = diskKey("epg_$key")
         disk?.get(dKey, ListSerializer(Program.serializer()), EPG_DISK_TTL_MS)?.let { fromDisk ->
             putEpgMem(key, System.currentTimeMillis() to fromDisk)
@@ -520,6 +545,19 @@ class Repository(
         val key = "day:$streamId"
         getEpgMem(key)?.let { (time, list) ->
             if (System.currentTimeMillis() - time < EPG_TTL_MS) return list
+        }
+        val dao = channelDao
+        if (dao != null) {
+            val ch = runCatching { dao.findById(streamId) }.getOrNull()
+            if (ch != null && ch.epgId.isNotBlank()) {
+                val nowSec = System.currentTimeMillis() / 1000 - 2 * 3600
+                val local = runCatching { dao.programsForChannel(ch.epgId, nowSec) }.getOrNull().orEmpty()
+                if (local.isNotEmpty()) {
+                    val mapped = local.take(80).map { Program(it.title, it.description, it.start, it.end) }
+                    putEpgMem(key, System.currentTimeMillis() to mapped)
+                    return mapped
+                }
+            }
         }
         val dKey = diskKey("epg_$key")
         disk?.get(dKey, ListSerializer(Program.serializer()), DAY_EPG_DISK_TTL_MS)?.let { fromDisk ->

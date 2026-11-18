@@ -82,7 +82,6 @@ internal val NavTabs = listOf(
     NavTabItem(Routes.LIVE, "البث المباشر"),
     NavTabItem(Routes.MOVIES, "الأفلام"),
     NavTabItem(Routes.SERIES, "المسلسلات"),
-    NavTabItem(Routes.SPORTS, Ar.sports),
     NavTabItem(Routes.FAVORITES, Ar.favorites),
 )
 

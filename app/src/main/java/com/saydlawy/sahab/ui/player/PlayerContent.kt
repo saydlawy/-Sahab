@@ -98,6 +98,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -388,7 +389,16 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         val resume = vm.resolveResumePositionMs(activeItem, exo.currentPosition)
         exo.volume = 1.0f
         exo.repeatMode = Player.REPEAT_MODE_OFF
-        exo.setMediaItem(MediaItem.fromUri(url), resume)
+        val metadata = MediaMetadata.Builder()
+            .setTitle(activeItem.title)
+            .setSubtitle(activeItem.subtitle.takeIf { it.isNotBlank() })
+            .setArtworkUri(activeItem.icon.takeIf { it.isNotBlank() }?.let(android.net.Uri::parse))
+            .build()
+        val mediaItem = MediaItem.Builder()
+            .setUri(url)
+            .setMediaMetadata(metadata)
+            .build()
+        exo.setMediaItem(mediaItem, resume)
         exo.prepare()
         exo.playWhenReady = true
     }
@@ -426,7 +436,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             }
             delay(500)
             ticks++
-            if (ticks >= 20) {
+            if (ticks >= 60) {
                 ticks = 0
                 if (exo.isPlaying) {
                     val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
@@ -616,6 +626,23 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             g.type == C.TRACK_TYPE_VIDEO && trackSelectionParams.overrides.containsKey(g.mediaTrackGroup)
         }
     }
+    val activeBitrateText = remember(tracks) {
+        val selectedFormats = tracks.groups.asSequence()
+            .filter { it.isSelected && (it.type == C.TRACK_TYPE_VIDEO || it.type == C.TRACK_TYPE_AUDIO) }
+            .flatMap { group ->
+                (0 until group.length).asSequence()
+                    .filter { group.isTrackSelected(it) }
+                    .map { group.getTrackFormat(it) }
+            }
+            .toList()
+        val videoBps = selectedFormats.firstOrNull { it.width > 0 && it.bitrate > 0 }?.bitrate
+            ?: selectedFormats.sumOf { it.bitrate.coerceAtLeast(0) }
+        when {
+            videoBps >= 1_000_000 -> String.format(Locale.US, "%.1f Mbps", videoBps / 1_000_000.0)
+            videoBps > 0 -> "${videoBps / 1_000} kbps"
+            else -> null
+        }
+    }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         when (displayMode) {
@@ -751,6 +778,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                             progressFlow = vm.progress,
                             playbackSpeed = playbackSpeed,
                             showDrawer = if (isLive) showQuickChannelsDrawer else showEpisodesDrawer,
+                            activeBitrateText = activeBitrateText,
                             playFocus = playFocus,
                             onBack = onBack,
                             onTogglePlay = togglePlay,

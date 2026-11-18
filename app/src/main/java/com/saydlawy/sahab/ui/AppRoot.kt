@@ -50,11 +50,13 @@ import androidx.compose.ui.text.font.FontWeight
 import com.saydlawy.sahab.ui.components.GlassPanel
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.saydlawy.sahab.ui.sports.SportsScreen
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -143,7 +145,6 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
     val entry by nav.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
     val onPlayer = currentRoute == Routes.PLAYER
-    val onSports = currentRoute == Routes.SPORTS
     val focusController = remember { FocusNavigationController() }
     var previousScreenKey by remember { mutableStateOf<String?>(null) }
 
@@ -193,9 +194,9 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(if (onSports) Color(0xFF0C0919) else Palette.Bg),
+                        .background(Palette.Bg),
                 ) {
-                    if (!onPlayer && !onSports) DreamyBackground()
+                    if (!onPlayer) DreamyBackground()
                     val contentModifier = when {
                         onPlayer && windowInfo.mode != DisplayMode.PHONE_PORTRAIT -> Modifier.fillMaxSize()
                         windowInfo.isPhoneLandscape -> {
@@ -255,7 +256,8 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.58f)),
+                                .background(Color.Black.copy(alpha = 0.58f))
+                                .pointerInput(Unit) { detectTapGestures { } },
                             contentAlignment = Alignment.Center,
                         ) {
                             GlassPanel(shape = RoundedCornerShape(24.dp), strong = true, padding = 28.dp) {
@@ -287,12 +289,14 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                         isTv = isTv,
                     )
 
-                    SyncPinUnlockDialog(
-                        container = container,
-                        nav = nav,
-                    )
+                    if (!onPlayer) {
+                        SyncPinUnlockDialog(
+                            container = container,
+                            nav = nav,
+                        )
 
-                    GithubUpdatePrompt(container = container)
+                        GithubUpdatePrompt(container = container)
+                    }
                 }
             }
         }
@@ -383,7 +387,8 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.68f)),
+                            .background(Color.Black.copy(alpha = 0.68f))
+                            .pointerInput(Unit) { detectTapGestures { } },
                         contentAlignment = Alignment.Center,
                     ) {
                         GlassPanel(shape = RoundedCornerShape(24.dp), strong = true, padding = 28.dp) {
@@ -421,16 +426,6 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             BrowseScreen(series = true, onBack = back, onOpenItem = { open(Routes.series(it)) }, onPlay = play)
         }
         composable(Routes.FAVORITES) { FavoritesScreen(onBack = back, onOpen = open, onPlay = play) }
-        composable(Routes.SPORTS) {
-            SportsScreen(
-                onClose = back,
-                onOpenLive = {
-                    nav.navigate(Routes.LIVE) {
-                        launchSingleTop = true
-                    }
-                },
-            )
-        }
         composable(Routes.SETTINGS) {
             val scope = rememberCoroutineScope()
             SettingsScreen(
@@ -442,7 +437,10 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                     container.repo.setAccount(null)
                     scope.launch {
                         container.clearAllLocalData(clearPrefsAccount = true)
-                        nav.navigate(Routes.CLOUD_LOGIN) { popUpTo(nav.graph.id) { inclusive = true } }
+                        nav.navigate(Routes.CLOUD_LOGIN) {
+                            popUpTo(nav.graph.findStartDestination().id) { inclusive = true }
+                            launchSingleTop = true
+                        }
                     }
                 },
             )
@@ -596,7 +594,8 @@ private fun SyncPinUnlockDialog(
                                 when (container.syncCoordinator.submitRestorePin(context, pin)) {
                                     is com.saydlawy.sahab.data.auth.CloudAccountRestoreResult.Restored -> {
                                         nav.navigate(Routes.HOME) {
-                                            popUpTo(nav.graph.id) { inclusive = true }
+                                            popUpTo(nav.graph.findStartDestination().id) { inclusive = true }
+                                            launchSingleTop = true
                                         }
                                     }
                                     is com.saydlawy.sahab.data.auth.CloudAccountRestoreResult.WrongPin -> {

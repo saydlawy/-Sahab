@@ -44,6 +44,12 @@ interface ChannelDao {
     @Query("UPDATE channels SET isHidden = :hidden, updatedAt = :now WHERE streamId = :streamId")
     suspend fun setHidden(streamId: String, hidden: Boolean, now: Long)
 
+    @Query("SELECT streamId FROM channels WHERE isHidden = 1")
+    fun observeHiddenIds(): Flow<List<String>>
+
+    @Query("UPDATE channels SET isHidden = 0, updatedAt = :now WHERE isHidden = 1")
+    suspend fun unhideAll(now: Long)
+
     @Query("UPDATE channels SET sortOrder = :order, updatedAt = :now WHERE streamId = :streamId")
     suspend fun setSortOrder(streamId: String, order: Int, now: Long)
 

@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.ui.live
 
+import com.saydlawy.sahab.data.channel.ChannelListEntity
 import com.saydlawy.sahab.data.channel.EpgProgramEntity
 import android.view.ViewGroup
 import androidx.annotation.OptIn
@@ -139,8 +140,10 @@ import androidx.compose.runtime.Immutable
 @Composable
 internal fun CategorySidebar(
     categories: List<Category>,
+    customLists: List<ChannelListEntity> = emptyList(),
     selectedId: String?,
     onSelect: (String) -> Unit,
+    onManageLists: () -> Unit = {},
     totalCount: Int,
     favCount: Int,
     categoryCounts: Map<String, Int>,
@@ -171,6 +174,27 @@ internal fun CategorySidebar(
                 onClick = { onSelect(ALL_CAT_ID) },
                 count = totalCount.takeIf { it > 0 },
                 modifier = Modifier.restorableFocus(Routes.LIVE, "live_cat_all"),
+            )
+        }
+        item(key = "manage_custom_lists") {
+            SideNavItem(
+                label = "إدارة القوائم المخصصة",
+                selected = false,
+                onClick = onManageLists,
+                icon = Ic.Settings,
+                iconTint = Palette.FocusCyan,
+                modifier = Modifier.restorableFocus(Routes.LIVE, "live_cat_manage_lists"),
+            )
+        }
+        items(customLists, key = { "custom_${it.listId}" }) { list ->
+            val key = "$CUSTOM_LIST_PREFIX${list.listId}"
+            SideNavItem(
+                label = list.name,
+                selected = selectedId == key,
+                onClick = { onSelect(key) },
+                icon = Ic.Tv,
+                iconTint = Palette.Gold,
+                modifier = Modifier.restorableFocus(Routes.LIVE, "live_cat_custom_${list.listId}"),
             )
         }
         items(categories, key = { it.id }) { cat ->

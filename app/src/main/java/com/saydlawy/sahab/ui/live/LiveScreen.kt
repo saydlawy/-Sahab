@@ -90,8 +90,12 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Program
+import com.saydlawy.sahab.data.channel.ChannelListEntity
 import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.ui.DisplayMode
+import com.saydlawy.sahab.ui.live.custom.ChannelManageContextSheet
+import com.saydlawy.sahab.ui.live.custom.CustomListChannelPickerDialog
+import com.saydlawy.sahab.ui.live.custom.CustomListsManagerDialog
 import com.saydlawy.sahab.ui.LocalAppScale
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalDisplayMode
@@ -164,6 +168,11 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
     }
     var guideFor by remember { mutableStateOf<Channel?>(null) }
     var previewChannel by remember { mutableStateOf<Channel?>(null) }
+    var showManageLists by remember { mutableStateOf(false) }
+    var editingList by remember { mutableStateOf<ChannelListEntity?>(null) }
+    var editingListIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var allChannelsForPicker by remember { mutableStateOf<List<Channel>>(emptyList()) }
+    var managingChannel by remember { mutableStateOf<Channel?>(null) }
 
     LaunchedEffect(state.categories.isNotEmpty()) {
         if (state.categories.isNotEmpty()) {
@@ -252,6 +261,8 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                     onPlayAt = handleChannelActivate,
                     onPlayChannel = playChannel,
                     onToggleFavorite = vm::toggleFavorite,
+                    onManageChannel = { managingChannel = it },
+                    onManageLists = { showManageLists = true },
                     onGuide = { guideFor = it },
                     onSelect = vm::select,
                     onQuery = vm::onQuery,
@@ -269,6 +280,8 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                     onPlayAt = handleChannelActivate,
                     onPlayChannel = playChannel,
                     onToggleFavorite = vm::toggleFavorite,
+                    onManageChannel = { managingChannel = it },
+                    onManageLists = { showManageLists = true },
                     onGuide = { guideFor = it },
                     onSelect = vm::select,
                     onQuery = vm::onQuery,
@@ -286,6 +299,8 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
                     onPlayAt = handleChannelActivate,
                     onPlayChannel = playChannel,
                     onToggleFavorite = vm::toggleFavorite,
+                    onManageChannel = { managingChannel = it },
+                    onManageLists = { showManageLists = true },
                     onGuide = { guideFor = it },
                     onSelect = vm::select,
                     onQuery = vm::onQuery,
@@ -306,6 +321,60 @@ fun LiveScreen(onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
             }
         )
     }
+
+    if (showManageLists) {
+        CustomListsManagerDialog(
+            lists = state.customLists,
+            onCreateList = vm::createCustomList,
+            onEditChannels = { list ->
+                showManageLists = false
+                editingList = list
+                scope.launch {
+                    allChannelsForPicker = vm.allLiveChannels()
+                    editingListIds = vm.listChannelIds(list.listId)
+                }
+            },
+            onDeleteList = vm::deleteCustomList,
+            onDismiss = {
+                showManageLists = false
+                focusNav.onScreenResumed(Routes.LIVE)
+            },
+        )
+    }
+
+    editingList?.let { list ->
+        CustomListChannelPickerDialog(
+            list = list,
+            allChannels = allChannelsForPicker,
+            initialOrderedIds = editingListIds,
+            onSave = { orderedIds ->
+                vm.saveListChannels(list.listId, orderedIds)
+                editingList = null
+                focusNav.onScreenResumed(Routes.LIVE)
+            },
+            onDismiss = {
+                editingList = null
+                focusNav.onScreenResumed(Routes.LIVE)
+            },
+        )
+    }
+
+    managingChannel?.let { ch ->
+        ChannelManageContextSheet(
+            channel = ch,
+            isFavorite = ch.id in favoriteIds,
+            customLists = state.customLists,
+            onToggleFavorite = { vm.toggleFavorite(ch) },
+            onToggleInList = { listId -> vm.toggleChannelInList(listId, ch.id) },
+            onMoveUp = { vm.moveChannelOrder(ch.id, -1) },
+            onMoveDown = { vm.moveChannelOrder(ch.id, 1) },
+            onHideChannel = { vm.hideChannel(ch.id) },
+            onDismiss = {
+                managingChannel = null
+                focusNav.onScreenResumed(Routes.LIVE)
+            },
+        )
+    }
 }
 
 @Composable
@@ -318,6 +387,8 @@ internal fun WideLiveLayout(
     onPlayAt: (Int) -> Unit,
     onPlayChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
+    onManageChannel: (Channel) -> Unit,
+    onManageLists: () -> Unit,
     onGuide: (Channel) -> Unit,
     onSelect: (String) -> Unit,
     onQuery: (String) -> Unit,
@@ -351,8 +422,10 @@ internal fun WideLiveLayout(
                     )
                     CategorySidebar(
                         categories = state.categories,
+                        customLists = state.customLists,
                         selectedId = state.selectedId,
                         onSelect = onSelect,
+                        onManageLists = onManageLists,
                         totalCount = state.totalCount,
                         favCount = favoriteIds.size,
                         categoryCounts = state.categoryCounts,
@@ -371,6 +444,7 @@ internal fun WideLiveLayout(
                     onPreview = onPreview,
                     onPlayAt = onPlayAt,
                     onToggleFavorite = onToggleFavorite,
+                    onManageChannel = onManageChannel,
                     onGuide = onGuide,
                     onRetry = onRetry,
                     modifier = Modifier
@@ -405,6 +479,8 @@ internal fun PhoneLandscapeLiveLayout(
     onPlayAt: (Int) -> Unit,
     onPlayChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
+    onManageChannel: (Channel) -> Unit,
+    onManageLists: () -> Unit,
     onGuide: (Channel) -> Unit,
     onSelect: (String) -> Unit,
     onQuery: (String) -> Unit,
@@ -460,6 +536,7 @@ internal fun PhoneLandscapeLiveLayout(
                         onPreview = onPreview,
                         onPlayAt = onPlayAt,
                         onToggleFavorite = onToggleFavorite,
+                        onManageChannel = onManageChannel,
                         onGuide = onGuide,
                         onRetry = onRetry,
                         modifier = Modifier
@@ -495,6 +572,8 @@ internal fun PhonePortraitLiveLayout(
     onPlayAt: (Int) -> Unit,
     onPlayChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
+    onManageChannel: (Channel) -> Unit,
+    onManageLists: () -> Unit,
     onGuide: (Channel) -> Unit,
     onSelect: (String) -> Unit,
     onQuery: (String) -> Unit,
@@ -536,6 +615,10 @@ internal fun PhonePortraitLiveLayout(
             item(key = ALL_CAT_ID) {
                 Chip(Ar.all, state.selectedId == ALL_CAT_ID, { onSelect(ALL_CAT_ID) })
             }
+            items(state.customLists, key = { "custom_${it.listId}" }) { list ->
+                val key = "$CUSTOM_LIST_PREFIX${list.listId}"
+                Chip(list.name, state.selectedId == key, { onSelect(key) })
+            }
             items(state.categories, key = { it.id }) { cat ->
                 Chip(cat.name, cat.id == state.selectedId, { onSelect(cat.id) })
             }
@@ -548,6 +631,7 @@ internal fun PhonePortraitLiveLayout(
             onPreview = onPreview,
             onPlayAt = onPlayAt,
             onToggleFavorite = onToggleFavorite,
+            onManageChannel = onManageChannel,
             onGuide = onGuide,
             onRetry = onRetry,
             modifier = Modifier

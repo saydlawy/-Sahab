@@ -45,13 +45,28 @@ fun CompactTopBarInfo(modifier: Modifier = Modifier) {
         formatNowMillis(now, "hh:mm a", Locale.forLanguageTag("ar"))
     }
 
-    val isSunny = weather.condition == WeatherCondition.CLEAR_DAY || weather.condition == WeatherCondition.PARTLY_CLOUDY
+    val (weatherIcon, weatherTint) = when (weather.condition) {
+        WeatherCondition.CLEAR_DAY -> Ic.Sun to Color(0xFFFBBF24)
+        WeatherCondition.CLEAR_NIGHT -> Ic.Cloud to Palette.Glow
+        WeatherCondition.PARTLY_CLOUDY -> Ic.Sun to Color(0xFFFCD34D)
+        WeatherCondition.CLOUDY, WeatherCondition.FOG -> Ic.Cloud to Palette.TextDim
+        WeatherCondition.RAIN, WeatherCondition.THUNDERSTORM -> Ic.Cloud to Palette.FocusCyan
+        WeatherCondition.SNOW -> Ic.Cloud to Color.White
+    }
 
     Row(
         modifier = modifier.padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        if (weather.city.isNotBlank()) {
+            Text(
+                text = weather.city,
+                color = Palette.TextDim,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
         Text(
             text = "${weather.tempC}°",
             color = Color.White,
@@ -59,9 +74,9 @@ fun CompactTopBarInfo(modifier: Modifier = Modifier) {
             fontWeight = FontWeight.Bold,
         )
         Icon(
-            imageVector = if (isSunny) Ic.Sun else Ic.Cloud,
+            imageVector = weatherIcon,
             contentDescription = weather.conditionText,
-            tint = if (isSunny) Color(0xFFFBBF24) else Palette.FocusCyan,
+            tint = weatherTint,
             modifier = Modifier.size(16.dp),
         )
         Text(

@@ -186,7 +186,14 @@ internal fun LiveChannelsDrawer(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .focusRequester(drawerFocus),
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
+                        onClose()
+                        true
+                    } else {
+                        false
+                    }
+                },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             itemsIndexed(
@@ -199,6 +206,7 @@ internal fun LiveChannelsDrawer(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .then(if (active) Modifier.focusRequester(drawerFocus) else Modifier)
                         .clip(RoundedCornerShape(12.dp))
                         .background(
                             when {
@@ -372,7 +380,14 @@ internal fun VodEpisodesDrawer(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .focusRequester(drawerFocus),
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
+                        onClose()
+                        true
+                    } else {
+                        false
+                    }
+                },
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (seasonEpisodes.isNotEmpty()) {
@@ -399,6 +414,7 @@ internal fun VodEpisodesDrawer(
                         isNext = isNext,
                         progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
                         remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
+                        modifier = if (isCurrent) Modifier.focusRequester(drawerFocus) else Modifier,
                         onClick = { onSelectEpisode(ep) },
                     )
                 }
@@ -422,6 +438,7 @@ internal fun VodEpisodesDrawer(
                         isNext = isNext,
                         progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
                         remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
+                        modifier = if (isCurrent) Modifier.focusRequester(drawerFocus) else Modifier,
                         onClick = { onSelectPlaylistIndex(idx) },
                     )
                 }
@@ -442,6 +459,7 @@ internal fun EpisodeDrawerCard(
     isNext: Boolean,
     progressFraction: Float,
     remainingMinutes: Int,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -455,7 +473,7 @@ internal fun EpisodeDrawerCard(
         else -> Color.Transparent
     }
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

@@ -22,7 +22,6 @@ import com.saydlawy.sahab.data.channel.ChannelSync
 import com.saydlawy.sahab.data.channel.EpgSync
 import com.saydlawy.sahab.data.TmdbApi
 import com.saydlawy.sahab.data.XtreamApi
-import com.saydlawy.sahab.data.sports.SyncScheduler
 import com.saydlawy.sahab.ui.player.SahabPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -179,8 +178,8 @@ class AppContainer(context: Context) {
             }
         }
         appScope.launch {
-            // رفع فوري عند خروج المشغل أو الإيقاف المؤقت أو ON_STOP
-            recentsFlushTrigger.collect {
+            // خنق طلبات الرفع عند الخروج المتكرر إلى مرة كل 15 ثانية (SAH-M04)
+            recentsFlushTrigger.debounce(15_000L).collect {
                 uploadRecentsIfNeeded(prefs.recents.first())
             }
         }
@@ -191,8 +190,17 @@ class AppContainer(context: Context) {
                 prefs.homeChannelsLayout,
                 prefs.homeChannelsSource,
                 prefs.homeChannelsCategoryId,
-            ) { light, layout, source, catId ->
-                CloudPreferences(light, layout.name, source.name, catId)
+                prefs.moviesLayoutStyle,
+                prefs.seriesLayoutStyle,
+            ) { arr ->
+                CloudPreferences(
+                    lightEffects = arr[0] as Boolean,
+                    homeChannelsLayout = (arr[1] as com.saydlawy.sahab.data.HomeChannelsLayout).name,
+                    homeChannelsSource = (arr[2] as com.saydlawy.sahab.data.HomeChannelsSource).name,
+                    homeChannelsCategoryId = arr[3] as String,
+                    moviesLayoutStyle = (arr[4] as com.saydlawy.sahab.data.VodLayoutStyle).name,
+                    seriesLayoutStyle = (arr[5] as com.saydlawy.sahab.data.VodLayoutStyle).name,
+                )
             }.drop(1).debounce(2000L).collect { cloudPrefs ->
                 if (prefsMergeDone && authManager.currentUser != null) userSyncService.savePreferences(cloudPrefs)
             }
@@ -256,6 +264,7 @@ class AppContainer(context: Context) {
             icon = item.icon,
             ext = item.ext,
             groupId = item.groupId,
+            url = item.url,
             positionMs = if (live) 0 else positionMs.coerceAtLeast(0),
             durationMs = if (live) 0 else durationMs.coerceAtLeast(0),
             updatedAt = System.currentTimeMillis(),
@@ -331,7 +340,6 @@ class SahabApp : Application(), ImageLoaderFactory {
         container.appScope.launch {
             // L-05: warm EncryptedSharedPreferences / MasterKey off the main thread.
             container.aiKeys
-            SyncScheduler.scheduleInitialRunIfNeeded(this@SahabApp)
             SahabPlayer.warmUpMediaCache(this@SahabApp)
             container.weather.refreshIfNeeded()
         }

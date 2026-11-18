@@ -37,6 +37,10 @@ data class BrowseUiState(
     val loadingItems: Boolean = false,
     val searching: Boolean = false,
     val error: String? = null,
+    val featuredHeroItems: List<Poster> = emptyList(),
+    val top10Items: List<Poster> = emptyList(),
+    val categoryGroups: List<CategoryPosterGroup> = emptyList(),
+    val focusedDetails: FocusedPosterDetails? = null,
 ) {
     val visibleItems: List<Poster> get() = searchResults ?: items
     val busy: Boolean get() = loadingItems || searching
@@ -55,8 +59,27 @@ class BrowseViewModel(
 
     private var itemsJob: Job? = null
     private var searchJob: Job? = null
+    private var focusDetailJob: Job? = null
     private var searchPool: List<Poster>? = null
     private var indexedPool: List<Pair<Poster, String>>? = null
+
+    private suspend fun buildLayoutCollections(
+        categories: List<Category>,
+        allItems: List<Poster>,
+    ): Triple<List<Poster>, List<Poster>, List<CategoryPosterGroup>> = withContext(Dispatchers.Default) {
+        val ranked = allItems.sortedWith(
+            compareByDescending<Poster> { it.rating.toDoubleOrNull() ?: 0.0 }
+                .thenByDescending { it.added },
+        )
+        val hero = ranked.filter { it.image.isNotBlank() }.take(6).ifEmpty { allItems.take(6) }
+        val top10 = ranked.take(10)
+        val byCat = allItems.groupBy { it.categoryId }
+        val groups = categories.mapNotNull { cat ->
+            val list = byCat[cat.id].orEmpty()
+            if (list.isEmpty()) null else CategoryPosterGroup(cat, list.take(20))
+        }.take(12)
+        Triple(hero, top10, groups)
+    }
 
     private suspend fun updateSearchPool(list: List<Poster>) {
         searchPool = list
@@ -97,6 +120,7 @@ class BrowseViewModel(
                 if (!cachedAll.isNullOrEmpty()) {
                     updateSearchPool(cachedAll)
                     val counts = computeCounts(cachedAll)
+                    val (hero, top10, groups) = buildLayoutCollections(categories, cachedAll)
                     val targetCat = preferredCat ?: ALL_CAT_ID
                     val initialItems = if (targetCat == ALL_CAT_ID || targetCat == FAV_CAT_ID || targetCat == RECENTS_CAT_ID) {
                         cachedAll
@@ -112,6 +136,12 @@ class BrowseViewModel(
                             loadingItems = false,
                             totalCount = cachedAll.size,
                             categoryCounts = counts,
+                            featuredHeroItems = hero,
+                            top10Items = top10,
+                            categoryGroups = groups,
+                            focusedDetails = it.focusedDetails ?: hero.firstOrNull()?.let { p ->
+                                FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+                            },
                         )
                     }
                     if (initialQuery.isNotBlank()) {
@@ -135,12 +165,19 @@ class BrowseViewModel(
                     if (allItems.isNotEmpty()) {
                         updateSearchPool(allItems)
                         val counts = computeCounts(allItems)
+                        val (hero, top10, groups) = buildLayoutCollections(categories, allItems)
                         _state.update { current ->
                             current.copy(
                                 totalCount = allItems.size,
                                 categoryCounts = counts + current.categoryCounts,
                                 items = if (current.selectedId == ALL_CAT_ID || current.items.isEmpty()) allItems else current.items,
                                 loadingItems = if (current.selectedId == ALL_CAT_ID) false else current.loadingItems,
+                                featuredHeroItems = hero,
+                                top10Items = top10,
+                                categoryGroups = groups,
+                                focusedDetails = current.focusedDetails ?: hero.firstOrNull()?.let { p ->
+                                    FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+                                },
                             )
                         }
                     }
@@ -260,6 +297,76 @@ class BrowseViewModel(
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(searching = false, searchResults = emptyList(), error = e.userMessage()) }
+            }
+        }
+    }
+
+    fun onPosterFocused(poster: Poster) {
+        if (_state.value.focusedDetails?.poster?.id == poster.id) return
+        _state.update {
+            it.copy(
+                focusedDetails = FocusedPosterDetails(
+                    poster = poster,
+                    year = poster.year,
+                    rating = poster.rating,
+                    backdropUrl = poster.image,
+                ),
+            )
+        }
+        focusDetailJob?.cancel()
+        focusDetailJob = viewModelScope.launch {
+            delay(180L)
+            val mediaType = if (series) "series" else "movie"
+            val cached = withContext(Dispatchers.IO) {
+                runCatching { container.catalogDb.movieDao().findByStreamIdAndType(poster.id, mediaType) }.getOrNull()
+            }
+            if (cached != null && cached.plot.isNotBlank()) {
+                _state.update {
+                    it.copy(
+                        focusedDetails = FocusedPosterDetails(
+                            poster = poster,
+                            plot = cached.plot,
+                            genre = cached.genre,
+                            year = cached.year.ifBlank { poster.year },
+                            rating = cached.rating.ifBlank { poster.rating },
+                            runtime = cached.runtime,
+                            backdropUrl = cached.backdropUrl.ifBlank { cached.posterUrl.ifBlank { poster.image } },
+                        ),
+                    )
+                }
+                return@launch
+            }
+            runCatching {
+                if (series) {
+                    val d = repo.seriesDetails(poster.id)
+                    _state.update {
+                        it.copy(
+                            focusedDetails = FocusedPosterDetails(
+                                poster = poster,
+                                plot = d.plot,
+                                genre = d.genre,
+                                year = d.year.ifBlank { poster.year },
+                                rating = d.rating.ifBlank { poster.rating },
+                                backdropUrl = d.backdrop.ifBlank { d.cover.ifBlank { poster.image } },
+                            ),
+                        )
+                    }
+                } else {
+                    val d = repo.movieDetails(poster.id, poster.name, poster.image, poster.ext)
+                    _state.update {
+                        it.copy(
+                            focusedDetails = FocusedPosterDetails(
+                                poster = poster,
+                                plot = d.plot,
+                                genre = d.genre,
+                                year = d.year.ifBlank { poster.year },
+                                rating = d.rating.ifBlank { poster.rating },
+                                runtime = d.duration,
+                                backdropUrl = d.backdrop.ifBlank { d.image.ifBlank { poster.image } },
+                            ),
+                        )
+                    }
+                }
             }
         }
     }

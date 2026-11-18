@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.ui.live
 
+import com.saydlawy.sahab.data.channel.ChannelListEntity
+import com.saydlawy.sahab.data.channel.ChannelListItemEntity
 import com.saydlawy.sahab.data.channel.EpgProgramEntity
 import android.view.ViewGroup
 import androidx.annotation.OptIn
@@ -135,9 +137,13 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import androidx.compose.runtime.Immutable
 
+internal const val CUSTOM_LIST_PREFIX = "custom_list:"
+
 @Immutable
 data class LiveUiState(
     val categories: List<Category> = emptyList(),
+    val customLists: List<ChannelListEntity> = emptyList(),
+    val hiddenChannelIds: Set<String> = emptySet(),
     val selectedId: String? = ALL_CAT_ID,
     val channels: List<Channel> = emptyList(),
     val categoryCounts: Map<String, Int> = emptyMap(),
@@ -149,7 +155,8 @@ data class LiveUiState(
     val searching: Boolean = false,
     val error: String? = null,
 ) {
-    val visibleChannels: List<Channel> get() = searchResults ?: channels
+    val visibleChannels: List<Channel>
+        get() = (searchResults ?: channels).filterNot { it.id in hiddenChannelIds }
     val busy: Boolean get() = loadingChannels || searching
 }
 
@@ -171,8 +178,24 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    private val dao = container.channelDb.channelDao()
+
     init {
         loadCategories()
+        observeCustomTvState()
+    }
+
+    private fun observeCustomTvState() {
+        viewModelScope.launch {
+            dao.observeLists().collect { lists ->
+                _state.update { it.copy(customLists = lists) }
+            }
+        }
+        viewModelScope.launch {
+            dao.observeHiddenIds().collect { hidden ->
+                _state.update { it.copy(hiddenChannelIds = hidden.toSet()) }
+            }
+        }
     }
 
     private suspend fun computeCounts(allChannels: List<Channel>): Map<String, Int> =
@@ -247,6 +270,25 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
 
     fun select(categoryId: String) {
         channelsJob?.cancel()
+        if (categoryId.startsWith(CUSTOM_LIST_PREFIX)) {
+            val listId = categoryId.removePrefix(CUSTOM_LIST_PREFIX)
+            _state.update { it.copy(selectedId = categoryId, loadingChannels = true, error = null) }
+            channelsJob = viewModelScope.launch {
+                val orderedIds = withContext(Dispatchers.IO) { dao.itemsOfList(listId) }
+                val pool = allLiveChannels()
+                val byId = pool.associateBy { it.id }
+                val listChannels = orderedIds.mapNotNull { byId[it] }
+                _state.update {
+                    it.copy(
+                        selectedId = categoryId,
+                        channels = listChannels,
+                        loadingChannels = false,
+                        error = null,
+                    )
+                }
+            }
+            return
+        }
         if (categoryId == FAV_CAT_ID) {
             val pool = searchPool
             _state.update {
@@ -335,8 +377,114 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
     fun toggleFavorite(channel: Channel) {
         viewModelScope.launch {
             container.prefs.toggleFavorite(
-                FavItem(Kind.LIVE, channel.id, channel.name, channel.icon, accountId = container.prefs.currentActiveAccountId())
+                FavItem(Kind.LIVE, channel.id, channel.name, channel.icon, url = channel.url, accountId = container.prefs.currentActiveAccountId())
             )
+        }
+    }
+
+    suspend fun allLiveChannels(): List<Channel> {
+        searchPool?.let { return it }
+        val loaded = runCatching { repo.liveChannels(null) }.getOrDefault(emptyList())
+        if (loaded.isNotEmpty()) updateSearchPool(loaded)
+        return loaded
+    }
+
+    suspend fun listChannelIds(listId: String): List<String> = withContext(Dispatchers.IO) {
+        dao.itemsOfList(listId)
+    }
+
+    fun createCustomList(name: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            dao.upsertList(
+                ChannelListEntity(
+                    listId = java.util.UUID.randomUUID().toString(),
+                    name = clean,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+        }
+    }
+
+    fun deleteCustomList(listId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.clearListItems(listId)
+            dao.deleteList(listId)
+            if (_state.value.selectedId == "$CUSTOM_LIST_PREFIX$listId") {
+                withContext(Dispatchers.Main) { select(ALL_CAT_ID) }
+            }
+        }
+    }
+
+    fun saveListChannels(listId: String, orderedChannelIds: List<String>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.clearListItems(listId)
+            if (orderedChannelIds.isNotEmpty()) {
+                dao.upsertListItems(
+                    orderedChannelIds.mapIndexed { idx, id ->
+                        ChannelListItemEntity(listId = listId, streamId = id, position = idx)
+                    }
+                )
+            }
+            if (_state.value.selectedId == "$CUSTOM_LIST_PREFIX$listId") {
+                withContext(Dispatchers.Main) { select("$CUSTOM_LIST_PREFIX$listId") }
+            }
+        }
+    }
+
+    fun toggleChannelInList(listId: String, channelId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = dao.itemsOfList(listId).toMutableList()
+            if (!current.remove(channelId)) {
+                current.add(channelId)
+            }
+            dao.clearListItems(listId)
+            if (current.isNotEmpty()) {
+                dao.upsertListItems(
+                    current.mapIndexed { idx, id ->
+                        ChannelListItemEntity(listId = listId, streamId = id, position = idx)
+                    }
+                )
+            }
+            if (_state.value.selectedId == "$CUSTOM_LIST_PREFIX$listId") {
+                withContext(Dispatchers.Main) { select("$CUSTOM_LIST_PREFIX$listId") }
+            }
+        }
+    }
+
+    fun hideChannel(channelId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.setHidden(channelId, true, System.currentTimeMillis())
+        }
+    }
+
+    fun moveChannelOrder(channelId: String, delta: Int) {
+        val current = _state.value.channels.toMutableList()
+        val idx = current.indexOfFirst { it.id == channelId }
+        val target = (idx + delta).coerceIn(0, (current.size - 1).coerceAtLeast(0))
+        if (idx < 0 || idx == target) return
+        val moved = current.removeAt(idx)
+        current.add(target, moved)
+        _state.update { it.copy(channels = current) }
+
+        val selected = _state.value.selectedId
+        viewModelScope.launch(Dispatchers.IO) {
+            if (selected != null && selected.startsWith(CUSTOM_LIST_PREFIX)) {
+                val listId = selected.removePrefix(CUSTOM_LIST_PREFIX)
+                dao.clearListItems(listId)
+                dao.upsertListItems(
+                    current.mapIndexed { i, ch ->
+                        ChannelListItemEntity(listId = listId, streamId = ch.id, position = i)
+                    }
+                )
+            } else {
+                val now = System.currentTimeMillis()
+                dao.setSortOrder(current[idx].id, idx, now)
+                dao.setSortOrder(current[target].id, target, now)
+            }
         }
     }
 }

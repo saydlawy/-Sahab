@@ -9,6 +9,14 @@ object Kind {
     const val SERIES = "series"
 }
 
+@Serializable
+enum class VodLayoutStyle(val id: String, val labelAr: String, val descAr: String) {
+    CLASSIC("classic", "سحاب الكلاسيكي", "شبكة متوازنة بتصميم سحاب الأصلي"),
+    PRIME("prime", "Prime Cinema", "واجهة عرض سينمائية بعرض بانورامي وتفاصيل سريعة"),
+    NETFLIX("netflix", "Netflix Row", "بطل رئيسي + صفوف أفقية + قائمة أفضل ١٠"),
+    TIVIMATE("tivimate", "TiviMate Pro", "جدول منظم من عمودين مع معاينة جانبية فورية"),
+}
+
 /** الامتداد الافتراضي الموحد لأفلام وحلقات VOD عند خلوه من استجابة الخادم. */
 const val DEFAULT_VOD_EXT = "mp4"
 
@@ -140,6 +148,7 @@ data class FavItem(
     val name: String,
     val icon: String = "",
     val ext: String = "",
+    val url: String = "",
     val accountId: String = "",
 )
 
@@ -152,6 +161,7 @@ data class RecentItem(
     val icon: String = "",
     val ext: String = "",
     val groupId: String = "",
+    val url: String = "",
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val updatedAt: Long = 0,

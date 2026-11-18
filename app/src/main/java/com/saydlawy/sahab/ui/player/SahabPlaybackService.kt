@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.ui.player
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.annotation.OptIn
@@ -7,6 +8,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.saydlawy.sahab.MainActivity
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
@@ -53,16 +55,31 @@ class SahabPlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    private fun buildSession(player: Player): MediaSession {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val sessionActivity = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return MediaSession.Builder(this, player)
+            .setSessionActivity(sessionActivity)
+            .build()
+    }
+
     override fun onCreate() {
         super.onCreate()
         val player = SahabMediaSessionBridge.activePlayer ?: return
-        mediaSession = MediaSession.Builder(this, player).build()
+        mediaSession = buildSession(player)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         if (mediaSession == null) {
             val player = SahabMediaSessionBridge.activePlayer ?: return null
-            mediaSession = MediaSession.Builder(this, player).build()
+            mediaSession = buildSession(player)
         }
         return mediaSession
     }

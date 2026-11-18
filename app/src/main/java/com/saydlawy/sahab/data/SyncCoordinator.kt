@@ -95,6 +95,14 @@ class SyncCoordinator(private val container: AppContainer) {
                                 .getOrDefault(HomeChannelsSource.AUTO)
                         )
                         container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
+                        container.prefs.setMoviesLayoutStyle(
+                            runCatching { VodLayoutStyle.valueOf(cp.moviesLayoutStyle) }
+                                .getOrDefault(VodLayoutStyle.CLASSIC)
+                        )
+                        container.prefs.setSeriesLayoutStyle(
+                            runCatching { VodLayoutStyle.valueOf(cp.seriesLayoutStyle) }
+                                .getOrDefault(VodLayoutStyle.CLASSIC)
+                        )
                     },
                     timeoutMs = mergeTimeoutMs,
                 )
@@ -122,6 +130,14 @@ class SyncCoordinator(private val container: AppContainer) {
                                     .getOrDefault(HomeChannelsSource.AUTO)
                             )
                             container.prefs.setHomeChannelsCategoryId(cp.homeChannelsCategoryId)
+                            container.prefs.setMoviesLayoutStyle(
+                                runCatching { VodLayoutStyle.valueOf(cp.moviesLayoutStyle) }
+                                    .getOrDefault(VodLayoutStyle.CLASSIC)
+                            )
+                            container.prefs.setSeriesLayoutStyle(
+                                runCatching { VodLayoutStyle.valueOf(cp.seriesLayoutStyle) }
+                                    .getOrDefault(VodLayoutStyle.CLASSIC)
+                            )
                         },
                     )
                 }
@@ -207,9 +223,11 @@ class SyncCoordinator(private val container: AppContainer) {
             Log.d("SahabSeed", "[$reason] seed: total=${stats.total} loaded=${stats.loaded} skipped=${stats.wasSkipped} dur=${stats.durationMs}ms")
         }.onFailure { Log.w("SahabSeed", "[$reason] seed failed: ${it.message}") }
 
-        Log.d("SahabSync", "[$reason] step 1/5: prewarmCatalog")
-        runCatching { container.repo.prewarmCatalog() }
-            .onFailure { Log.w("SahabSync", "[$reason] prewarm failed: ${it.message}") }
+        if (!forceCatalog) {
+            Log.d("SahabSync", "[$reason] step 1/5: prewarmCatalog")
+            runCatching { container.repo.prewarmCatalog() }
+                .onFailure { Log.w("SahabSync", "[$reason] prewarm failed: ${it.message}") }
+        }
 
         Log.d("SahabSync", "[$reason] step 2/5: syncCatalog (force=$forceCatalog)")
         val sync = runCatching { container.repo.syncCatalog(force = forceCatalog) }

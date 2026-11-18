@@ -178,6 +178,26 @@ internal fun PhonePortraitPlayerScreen(
     onEnterLandscape: () -> Unit,
     onRetry: () -> Unit,
 ) {
+    val isInPipMode by SahabMediaSessionBridge.inPipMode.collectAsStateWithLifecycle()
+    if (isInPipMode) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    useController = false
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                    player = exo
+                }
+            },
+            update = { it.resizeMode = resizeMode },
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+        )
+        return
+    }
+
     val videoBadge = remember(tracks, item.title) {
         SahabPlayer.videoBadge(tracks, qualityOf(item.title) ?: "FHD")
     }
