@@ -41,43 +41,52 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
     val bg = Palette.CinematicBg
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
     Box(modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .fillMaxWidth(if (compact) 1f else 0.74f)
-                .fillMaxHeight(if (compact) 0.46f else 0.76f),
-        ) {
-            if (details != null) {
-                RemoteImage(
-                    url = details.backdropUrl.ifBlank { details.poster.image },
-                    fallbackUrl = details.poster.image,
-                    fallbackText = details.poster.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            // Physical gradient: dark on the title (start) side, clear on the artwork side.
-            val colors = if (rtl) {
-                listOf(Color.Transparent, bg.copy(alpha = 0.55f), bg)
-            } else {
-                listOf(bg, bg.copy(alpha = 0.55f), Color.Transparent)
-            }
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Brush.horizontalGradient(if (compact) listOf(bg.copy(alpha = 0.25f), bg.copy(alpha = 0.25f)) else colors)),
+        if (details != null) {
+            RemoteImage(
+                url = details.backdropUrl.ifBlank { details.poster.image },
+                fallbackUrl = details.poster.image,
+                fallbackText = details.poster.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        val sideStops = if (rtl) {
+            arrayOf(
+                0.0f to Color.Transparent,
+                0.42f to bg.copy(alpha = 0.18f),
+                0.70f to bg.copy(alpha = 0.78f),
+                1.0f to bg.copy(alpha = 0.96f),
+            )
+        } else {
+            arrayOf(
+                0.0f to bg.copy(alpha = 0.96f),
+                0.30f to bg.copy(alpha = 0.78f),
+                0.58f to bg.copy(alpha = 0.18f),
+                1.0f to Color.Transparent,
             )
         }
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
+                    if (compact) {
+                        Brush.verticalGradient(listOf(bg.copy(alpha = 0.30f), bg.copy(alpha = 0.75f)))
+                    } else {
+                        Brush.horizontalGradient(colorStops = sideStops)
+                    },
+                ),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.0f to bg.copy(alpha = 0.35f),
-                            0.35f to Color.Transparent,
-                            if (compact) 0.46f to bg else 0.62f to bg.copy(alpha = 0.92f),
-                            1.0f to bg,
+                            0.0f to bg.copy(alpha = 0.55f),
+                            0.18f to Color.Transparent,
+                            0.52f to Color.Transparent,
+                            0.78f to bg.copy(alpha = 0.72f),
+                            1.0f to bg.copy(alpha = 0.94f),
                         ),
                     ),
                 ),

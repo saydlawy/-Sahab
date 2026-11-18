@@ -55,9 +55,13 @@ import com.saydlawy.sahab.ui.browse.BrowseLayoutCallbacks
 import com.saydlawy.sahab.ui.browse.BrowseUiState
 import com.saydlawy.sahab.ui.browse.FAV_CAT_ID
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
+import com.saydlawy.sahab.ui.browse.layouts.ContinueWatchingProgressBar
+import com.saydlawy.sahab.ui.browse.layouts.TvPivotScrollContainer
+import com.saydlawy.sahab.ui.browse.layouts.rememberDebouncedHero
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SkeletonGrid
+import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
@@ -87,9 +91,10 @@ internal fun PrimeBrowseLayout(
             DisplayMode.PHONE_PORTRAIT -> GridCells.Adaptive(112.dp)
         }
     }
-    val heroDetails = state.focusedDetails ?: state.featuredHeroItems.firstOrNull()?.let { p ->
+    val rawHeroDetails = state.focusedDetails ?: state.featuredHeroItems.firstOrNull()?.let { p ->
         FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
     }
+    val heroDetails = rememberDebouncedHero(rawHeroDetails)
     val rank = heroDetails?.poster?.id?.let { id ->
         state.top10Items.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1)
     }
@@ -135,20 +140,26 @@ internal fun PrimeBrowseLayout(
                         details = heroDetails,
                         rank = rank,
                         modifier = Modifier
-                            .fillMaxWidth(if (isPhone) 1f else 0.56f)
-                            .padding(bottom = 2.dp),
+                            .fillMaxWidth(if (isPhone) 1f else 0.54f)
+                            .padding(bottom = 4.dp),
                     )
                 }
+                TvPivotScrollContainer(parentFraction = 0.08f) {
                 LazyVerticalGrid(
                     columns = columns,
                     state = gridState,
                     modifier = Modifier.weight(1f).fillMaxWidth().focusRestorer(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(bottom = 28.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
 
                 if (homeMode) {
+                    if (screenRecents.isNotEmpty()) {
+                        item(key = "prime_recents", span = { GridItemSpan(maxLineSpan) }) {
+                            PrimeContinueWatchingShelf(route, screenRecents, callbacks, isPhone)
+                        }
+                    }
                     if (state.top10Items.isNotEmpty()) {
                         item(key = "prime_top10", span = { GridItemSpan(maxLineSpan) }) {
                             PrimeTop10Shelf(route, state.top10Items, callbacks, isPhone)
@@ -183,6 +194,7 @@ internal fun PrimeBrowseLayout(
                     }
                 }
             }
+                }
         }
         }
     }
@@ -211,8 +223,9 @@ private fun PrimeTop10Shelf(
         )
         LazyRow(
             state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().focusRestorer(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
         ) {
             itemsIndexed(posters, key = { _, p -> "prime_top10_${p.id}" }) { index, poster ->
                 val rank = index + 1
@@ -244,6 +257,95 @@ private fun PrimeTop10Shelf(
 }
 
 @Composable
+private fun PrimeContinueWatchingShelf(
+    route: String,
+    recents: List<RecentItem>,
+    callbacks: BrowseLayoutCallbacks,
+    isPhone: Boolean,
+) {
+    val rowState = rememberRestorableLazyListState("${route}_prime_recents")
+    val cardW = if (isPhone) 172.dp else 232.dp
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = Ar.continueWatching,
+            color = PrimeCyan,
+            fontSize = if (isPhone) 15.sp else 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        LazyRow(
+            state = rowState,
+            modifier = Modifier.fillMaxWidth().focusRestorer(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+        ) {
+            itemsIndexed(recents, key = { _, r -> "prime_recent_${r.kind}_${r.id}" }) { index, recent ->
+                var focused by remember { mutableStateOf(false) }
+                val isTv = LocalIsTv.current
+                val scale by animateFloatAsState(
+                    targetValue = if (focused && isTv) 1.06f else 1f,
+                    animationSpec = tween(120),
+                    label = "primeRecentScale",
+                )
+                val shape = RoundedCornerShape(8.dp)
+                val focusKey = "prime_recent_${recent.id}"
+                Box(
+                    Modifier
+                        .width(cardW)
+                        .aspectRatio(16f / 9f)
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .restorableFocus(route, focusKey, index == 0)
+                        .onFocusChanged { focused = it.isFocused }
+                        .clip(shape)
+                        .background(Palette.CardSurface)
+                        .combinedClickable(onClick = { callbacks.onPlayRecent(recent) })
+                        .border(if (focused) 3.dp else 0.dp, Color.White, shape),
+                ) {
+                    RemoteImage(
+                        url = recent.icon,
+                        fallbackText = recent.title,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))))
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = recent.title,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (recent.subtitle.isNotBlank()) {
+                            Text(
+                                text = recent.subtitle,
+                                color = Color.White.copy(alpha = 0.78f),
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        ContinueWatchingProgressBar(
+                            positionMs = recent.positionMs,
+                            durationMs = recent.durationMs,
+                            accentColor = PrimeCyan,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PrimeShelf(
     title: String,
     rowId: String,
@@ -253,20 +355,21 @@ private fun PrimeShelf(
     isPhone: Boolean,
 ) {
     val rowState = rememberRestorableLazyListState("${route}_$rowId")
-    val cardW = if (isPhone) 168.dp else 210.dp
+    val cardW = if (isPhone) 108.dp else 138.dp
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
             color = Palette.Gold,
-            fontSize = if (isPhone) 14.sp else 17.sp,
+            fontSize = if (isPhone) 15.sp else 18.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         LazyRow(
             state = rowState,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().focusRestorer(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
         ) {
             itemsIndexed(posters, key = { _, p -> "${rowId}_${p.id}" }) { _, poster ->
                 val focusKey = "${rowId}_${poster.id}"
@@ -275,7 +378,7 @@ private fun PrimeShelf(
                     route = route,
                     focusKey = focusKey,
                     isDefault = false,
-                    landscape = true,
+                    landscape = false,
                     onOpen = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                     onLongClick = { callbacks.onToggleFavorite(poster) },
                     onFocused = { callbacks.onPosterFocused(poster) },
@@ -331,17 +434,31 @@ private fun PrimeTile(
             fallbackText = poster.name,
             modifier = Modifier.fillMaxSize(),
         )
+        val quality = remember(poster.name) { qualityOf(poster.name) }
+        if (!quality.isNullOrBlank()) {
+            Text(
+                text = quality,
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .background(PrimeCyan.copy(alpha = 0.90f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+            )
+        }
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))))
-                .padding(horizontal = 6.dp, vertical = 5.dp),
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
             Text(
                 text = poster.name,
                 color = Color.White,
-                fontSize = 10.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
