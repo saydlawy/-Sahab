@@ -1,8 +1,13 @@
 package com.saydlawy.sahab.data
 
+import android.content.ContentResolver
 import android.content.ContentValues
+import android.database.CharArrayBuffer
+import android.database.ContentObserver
 import android.database.Cursor
-import android.database.MatrixCursor
+import android.database.DataSetObserver
+import android.net.Uri
+import android.os.Bundle
 import android.os.CancellationSignal
 import android.util.Pair
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -144,7 +149,7 @@ class DatabaseMigrationRegressionTest {
             if (pragmaMatch != null) {
                 val table = pragmaMatch.groupValues[1]
                 val cols = tables[table].orEmpty()
-                return FakeSingleColumnCursor("name", cols.toList())
+                return SingleColumnCursor("name", cols.toList())
             }
             if (trimmed.contains("sqlite_master", ignoreCase = true)) {
                 val tableName = bindArgs.firstOrNull()?.toString()
@@ -153,9 +158,9 @@ class DatabaseMigrationRegressionTest {
                 } else {
                     emptyList()
                 }
-                return FakeSingleColumnCursor("name", values)
+                return SingleColumnCursor("name", values)
             }
-            return FakeSingleColumnCursor("name", emptyList())
+            return SingleColumnCursor("name", emptyList())
         }
 
         // Unused SupportSQLiteDatabase members for migration unit tests
@@ -195,28 +200,120 @@ class DatabaseMigrationRegressionTest {
         override fun close() = Unit
     }
 
-    private class FakeSingleColumnCursor(
+    private class SingleColumnCursor(
         private val columnName: String,
         private val values: List<String>,
-    ) : MatrixCursor(arrayOf(columnName)) {
+    ) : Cursor {
         private var pos = -1
+        private var closed = false
 
-        override fun getColumnIndex(name: String?): Int =
-            if (name == columnName) 0 else -1
+        override fun getCount(): Int = values.size
 
-        override fun moveToFirst(): Boolean {
-            pos = 0
-            return values.isNotEmpty()
+        override fun getPosition(): Int = pos
+
+        override fun move(offset: Int): Boolean = moveToPosition(pos + offset)
+
+        override fun moveToPosition(position: Int): Boolean {
+            if (position >= values.size) {
+                pos = values.size
+                return false
+            }
+            if (position < 0) {
+                pos = -1
+                return false
+            }
+            pos = position
+            return true
         }
 
-        override fun moveToNext(): Boolean {
-            pos++
-            return pos in values.indices
+        override fun moveToFirst(): Boolean = moveToPosition(0)
+
+        override fun moveToLast(): Boolean = moveToPosition(values.size - 1)
+
+        override fun moveToNext(): Boolean = moveToPosition(pos + 1)
+
+        override fun moveToPrevious(): Boolean = moveToPosition(pos - 1)
+
+        override fun isFirst(): Boolean = pos == 0 && values.isNotEmpty()
+
+        override fun isLast(): Boolean = pos == values.lastIndex && values.isNotEmpty()
+
+        override fun isBeforeFirst(): Boolean = values.isEmpty() || pos < 0
+
+        override fun isAfterLast(): Boolean = values.isEmpty() || pos >= values.size
+
+        override fun getColumnIndex(columnName: String?): Int =
+            if (columnName == this.columnName) 0 else -1
+
+        override fun getColumnIndexOrThrow(columnName: String?): Int {
+            val index = getColumnIndex(columnName)
+            if (index < 0) throw IllegalArgumentException("Column '$columnName' does not exist.")
+            return index
         }
 
-        override fun getString(column: Int): String = values[pos]
+        override fun getColumnName(columnIndex: Int): String {
+            if (columnIndex != 0) throw IndexOutOfBoundsException("Invalid column index: $columnIndex")
+            return columnName
+        }
 
-        override fun close() = Unit
+        override fun getColumnNames(): Array<String> = arrayOf(columnName)
+
+        override fun getColumnCount(): Int = 1
+
+        override fun getBlob(columnIndex: Int): ByteArray = throw UnsupportedOperationException()
+
+        override fun getString(columnIndex: Int): String {
+            if (columnIndex != 0) throw IndexOutOfBoundsException("Invalid column index: $columnIndex")
+            return values[pos]
+        }
+
+        override fun copyStringToBuffer(columnIndex: Int, buffer: CharArrayBuffer?) =
+            throw UnsupportedOperationException()
+
+        override fun getShort(columnIndex: Int): Short = throw UnsupportedOperationException()
+
+        override fun getInt(columnIndex: Int): Int = throw UnsupportedOperationException()
+
+        override fun getLong(columnIndex: Int): Long = throw UnsupportedOperationException()
+
+        override fun getFloat(columnIndex: Int): Float = throw UnsupportedOperationException()
+
+        override fun getDouble(columnIndex: Int): Double = throw UnsupportedOperationException()
+
+        override fun getType(columnIndex: Int): Int = Cursor.FIELD_TYPE_STRING
+
+        override fun isNull(columnIndex: Int): Boolean = false
+
+        override fun deactivate() = Unit
+
+        @Deprecated("Deprecated in Java")
+        override fun requery(): Boolean = false
+
+        override fun close() {
+            closed = true
+        }
+
+        override fun isClosed(): Boolean = closed
+
+        override fun registerContentObserver(observer: ContentObserver?) = Unit
+
+        override fun unregisterContentObserver(observer: ContentObserver?) = Unit
+
+        override fun registerDataSetObserver(observer: DataSetObserver?) = Unit
+
+        override fun unregisterDataSetObserver(observer: DataSetObserver?) = Unit
+
+        override fun setNotificationUri(cr: ContentResolver?, uri: Uri?) = Unit
+
+        override fun getNotificationUri(): Uri? = null
+
+        override fun getWantsAllOnMoveCalls(): Boolean = false
+
+        override fun setExtras(extras: Bundle?) = Unit
+
+        override fun getExtras(): Bundle = Bundle()
+
+        override fun respond(extras: Bundle?): Bundle = Bundle()
     }
 
     @Test
@@ -272,6 +369,7 @@ class DatabaseMigrationRegressionTest {
 
         ChannelDatabase.MIGRATION_1_2.migrate(db)
 
+        assertFalse(db.executedSql.any { it.contains("ADD COLUMN `lastFirebaseCheckAt`", ignoreCase = true) })
         assertFalse(db.tables.containsKey("channel_lists_legacy"))
         assertEquals(
             setOf("listId", "name", "icon", "sortOrder", "sortMode", "createdAt", "updatedAt"),
@@ -283,6 +381,35 @@ class DatabaseMigrationRegressionTest {
         assertEquals("قنواتي", migratedRow["name"])
         assertEquals(1, migratedRow["sortOrder"])
         assertEquals("custom", migratedRow["sortMode"])
+        assertEquals(1700000000L, migratedRow["createdAt"])
+        assertEquals(1700000000L, migratedRow["updatedAt"])
+    }
+
+    @Test
+    fun catalogDatabase_migrations2To4_upgradePreservesRowsAndAddsImdbAndIndices() {
+        val db = RecordingSqliteDatabase()
+        db.defineTable(
+            name = "catalog_movies",
+            columns = listOf(
+                "sahabId", "novaStreamId", "categoryId", "titleAr", "titleEn", "year",
+                "plot", "plotSource", "plotConfidence", "identifiedTitle", "mediaType",
+                "cast", "director", "genre", "runtime", "rating", "posterUrl",
+                "backdropUrl", "novaAdded", "containerExtension", "isAdult", "tmdbId",
+                "tmdbVoteCount", "needsEnrichment", "lastEnriched", "lastSeen", "deleted",
+            ),
+            rows = listOf(mapOf("sahabId" to "tmdb:603", "novaStreamId" to "9902", "titleEn" to "The Matrix")),
+        )
+        db.indices["index_catalog_movies_novaStreamId"] = true
+
+        CatalogDatabase.MIGRATION_2_3.migrate(db)
+        assertTrue(db.tables["catalog_movies"]!!.contains("imdbId"))
+
+        CatalogDatabase.MIGRATION_3_4.migrate(db)
+        assertFalse(db.indices.containsKey("index_catalog_movies_novaStreamId"))
+        assertEquals(true, db.indices["index_catalog_movies_mediaType_novaStreamId"])
+        assertTrue(db.indices.containsKey("index_catalog_movies_tmdbId"))
+        assertEquals(1, db.tableRows["catalog_movies"]!!.size)
+        assertEquals("tmdb:603", db.tableRows["catalog_movies"]!![0]["sahabId"])
     }
 
     @Test
