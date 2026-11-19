@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,27 +30,101 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.saydlawy.sahab.ui.components.Ic
-import com.saydlawy.sahab.ui.components.SahabIcon
-import com.saydlawy.sahab.ui.theme.Palette
+import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.browse.ALL_CAT_ID
 import com.saydlawy.sahab.ui.browse.FAV_CAT_ID
 import com.saydlawy.sahab.ui.browse.RECENTS_CAT_ID
-import com.saydlawy.sahab.ui.components.Chip
+import com.saydlawy.sahab.ui.components.Ic
+import com.saydlawy.sahab.ui.components.SahabIcon
 import com.saydlawy.sahab.ui.components.SearchBox
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
+import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
+
+private val CategoryTints = listOf(
+    Color(0xFF00A8E1),
+    Color(0xFF8E45FF),
+    Color(0xFF10B981),
+    Color(0xFFE0A23B),
+    Color(0xFFEC4899),
+    Color(0xFF3B82F6),
+)
+
+private fun categoryIconFor(name: String): ImageVector {
+    val n = name.lowercase()
+    return when {
+        "fifa" in n || "cup" in n || "كأس" in n || "رياض" in n -> Ic.Football
+        "حديث" in n || "جديد" in n || "2026" in n || "2025" in n -> Ic.Star
+        "رمضان" in n || "ramadan" in n || "عرب" in n || "مصر" in n -> Ic.Moon
+        "أجنب" in n || "اجنب" in n || "آسيو" in n || "ترك" in n || "هند" in n -> Ic.Globe
+        "مسلسل" in n -> Ic.Series
+        else -> Ic.Movie
+    }
+}
+
+@Composable
+private fun PrimeCategoryPill(
+    label: String,
+    icon: ImageVector,
+    accent: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(16.dp)
+    val bgBrush = when {
+        selected -> Brush.horizontalGradient(listOf(accent.copy(alpha = 0.85f), accent.copy(alpha = 0.45f)))
+        focused -> Brush.horizontalGradient(listOf(accent.copy(alpha = 0.48f), Color(0xFF1E293B)))
+        else -> Brush.horizontalGradient(listOf(accent.copy(alpha = 0.20f), Color(0xFF0F172A).copy(alpha = 0.72f)))
+    }
+    val borderColor = when {
+        focused -> Color.White
+        selected -> accent
+        else -> accent.copy(alpha = 0.42f)
+    }
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(bgBrush)
+            .border(if (focused) 2.dp else 1.dp, borderColor, shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        SahabIcon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp),
+            tint = if (selected || focused) Color.White else accent,
+        )
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = if (selected || focused) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
 
 @Composable
 internal fun PrimeCategoryTabs(
@@ -65,41 +142,49 @@ internal fun PrimeCategoryTabs(
         LazyRow(
             state = rowState,
             modifier = rowMod.focusRestorer(),
-            contentPadding = PaddingValues(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (hasRecents) {
                 item(key = RECENTS_CAT_ID) {
-                    Chip(
-                        Ar.continueWatching,
-                        selectedId == RECENTS_CAT_ID,
-                        { onSelect(RECENTS_CAT_ID) },
-                        Modifier.restorableFocus(screenKey, "prime_cat_$RECENTS_CAT_ID"),
+                    PrimeCategoryPill(
+                        label = Ar.continueWatching,
+                        icon = Ic.Play,
+                        accent = PrimeCyan,
+                        selected = selectedId == RECENTS_CAT_ID,
+                        onClick = { onSelect(RECENTS_CAT_ID) },
+                        modifier = Modifier.restorableFocus(screenKey, "prime_cat_$RECENTS_CAT_ID"),
                     )
                 }
             }
             item(key = FAV_CAT_ID) {
-                Chip(
-                    Ar.favorites,
-                    selectedId == FAV_CAT_ID,
-                    { onSelect(FAV_CAT_ID) },
-                    Modifier.restorableFocus(screenKey, "prime_cat_$FAV_CAT_ID"),
+                PrimeCategoryPill(
+                    label = Ar.favorites,
+                    icon = Ic.Heart,
+                    accent = Color(0xFFF43F5E),
+                    selected = selectedId == FAV_CAT_ID,
+                    onClick = { onSelect(FAV_CAT_ID) },
+                    modifier = Modifier.restorableFocus(screenKey, "prime_cat_$FAV_CAT_ID"),
                 )
             }
             item(key = ALL_CAT_ID) {
-                Chip(
-                    Ar.all,
-                    selectedId == ALL_CAT_ID || selectedId == null,
-                    { onSelect(ALL_CAT_ID) },
-                    Modifier.restorableFocus(screenKey, "prime_cat_$ALL_CAT_ID"),
+                PrimeCategoryPill(
+                    label = Ar.all,
+                    icon = Ic.FolderGrid,
+                    accent = Color(0xFF8E45FF),
+                    selected = selectedId == ALL_CAT_ID || selectedId == null,
+                    onClick = { onSelect(ALL_CAT_ID) },
+                    modifier = Modifier.restorableFocus(screenKey, "prime_cat_$ALL_CAT_ID"),
                 )
             }
-            items(categories, key = { it.id }) { cat ->
-                Chip(
-                    cat.name,
-                    cat.id == selectedId,
-                    { onSelect(cat.id) },
-                    Modifier.restorableFocus(screenKey, "prime_cat_${cat.id}"),
+            itemsIndexed(categories, key = { _, c -> c.id }) { idx, cat ->
+                PrimeCategoryPill(
+                    label = cat.name,
+                    icon = categoryIconFor(cat.name),
+                    accent = CategoryTints[idx % CategoryTints.size],
+                    selected = cat.id == selectedId,
+                    onClick = { onSelect(cat.id) },
+                    modifier = Modifier.restorableFocus(screenKey, "prime_cat_${cat.id}"),
                 )
             }
         }
@@ -108,7 +193,7 @@ internal fun PrimeCategoryTabs(
     if (isPortrait) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             SearchBox(
                 value = query,
@@ -128,7 +213,7 @@ internal fun PrimeCategoryTabs(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (searchExpanded || query.isNotBlank()) {
                 SearchBox(
@@ -136,7 +221,7 @@ internal fun PrimeCategoryTabs(
                     onValueChange = onQuery,
                     placeholder = Ar.searchTitles,
                     modifier = Modifier
-                        .width(240.dp)
+                        .width(220.dp)
                         .focusRequester(searchBoxFocus)
                         .onPreviewKeyEvent { ev ->
                             if (ev.type == KeyEventType.KeyUp && ev.key == Key.Back && query.isBlank()) {
@@ -150,10 +235,10 @@ internal fun PrimeCategoryTabs(
             } else {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(if (searchBtnFocused) PrimeCyan else Palette.GlassStrong)
-                        .border(if (searchBtnFocused) 2.5.dp else 1.dp, if (searchBtnFocused) Color.White else Palette.GlassBorder, CircleShape)
+                        .border(if (searchBtnFocused) 2.dp else 1.dp, if (searchBtnFocused) Color.White else Palette.GlassBorder, CircleShape)
                         .onFocusChanged { searchBtnFocused = it.isFocused }
                         .clickable { searchExpanded = true },
                     contentAlignment = Alignment.Center,
@@ -161,7 +246,7 @@ internal fun PrimeCategoryTabs(
                     SahabIcon(
                         imageVector = Ic.Search,
                         contentDescription = Ar.searchTitles,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(16.dp),
                         tint = if (searchBtnFocused) Color.Black else Color.White,
                     )
                 }

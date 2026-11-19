@@ -12,7 +12,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -54,18 +60,56 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Box(
-                    Modifier
+                RemoteImage(
+                    url = details.poster.image,
+                    fallbackText = details.poster.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(26.dp)
+                        .graphicsLayer { alpha = 0.42f },
+                )
+                val posterShape = RoundedCornerShape(12.dp)
+                Column(
+                    modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .fillMaxWidth(if (compact) 0.58f else 0.42f)
-                        .fillMaxHeight(if (compact) 0.54f else 0.72f),
+                        .padding(top = 8.dp, end = if (compact) 12.dp else 28.dp)
+                        .fillMaxWidth(if (compact) 0.34f else 0.22f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     RemoteImage(
                         url = details.poster.image,
                         fallbackText = details.poster.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(if (compact) 0.44f else 0.48f)
+                            .clip(posterShape)
+                            .border(1.dp, Color.White.copy(alpha = 0.24f), posterShape),
                     )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.14f)
+                            .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)),
+                    ) {
+                        RemoteImage(
+                            url = details.poster.image,
+                            fallbackText = details.poster.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleY = -1f
+                                    alpha = 0.24f
+                                },
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, bg))),
+                        )
+                    }
                 }
             }
         }

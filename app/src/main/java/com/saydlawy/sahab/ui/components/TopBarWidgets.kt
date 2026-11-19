@@ -97,6 +97,7 @@ internal fun CinematicNavTabsRow(
         ) {
             itemsIndexed(NavTabs, key = { _, t -> t.route }) { _, tab ->
                 CinematicNavTab(
+                    icon = tab.icon,
                     label = tab.label,
                     selected = tab.route == current,
                     compact = compact,
@@ -112,6 +113,7 @@ internal fun CinematicNavTabsRow(
         ) {
             NavTabs.forEach { tab ->
                 CinematicNavTab(
+                    icon = tab.icon,
                     label = tab.label,
                     selected = tab.route == current,
                     compact = compact,
@@ -124,6 +126,7 @@ internal fun CinematicNavTabsRow(
 
 @Composable
 internal fun CinematicNavTab(
+    icon: ImageVector,
     label: String,
     selected: Boolean,
     compact: Boolean,
@@ -191,15 +194,14 @@ internal fun CinematicNavTab(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(
                 horizontal = if (compact) 10.dp else 14.dp,
-                vertical = if (compact) 5.dp else 7.dp,
+                vertical = if (compact) 4.dp else 6.dp,
             ),
     ) {
-        Text(
-            text = label,
-            fontSize = if (compact) 13.sp else 15.sp,
-            fontWeight = if (selected || focused) FontWeight.ExtraBold else FontWeight.SemiBold,
-            color = textColor,
-            maxLines = 1,
+        SahabIcon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(if (compact) 19.dp else 22.dp),
+            tint = if (selected || focused) Palette.FocusCyan else textColor,
         )
         Spacer(Modifier.height(4.dp))
         // Glowing cyan/blue underline bar matching reference image

@@ -135,15 +135,6 @@ internal fun PrimeBrowseLayout(
                     }
                 }
             } else {
-                if (homeMode) {
-                    PrimeHeroInfo(
-                        details = heroDetails,
-                        rank = rank,
-                        modifier = Modifier
-                            .fillMaxWidth(if (isPhone) 1f else 0.54f)
-                            .padding(bottom = 4.dp),
-                    )
-                }
                 TvPivotScrollContainer(parentFraction = 0.08f) {
                 LazyVerticalGrid(
                     columns = columns,
@@ -151,10 +142,21 @@ internal fun PrimeBrowseLayout(
                     modifier = Modifier.weight(1f).fillMaxWidth().focusRestorer(),
                     contentPadding = PaddingValues(bottom = 28.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
 
                 if (homeMode) {
+                    item(key = "prime_hero_info", span = { GridItemSpan(maxLineSpan) }) {
+                        Box(Modifier.fillMaxWidth()) {
+                            PrimeHeroInfo(
+                                details = heroDetails,
+                                rank = rank,
+                                modifier = Modifier
+                                    .fillMaxWidth(if (isPhone) 1f else 0.54f)
+                                    .padding(top = 4.dp, bottom = 4.dp),
+                            )
+                        }
+                    }
                     if (screenRecents.isNotEmpty()) {
                         item(key = "prime_recents", span = { GridItemSpan(maxLineSpan) }) {
                             PrimeContinueWatchingShelf(route, screenRecents, callbacks, isPhone)

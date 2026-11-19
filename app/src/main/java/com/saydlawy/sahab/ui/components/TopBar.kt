@@ -75,14 +75,14 @@ import com.saydlawy.sahab.util.formatNowMillis
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-internal data class NavTabItem(val route: String, val label: String)
+internal data class NavTabItem(val route: String, val label: String, val icon: ImageVector)
 
 internal val NavTabs = listOf(
-    NavTabItem(Routes.HOME, Ar.home),
-    NavTabItem(Routes.LIVE, "البث المباشر"),
-    NavTabItem(Routes.MOVIES, "الأفلام"),
-    NavTabItem(Routes.SERIES, "المسلسلات"),
-    NavTabItem(Routes.FAVORITES, Ar.favorites),
+    NavTabItem(Routes.HOME, Ar.home, Ic.FolderGrid),
+    NavTabItem(Routes.LIVE, "البث المباشر", Ic.Tv),
+    NavTabItem(Routes.MOVIES, "الأفلام", Ic.Movie),
+    NavTabItem(Routes.SERIES, "المسلسلات", Ic.Series),
+    NavTabItem(Routes.FAVORITES, Ar.favorites, Ic.Heart),
 )
 
 /** The rounded-square gradient tile with the Sahab cloud + play symbol. */
@@ -239,18 +239,14 @@ fun SahabTopBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 8.dp),
+                        .padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (onBack != null) {
-                        GlassIconButton(Ic.Back, Ar.back, onBack, size = 40.dp)
-                        Spacer(Modifier.width(12.dp))
+                        GlassIconButton(Ic.Back, Ar.back, onBack, size = 36.dp)
+                        Spacer(Modifier.width(10.dp))
                     }
-                    BrandMark(
-                        subtitle = if (roomy) "(Sahab IPTV)" else null,
-                        logoSize = 40.dp,
-                        titleSize = 20,
-                    )
+                    BrandLogo(size = 36.dp)
                     if (showNavigation) {
                         if (navigationPlacement == "center" || navigationPlacement == "end") {
                             Spacer(Modifier.weight(1f))
@@ -294,7 +290,7 @@ fun SahabTopBar(
                     if (onBack != null) {
                         GlassIconButton(Ic.Back, Ar.back, onBack, size = 36.dp)
                     }
-                    BrandMark(subtitle = null, logoSize = 32.dp, titleSize = 16)
+                    BrandLogo(size = 32.dp)
                     if (showNavigation) {
                         CinematicNavTabsRow(
                             current = current,
