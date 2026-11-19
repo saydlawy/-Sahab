@@ -7,11 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -31,7 +28,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import com.saydlawy.sahab.LocalContainer
+import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.player.SahabPlayer
 import com.saydlawy.sahab.ui.theme.Palette
 import kotlinx.coroutines.delay
@@ -143,11 +140,9 @@ fun TrailerAutoPlayBox(
                     .size(34.dp)
                     .background(Color.Black.copy(alpha = 0.55f), CircleShape),
             ) {
-                Icon(
-                    imageVector = if (muted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = if (muted) "تشغيل الصوت" else "كتم الصوت",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp),
+                Text(
+                    text = if (muted) "🔇" else "🔊",
+                    color = Color.White,
                 )
             }
         }
