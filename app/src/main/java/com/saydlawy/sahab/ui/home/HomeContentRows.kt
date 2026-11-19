@@ -64,7 +64,7 @@ import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.ChannelLogoResolver
 import androidx.compose.foundation.shape.CircleShape
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 
 // ============================================================================
 // SECTION B — تابع المشاهدة (Continue Watching)

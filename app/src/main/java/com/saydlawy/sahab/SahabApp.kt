@@ -3,10 +3,14 @@ package com.saydlawy.sahab
 import android.app.Application
 import com.google.firebase.FirebaseApp
 import android.content.Context
-import coil.ImageLoader
-import coil.ImageLoaderFactory
-import coil.disk.DiskCache as CoilDiskCache
-import coil.memory.MemoryCache
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache as CoilDiskCache
+import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.crossfade
+import okio.Path.Companion.toOkioPath
 import com.saydlawy.sahab.data.DiskCache
 import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.Kind
@@ -369,7 +373,7 @@ class AppContainer(context: Context) {
     }
 }
 
-class SahabApp : Application(), ImageLoaderFactory {
+class SahabApp : Application(), SingletonImageLoader.Factory {
 
     lateinit var container: AppContainer
         private set
@@ -388,21 +392,22 @@ class SahabApp : Application(), ImageLoaderFactory {
         }
     }
 
-    override fun newImageLoader(): ImageLoader =
-        ImageLoader.Builder(this)
-            .okHttpClient(coilClient)
+    override fun newImageLoader(context: PlatformContext): ImageLoader =
+        ImageLoader.Builder(context)
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { coilClient }))
+            }
             .memoryCache {
-                MemoryCache.Builder(this)
+                MemoryCache.Builder(context)
                     .maxSizePercent(0.25)
                     .build()
             }
             .diskCache {
                 CoilDiskCache.Builder()
-                    .directory(File(cacheDir, "image_cache"))
+                    .directory(File(cacheDir, "image_cache").toOkioPath())
                     .maxSizeBytes(500L * 1024L * 1024L)
                     .build()
             }
-            .respectCacheHeaders(false)
             .crossfade(false)
             .build()
 
