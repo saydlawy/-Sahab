@@ -190,21 +190,26 @@ internal fun NetflixBrowseLayout(
                                         label = "nfCwScale",
                                     )
                                     val cwShape = RoundedCornerShape(8.dp)
+                                    val cwBorderModifier = if (cwFocused) {
+                                        Modifier.border(2.5.dp, Color.White, cwShape)
+                                    } else {
+                                        Modifier
+                                    }
                                     Box(
                                         Modifier
                                             .width(cwWidth)
                                             .height(cwHeight)
                                             .graphicsLayer { scaleX = cwScale; scaleY = cwScale }
-                                            .restorableFocus(route, focusKey, isDefault = idx == 0)
+                                            .restorableFocus(route, focusKey, isDefaultEntry = idx == 0)
                                             .onFocusChanged { cwFocused = it.isFocused }
                                             .clip(cwShape)
                                             .background(Palette.CardSurface)
-                                            .combinedClickable(onClick = { callbacks.onPlayRecent(recent) })
-                                            .border(if (cwFocused) 2.5.dp else 0.dp, Color.White, cwShape),
+                                            .then(cwBorderModifier)
+                                            .combinedClickable(onClick = { callbacks.onPlayRecent(recent) }),
                                     ) {
                                         RemoteImage(
-                                            url = recent.image,
-                                            fallbackText = recent.name,
+                                            url = recent.icon,
+                                            fallbackText = recent.title,
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                         Box(
@@ -215,7 +220,7 @@ internal fun NetflixBrowseLayout(
                                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                                         ) {
                                             Text(
-                                                text = recent.name,
+                                                text = recent.title,
                                                 color = Color.White,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -223,7 +228,11 @@ internal fun NetflixBrowseLayout(
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                         }
-                                        val pct = recent.progressPercent.coerceIn(0, 100)
+                                        val pct = if (recent.durationMs > 0L) {
+                                            ((recent.positionMs * 100L) / recent.durationMs).toInt().coerceIn(0, 100)
+                                        } else {
+                                            0
+                                        }
                                         if (pct > 0) {
                                             Box(
                                                 Modifier
