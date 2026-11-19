@@ -312,14 +312,30 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
         }
         if (categoryId == FAV_CAT_ID) {
             val pool = searchPool
-            viewModelScope.launch {
+            channelsJob = viewModelScope.launch {
                 updateWithVisible {
                     it.copy(
                         selectedId = FAV_CAT_ID,
                         channels = pool ?: it.channels,
-                        loadingChannels = false,
+                        loadingChannels = pool.isNullOrEmpty() && it.channels.isEmpty(),
                         error = null,
                     )
+                }
+                if (pool.isNullOrEmpty()) {
+                    val all = runCatching { repo.liveChannels(null) }.getOrDefault(emptyList())
+                    if (all.isNotEmpty()) {
+                        updateSearchPool(all)
+                        updateWithVisible {
+                            it.copy(
+                                selectedId = FAV_CAT_ID,
+                                channels = all,
+                                loadingChannels = false,
+                                error = null,
+                            )
+                        }
+                    } else {
+                        updateWithVisible { it.copy(loadingChannels = false) }
+                    }
                 }
             }
             return

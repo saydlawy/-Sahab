@@ -213,9 +213,28 @@ class BrowseViewModel(
                 it.copy(
                     selectedId = FAV_CAT_ID,
                     items = pool ?: it.items,
-                    loadingItems = false,
+                    loadingItems = pool.isNullOrEmpty() && it.items.isEmpty(),
                     error = null,
                 )
+            }
+            if (pool.isNullOrEmpty()) {
+                itemsJob = viewModelScope.launch {
+                    val all = runCatching { fetchItems(null) }.getOrDefault(emptyList())
+                    if (all.isNotEmpty()) {
+                        updateSearchPool(all)
+                        _state.update {
+                            it.copy(
+                                selectedId = FAV_CAT_ID,
+                                items = all,
+                                loadingItems = false,
+                                totalCount = maxOf(it.totalCount, all.size),
+                                error = null,
+                            )
+                        }
+                    } else {
+                        _state.update { it.copy(loadingItems = false) }
+                    }
+                }
             }
             return
         }

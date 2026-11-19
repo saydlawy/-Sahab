@@ -43,7 +43,7 @@ class CloudMergeCoordinator {
         return when (result) {
             is CloudFetchResult.Success -> {
                 val local = localFavs()
-                val merged = (local + result.data).distinctBy { Triple(it.accountId, it.kind, it.id) }
+                val merged = mergeFavLists(local, result.data)
                 if (merged != local) {
                     saveMergedFavs(merged)
                 }
@@ -68,10 +68,7 @@ class CloudMergeCoordinator {
         return when (result) {
             is CloudFetchResult.Success -> {
                 val local = localRecents()
-                val merged = (local + result.data)
-                    .sortedByDescending { it.updatedAt }
-                    .distinctBy { Triple(it.accountId, it.kind, it.id) }
-                    .trimPerAccount(MAX_RECENTS)
+                val merged = mergeRecentLists(local, result.data)
                 if (merged != local) {
                     saveMergedRecents(merged)
                 }
@@ -147,6 +144,71 @@ class CloudMergeCoordinator {
             if (!isSignedIn()) return
             if (attemptIncomplete()) return
         }
+    }
+
+    private fun normalizeAccountIds(
+        primary: List<FavItem>,
+        secondary: List<FavItem>,
+    ): Pair<List<FavItem>, List<FavItem>> {
+        val inferredByItem = (primary + secondary)
+            .filter { it.accountId.isNotBlank() }
+            .associateBy { it.kind to it.id }
+        fun fix(item: FavItem): FavItem {
+            if (item.accountId.isNotBlank()) return item
+            val matchedAcc = inferredByItem[item.kind to item.id]?.accountId.orEmpty()
+            return if (matchedAcc.isNotBlank()) item.copy(accountId = matchedAcc) else item
+        }
+        return primary.map(::fix) to secondary.map(::fix)
+    }
+
+    internal fun mergeFavLists(local: List<FavItem>, cloud: List<FavItem>): List<FavItem> {
+        val (normLocal, normCloud) = normalizeAccountIds(local, cloud)
+        val byKey = LinkedHashMap<Triple<String, String, String>, FavItem>()
+        for (item in normLocal + normCloud) {
+            val key = Triple(item.accountId, item.kind, item.id)
+            val prev = byKey[key]
+            if (prev == null) {
+                byKey[key] = item
+            } else {
+                byKey[key] = prev.copy(
+                    name = prev.name.ifBlank { item.name },
+                    icon = prev.icon.ifBlank { item.icon },
+                    ext = prev.ext.ifBlank { item.ext },
+                    url = prev.url.ifBlank { item.url },
+                )
+            }
+        }
+        return byKey.values.toList()
+    }
+
+    internal fun mergeRecentLists(local: List<RecentItem>, cloud: List<RecentItem>): List<RecentItem> {
+        val inferredByItem = (local + cloud)
+            .filter { it.accountId.isNotBlank() }
+            .associateBy { it.kind to it.id }
+        fun fix(item: RecentItem): RecentItem {
+            if (item.accountId.isNotBlank()) return item
+            val matchedAcc = inferredByItem[item.kind to item.id]?.accountId.orEmpty()
+            return if (matchedAcc.isNotBlank()) item.copy(accountId = matchedAcc) else item
+        }
+        val combined = (local.map(::fix) + cloud.map(::fix)).sortedByDescending { it.updatedAt }
+        val byKey = LinkedHashMap<Triple<String, String, String>, RecentItem>()
+        for (item in combined) {
+            val key = Triple(item.accountId, item.kind, item.id)
+            val prev = byKey[key]
+            if (prev == null) {
+                byKey[key] = item
+            } else {
+                byKey[key] = prev.copy(
+                    title = prev.title.ifBlank { item.title },
+                    subtitle = prev.subtitle.ifBlank { item.subtitle },
+                    icon = prev.icon.ifBlank { item.icon },
+                    ext = prev.ext.ifBlank { item.ext },
+                    groupId = prev.groupId.ifBlank { item.groupId },
+                    url = prev.url.ifBlank { item.url },
+                )
+            }
+        }
+        return byKey.values.toList().trimPerAccount(MAX_RECENTS)
     }
 
     companion object {

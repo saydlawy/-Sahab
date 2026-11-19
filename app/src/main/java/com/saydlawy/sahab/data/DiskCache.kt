@@ -139,8 +139,10 @@ class DiskCache(
     fun clearCatalog() {
         runCatching {
             synchronized(catalogEvictionLock) {
-                catalogDir.listFiles()?.forEach { it.delete() }
-                estimatedCatalogBytes = 0L
+                val remaining = catalogDir.listFiles()?.filter { file ->
+                    file.isFile && !file.delete()
+                }.orEmpty()
+                estimatedCatalogBytes = remaining.sumOf { it.length() }.coerceAtLeast(0L)
             }
         }
     }

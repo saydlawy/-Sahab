@@ -175,4 +175,40 @@ class CloudMergeCoordinatorTest {
         assertEquals(1, saved.forAccount("acc_1").size)
         assertEquals(1, saved.forAccount("acc_2").size)
     }
+
+    @Test
+    fun merge_normalizesBlankAccountIdAndFillsMissingMetadata() = runTest {
+        val coordinator = CloudMergeCoordinator()
+        val localFav = listOf(FavItem(Kind.LIVE, "77", "قناة الأخبار", icon = "", url = "https://stream/77.m3u8", accountId = "acc_a"))
+        val cloudFav = listOf(FavItem(Kind.LIVE, "77", "قناة الأخبار", icon = "https://img/77.png", url = "", accountId = ""))
+
+        var savedFavs: List<FavItem> = emptyList()
+        assertTrue(
+            coordinator.mergeFavorites(
+                localFavs = { localFav },
+                fetchCloudFavs = { CloudFetchResult.Success(cloudFav) },
+                saveMergedFavs = { savedFavs = it },
+            ),
+        )
+        assertEquals(1, savedFavs.size)
+        assertEquals("acc_a", savedFavs.first().accountId)
+        assertEquals("https://img/77.png", savedFavs.first().icon)
+        assertEquals("https://stream/77.m3u8", savedFavs.first().url)
+
+        val localRecent = listOf(RecentItem(Kind.MOVIE, "88", "فيلم", icon = "", positionMs = 4_000L, updatedAt = 500L, accountId = "acc_a"))
+        val cloudRecent = listOf(RecentItem(Kind.MOVIE, "88", "فيلم", icon = "https://img/88.jpg", positionMs = 1_000L, updatedAt = 100L, accountId = ""))
+
+        var savedRecents: List<RecentItem> = emptyList()
+        assertTrue(
+            coordinator.mergeRecents(
+                localRecents = { localRecent },
+                fetchCloudRecents = { CloudFetchResult.Success(cloudRecent) },
+                saveMergedRecents = { savedRecents = it },
+            ),
+        )
+        assertEquals(1, savedRecents.size)
+        assertEquals("acc_a", savedRecents.first().accountId)
+        assertEquals(4_000L, savedRecents.first().positionMs)
+        assertEquals("https://img/88.jpg", savedRecents.first().icon)
+    }
 }

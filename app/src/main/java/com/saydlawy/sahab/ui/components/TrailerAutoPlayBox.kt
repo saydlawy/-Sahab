@@ -2,6 +2,9 @@ package com.saydlawy.sahab.ui.components
 
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -46,9 +49,12 @@ fun TrailerAutoPlayBox(
     val context = LocalContext.current
     val container = LocalContainer.current
     val cleanUrl = trailerUrl.trim()
-    val playableUrl = cleanUrl.takeIf {
-        it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+    val youtubeVideoId = remember(cleanUrl) { extractYouTubeVideoId(cleanUrl) }
+    val playableUrl = cleanUrl.takeIf { url ->
+        youtubeVideoId == null &&
+            (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true))
     }
+    val hasMediaSource = playableUrl != null || youtubeVideoId != null
 
     var shouldPlay by remember(cleanUrl) { mutableStateOf(false) }
     var muted by remember(cleanUrl) { mutableStateOf(startMuted) }
@@ -56,7 +62,7 @@ fun TrailerAutoPlayBox(
 
     LaunchedEffect(cleanUrl) {
         shouldPlay = false
-        if (playableUrl == null) return@LaunchedEffect
+        if (!hasMediaSource) return@LaunchedEffect
         delay(autoPlayDelayMs)
         shouldPlay = true
     }
@@ -64,12 +70,9 @@ fun TrailerAutoPlayBox(
     LaunchedEffect(shouldPlay, playableUrl) {
         if (!shouldPlay || playableUrl == null) {
             player?.let { existing ->
-                runCatching {
-                    existing.stop()
-                    existing.release()
-                }
+                player = null
+                SahabPlayer.releasePlayer(existing)
             }
-            player = null
             return@LaunchedEffect
         }
 
@@ -94,19 +97,28 @@ fun TrailerAutoPlayBox(
         player?.volume = if (muted) 0f else 1f
     }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        shouldPlay = false
+        val existing = player
+        player = null
+        SahabPlayer.releasePlayer(existing)
+    }
+
     DisposableEffect(cleanUrl) {
         onDispose {
-            player?.let { existing ->
-                runCatching {
-                    existing.stop()
-                    existing.release()
-                }
-            }
+            val existing = player
             player = null
+            SahabPlayer.releasePlayer(existing)
         }
     }
 
-    Box(modifier = modifier.background(Palette.CinematicBg)) {
+    Box(
+        modifier = modifier
+            .background(Palette.CinematicBg)
+            .clickable(enabled = hasMediaSource && !shouldPlay) {
+                shouldPlay = true
+            },
+    ) {
         RemoteImage(
             url = posterUrl,
             fallbackUrl = posterUrl,
@@ -116,7 +128,7 @@ fun TrailerAutoPlayBox(
         )
 
         val activePlayer = player
-        if (activePlayer != null && playableUrl != null) {
+        if (shouldPlay && activePlayer != null && playableUrl != null) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -131,7 +143,17 @@ fun TrailerAutoPlayBox(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
+        } else if (shouldPlay && youtubeVideoId != null) {
+            YouTubeEmbedPlayer(
+                videoId = youtubeVideoId,
+                muted = muted,
+                loop = true,
+                showControls = false,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
+        if (shouldPlay && hasMediaSource) {
             IconButton(
                 onClick = { muted = !muted },
                 modifier = Modifier

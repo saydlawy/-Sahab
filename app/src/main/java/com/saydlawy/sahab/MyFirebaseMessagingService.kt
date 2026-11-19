@@ -19,12 +19,14 @@ import kotlinx.coroutines.launch
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         savePendingToken(this, token)
-        if (FirebaseAuth.getInstance().currentUser != null) {
+        val hasUser = runCatching { FirebaseAuth.getInstance().currentUser != null }.getOrDefault(false)
+        if (hasUser) {
             serviceScope.launch {
                 val syncService = (applicationContext as? SahabApp)?.container?.userSyncService ?: UserSyncService()
                 runCatching { syncService.saveFcmToken(token) }
@@ -32,6 +34,11 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     .onFailure { Log.w("SahabFcm", "Failed to sync FCM token: ${it.message}") }
             }
         }
+    }
+
+    override fun onDestroy() {
+        serviceJob.cancel()
+        super.onDestroy()
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {

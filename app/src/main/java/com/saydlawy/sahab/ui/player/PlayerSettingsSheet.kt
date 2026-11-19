@@ -142,6 +142,7 @@ internal fun TracksDialog(
     tracks: Tracks,
     exo: ExoPlayer,
     trackSelectionParams: TrackSelectionParameters = exo.trackSelectionParameters,
+    initialSection: Int? = null,
     onDismiss: () -> Unit,
 ) {
     val video = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }

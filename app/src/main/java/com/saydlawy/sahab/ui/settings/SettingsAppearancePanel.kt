@@ -30,7 +30,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -384,9 +388,19 @@ private fun AppearanceSlider(
     label: String,
     onValue: (Float) -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val layoutDirection = LocalLayoutDirection.current
     var localValue by remember(value) { mutableStateOf(value) }
     var sliderFocused by remember { mutableStateOf(false) }
     val step = ((range.endInclusive - range.start) / 20f).coerceAtLeast(0.02f)
+
+    fun applyDelta(delta: Float): Boolean {
+        val next = (localValue + delta).coerceIn(range.start, range.endInclusive)
+        localValue = next
+        onValue(next)
+        return true
+    }
+
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
@@ -406,32 +420,30 @@ private fun AppearanceSlider(
             )
             Text(label, color = Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
-        Slider(
-            value = localValue.coerceIn(range.start, range.endInclusive),
-            onValueChange = { localValue = it },
-            onValueChangeFinished = { onValue(localValue) },
-            valueRange = range,
-            modifier = Modifier.onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    when (event.nativeKeyEvent.keyCode) {
-                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            val next = (localValue + step).coerceIn(range.start, range.endInclusive)
-                            localValue = next
-                            onValue(next)
-                            true
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Slider(
+                value = localValue.coerceIn(range.start, range.endInclusive),
+                onValueChange = { localValue = it },
+                onValueChangeFinished = { onValue(localValue) },
+                valueRange = range,
+                modifier = Modifier.onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        when (event.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> focusManager.moveFocus(FocusDirection.Down)
+                            android.view.KeyEvent.KEYCODE_DPAD_UP -> focusManager.moveFocus(FocusDirection.Up)
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                if (layoutDirection == LayoutDirection.Rtl) applyDelta(step) else applyDelta(step)
+                            }
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                if (layoutDirection == LayoutDirection.Rtl) applyDelta(-step) else applyDelta(-step)
+                            }
+                            else -> false
                         }
-                        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            val next = (localValue - step).coerceIn(range.start, range.endInclusive)
-                            localValue = next
-                            onValue(next)
-                            true
-                        }
-                        else -> false
+                    } else {
+                        false
                     }
-                } else {
-                    false
-                }
-            },
-        )
+                },
+            )
+        }
     }
 }

@@ -427,7 +427,7 @@ class FirebaseCatalogService {
         if (streamId.isBlank() || tmdbDocId.isBlank() || tmdbDocId == CatalogMovieEntity.idPending(streamId)) return
         if (!tmdbDocId.startsWith("tmdb:")) return
         val pendingId = CatalogMovieEntity.idPending(streamId)
-        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        val uid = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
         suspendCancellableCoroutine<Unit> { cont ->
             val tmdbRef = collection.document(tmdbDocId)
             val mergePayload = mapOf(

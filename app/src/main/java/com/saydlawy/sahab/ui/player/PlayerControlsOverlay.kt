@@ -163,6 +163,8 @@ internal fun UnifiedFullscreenPlayerOsd(
     onCycleSpeed: () -> Unit,
     onCycleResize: () -> Unit,
     onOpenTracks: () -> Unit,
+    onOpenAudioTracks: () -> Unit = onOpenTracks,
+    onOpenSubtitleTracks: () -> Unit = onOpenTracks,
     onToggleDrawer: () -> Unit,
 ) {
     val nowTime = formatNowMillis(rememberNow(), "hh:mm a", Locale.US)
@@ -356,14 +358,14 @@ internal fun UnifiedFullscreenPlayerOsd(
                     ) {
                         OsdIconSquareButton(
                             icon = Ic.Equalizer,
-                            description = Ar.audio,
-                            onClick = onOpenTracks,
+                            description = "${Ar.audio} — المسارات الصوتية",
+                            onClick = onOpenAudioTracks,
                             size = 38.dp,
                         )
                         OsdIconSquareButton(
                             icon = Ic.Subtitles,
-                            description = Ar.subtitles,
-                            onClick = onOpenTracks,
+                            description = "${Ar.subtitles} — الترجمة",
+                            onClick = onOpenSubtitleTracks,
                             size = 38.dp,
                         )
                         if (canSeek) {

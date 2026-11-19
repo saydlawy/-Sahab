@@ -171,8 +171,11 @@ class UserSyncService(
     private var lastErrorEmitMs: Long = 0L
 
     private suspend fun <T> awaitTask(task: Task<T>): T = suspendCancellableCoroutine { cont ->
-        task.addOnSuccessListener { result -> cont.resume(result) }
-            .addOnFailureListener { e -> cont.resumeWithException(e) }
+        task.addOnSuccessListener { result ->
+            if (cont.isActive) cont.resume(result)
+        }.addOnFailureListener { e ->
+            if (cont.isActive) cont.resumeWithException(e)
+        }
     }
 
     private suspend fun writeWithRetry(
