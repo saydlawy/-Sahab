@@ -8,6 +8,9 @@ import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Poster
+import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.data.catalog.TmdbMatcher
+import java.util.Locale
 import com.saydlawy.sahab.util.normalizeForSearch
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
@@ -171,6 +174,7 @@ class BrowseViewModel(
                         updateSearchPool(allItems)
                         val counts = computeCounts(allItems)
                         val (hero, top10, groups) = buildLayoutCollections(categories, allItems)
+                        val hadDetails = _state.value.focusedDetails != null
                         _state.update { current ->
                             current.copy(
                                 totalCount = allItems.size,
@@ -181,9 +185,12 @@ class BrowseViewModel(
                                 top10Items = top10,
                                 categoryGroups = groups,
                                 focusedDetails = current.focusedDetails ?: hero.firstOrNull()?.let { p ->
-                                    FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+                                    FocusedPosterDetails(poster = p, year = p.year, rating = cleanRating(p.rating), backdropUrl = p.image)
                                 },
                             )
+                        }
+                        if (!hadDetails) {
+                            hero.firstOrNull()?.let { fetchDetailsForHero(it) }
                         }
                     }
                 }
@@ -338,6 +345,12 @@ class BrowseViewModel(
         }
     }
 
+    private fun cleanRating(raw: String): String {
+        val v = raw.trim()
+        if (v.isBlank() || v == "0" || v == "0.0" || v == "0.00") return ""
+        return v
+    }
+
     fun onPosterFocused(poster: Poster) {
         if (_state.value.focusedDetails?.poster?.id == poster.id) return
         _state.update {
@@ -345,7 +358,7 @@ class BrowseViewModel(
                 focusedDetails = FocusedPosterDetails(
                     poster = poster,
                     year = poster.year,
-                    rating = poster.rating,
+                    rating = cleanRating(poster.rating),
                     backdropUrl = poster.image,
                 ),
             )
@@ -389,7 +402,7 @@ class BrowseViewModel(
                             plot = cached.plot,
                             genre = cached.genre,
                             year = cached.year.ifBlank { poster.year },
-                            rating = cached.rating.ifBlank { poster.rating },
+                            rating = cleanRating(cached.rating).ifBlank { cleanRating(poster.rating) },
                             runtime = cached.runtime,
                             backdropUrl = cached.backdropUrl.ifBlank { cached.posterUrl.ifBlank { poster.image } },
                             trailerUrl = resolvedTrailer,
@@ -399,37 +412,171 @@ class BrowseViewModel(
                 }
                 return@launch
             }
+
+            // 2. البحث في كتالوج Firebase السحابي قبل استدعاء الشبكة/TMDB
+            val cloudItem = withContext(Dispatchers.IO) {
+                val lookupId = cached?.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
+                    ?: cached?.sahabId
+                    ?: CatalogMovieEntity.idPending(poster.id)
+                runCatching { container.firebaseCatalog.getCatalogItem(lookupId) }.getOrNull()
+            }
+            if (cloudItem != null && cloudItem.plot.isNotBlank()) {
+                val cloudPosters = cloudItem.postersJson
+                    .lineSequence()
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .toList()
+                _state.update {
+                    it.copy(
+                        focusedDetails = FocusedPosterDetails(
+                            poster = poster,
+                            plot = cloudItem.plot,
+                            genre = cloudItem.genre,
+                            year = cloudItem.year.ifBlank { poster.year },
+                            rating = cleanRating(cloudItem.rating).ifBlank { cleanRating(poster.rating) },
+                            runtime = cloudItem.runtime,
+                            backdropUrl = cloudItem.backdropUrl.ifBlank { cloudItem.posterUrl.ifBlank { poster.image } },
+                            trailerUrl = cloudItem.trailerUrl,
+                            posterUrls = cloudPosters,
+                        ),
+                    )
+                }
+                return@launch
+            }
+
+            // 3. جلب التفاصيل من Xtream أولاً
+            var xtreamPlot = ""
+            var xtreamGenre = ""
+            var xtreamYear = poster.year
+            var xtreamRating = cleanRating(poster.rating)
+            var xtreamRuntime = ""
+            var xtreamBackdrop = ""
+            var xtreamTrailer = ""
+
             runCatching {
                 if (series) {
                     val d = repo.seriesDetails(poster.id)
-                    _state.update {
-                        it.copy(
-                            focusedDetails = FocusedPosterDetails(
-                                poster = poster,
-                                plot = d.plot,
-                                genre = d.genre,
-                                year = d.year.ifBlank { poster.year },
-                                rating = d.rating.ifBlank { poster.rating },
-                                backdropUrl = d.backdrop.ifBlank { d.cover.ifBlank { poster.image } },
-                            ),
-                        )
-                    }
+                    xtreamPlot = d.plot
+                    xtreamGenre = d.genre
+                    xtreamYear = d.year.ifBlank { xtreamYear }
+                    xtreamRating = cleanRating(d.rating).ifBlank { xtreamRating }
+                    xtreamBackdrop = d.backdrop.ifBlank { d.cover }
+                    xtreamTrailer = d.trailerUrl
                 } else {
                     val d = repo.movieDetails(poster.id)
+                    xtreamPlot = d.plot
+                    xtreamGenre = d.genre
+                    xtreamYear = d.year.ifBlank { xtreamYear }
+                    xtreamRating = cleanRating(d.rating).ifBlank { xtreamRating }
+                    xtreamRuntime = d.duration
+                    xtreamBackdrop = d.backdrop.ifBlank { d.image }
+                    xtreamTrailer = d.trailerUrl
+                }
+            }
+
+            if (xtreamPlot.isNotBlank()) {
+                _state.update {
+                    it.copy(
+                        focusedDetails = FocusedPosterDetails(
+                            poster = poster,
+                            plot = xtreamPlot,
+                            genre = xtreamGenre,
+                            year = xtreamYear,
+                            rating = xtreamRating,
+                            runtime = xtreamRuntime,
+                            backdropUrl = xtreamBackdrop.ifBlank { poster.image },
+                            trailerUrl = xtreamTrailer,
+                        ),
+                    )
+                }
+                return@launch
+            }
+
+            // 4. إثراء تلقائي عبر TMDB عند نقص القصة أو الخلفية (مهم جداً للمسلسلات)
+            if (container.tmdb.hasApiKey()) {
+                val catName = _state.value.categories.firstOrNull { it.id == poster.categoryId }?.name.orEmpty()
+                val enriched = withContext(Dispatchers.IO) {
+                    runCatching {
+                        TmdbMatcher.enrich(
+                            tmdb = container.tmdb,
+                            rawName = poster.name,
+                            categoryName = catName,
+                            novaYear = xtreamYear.toIntOrNull(),
+                            mediaType = mediaType,
+                        )
+                    }.getOrNull()
+                }
+                val tmdbItem = enriched?.movie
+                if (tmdbItem != null && (enriched.level == TmdbMatcher.Level.STRONG || enriched.level == TmdbMatcher.Level.WEAK)) {
+                    val resolvedRating = if (tmdbItem.voteAverage > 0) {
+                        String.format(Locale.US, "%.1f", tmdbItem.voteAverage)
+                    } else {
+                        xtreamRating
+                    }
+                    val resolvedBackdrop = tmdbItem.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
+                        ?.ifBlank { xtreamBackdrop.ifBlank { poster.image } }
+                        ?: xtreamBackdrop.ifBlank { poster.image }
+                    val resolvedGenre = tmdbItem.genres.joinToString(", ") { it.name }.ifBlank { xtreamGenre }
+                    val resolvedYear = tmdbItem.releaseDate.take(4).ifBlank { xtreamYear }
+                    val resolvedRuntime = tmdbItem.runtime?.let { "${it}m" }?.ifBlank { xtreamRuntime } ?: xtreamRuntime
+
                     _state.update {
                         it.copy(
                             focusedDetails = FocusedPosterDetails(
                                 poster = poster,
-                                plot = d.plot,
-                                genre = d.genre,
-                                year = d.year.ifBlank { poster.year },
-                                rating = d.rating.ifBlank { poster.rating },
-                                runtime = d.duration,
-                                backdropUrl = d.backdrop.ifBlank { d.image.ifBlank { poster.image } },
+                                plot = tmdbItem.overview.ifBlank { xtreamPlot },
+                                genre = resolvedGenre,
+                                year = resolvedYear,
+                                rating = resolvedRating,
+                                runtime = resolvedRuntime,
+                                backdropUrl = resolvedBackdrop,
+                                trailerUrl = tmdbItem.trailerUrl.ifBlank { xtreamTrailer },
+                                posterUrls = tmdbItem.posterUrls,
                             ),
                         )
                     }
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            container.firebaseCatalog.saveCatalogItem(
+                                CatalogMovieEntity(
+                                    sahabId = CatalogMovieEntity.idFromTmdb(tmdbItem.id),
+                                    novaStreamId = poster.id,
+                                    categoryId = poster.categoryId,
+                                    titleAr = poster.name,
+                                    titleEn = tmdbItem.title,
+                                    year = resolvedYear,
+                                    plot = tmdbItem.overview,
+                                    genre = resolvedGenre,
+                                    runtime = resolvedRuntime,
+                                    rating = resolvedRating,
+                                    posterUrl = poster.image,
+                                    backdropUrl = resolvedBackdrop,
+                                    tmdbId = tmdbItem.id,
+                                    tmdbVoteCount = tmdbItem.voteCount,
+                                    mediaType = mediaType,
+                                    postersJson = tmdbItem.posterUrls.joinToString("\n"),
+                                    trailerUrl = tmdbItem.trailerUrl,
+                                ),
+                            )
+                        }
+                    }
+                    return@launch
                 }
+            }
+
+            _state.update {
+                it.copy(
+                    focusedDetails = FocusedPosterDetails(
+                        poster = poster,
+                        plot = xtreamPlot,
+                        genre = xtreamGenre,
+                        year = xtreamYear,
+                        rating = xtreamRating,
+                        runtime = xtreamRuntime,
+                        backdropUrl = xtreamBackdrop.ifBlank { poster.image },
+                        trailerUrl = xtreamTrailer,
+                    ),
+                )
             }
         }
     }

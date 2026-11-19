@@ -44,7 +44,7 @@ internal fun NetflixTop10Row(
             contentPadding = PaddingValues(horizontal = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(top10, key = { _, p -> "top10_${p.id}" }) { index, poster ->
+            itemsIndexed(top10, key = { index, p -> "top10_${index}_${p.id}" }) { index, poster ->
                 Row(
                     verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -68,7 +68,7 @@ internal fun NetflixTop10Row(
                         onFocused = { onFocusedPoster(poster) },
                         modifier = Modifier
                             .width(120.dp)
-                            .restorableFocus(screenKey, "top10_${poster.id}", isDefaultEntry = index == 0),
+                            .restorableFocus(screenKey, "top10_${index}_${poster.id}", isDefaultEntry = false),
                     )
                 }
             }

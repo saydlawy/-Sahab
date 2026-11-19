@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import com.saydlawy.sahab.ui.LocalIsTv
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -265,6 +266,7 @@ fun Modifier.restorableFocus(
     isDefaultEntry: Boolean = false,
 ): Modifier {
     val controller = LocalFocusNavigation.current
+    val isTv = LocalIsTv.current
     val requester = remember(screenKey, itemKey) { FocusRequester() }
     val bringIntoViewRequester = remember(screenKey, itemKey) { BringIntoViewRequester() }
 
@@ -273,7 +275,7 @@ fun Modifier.restorableFocus(
     val hasAnySaved = controller.hasSavedFocus(screenKey)
 
     val shouldRestoreThis = pendingTarget == itemKey ||
-        (pendingTarget == null && !hasAnySaved && isDefaultEntry)
+        (isTv && pendingTarget == null && !hasAnySaved && isDefaultEntry)
 
     if (shouldRestoreThis) {
         LaunchedEffect(screenKey, itemKey, restoreGen, pendingTarget) {

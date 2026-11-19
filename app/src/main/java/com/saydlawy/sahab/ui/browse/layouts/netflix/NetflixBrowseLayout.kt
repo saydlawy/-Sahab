@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -26,6 +27,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +40,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +68,7 @@ import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun NetflixBrowseLayout(
     route: String,
@@ -72,20 +77,33 @@ internal fun NetflixBrowseLayout(
     items: List<Poster>,
     favoriteIds: Set<String>,
     screenRecents: List<RecentItem> = emptyList(),
+    listState: LazyListState = rememberRestorableLazyListState("${route}_netflix_feed"),
     callbacks: BrowseLayoutCallbacks,
 ) {
     val displayMode = LocalDisplayMode.current
     val isPhone = displayMode == DisplayMode.PHONE_PORTRAIT
     val horizPad = if (isPhone) 12.dp else 24.dp
-    val listState = rememberRestorableLazyListState("${route}_netflix_feed")
+    val density = LocalDensity.current
     val heroDetails = state.focusedDetails ?: state.featuredHeroItems.firstOrNull()?.let { p ->
         FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
     }
     val showGrid = state.query.trim().length >= 2 ||
         (state.selectedId != null && state.selectedId != ALL_CAT_ID)
 
+    val backdropAlpha by remember(listState, showGrid) {
+        derivedStateOf {
+            if (showGrid) {
+                0.22f
+            } else if (listState.firstVisibleItemIndex > 0) {
+                0f
+            } else {
+                (1f - (listState.firstVisibleItemScrollOffset / 260f)).coerceIn(0f, 1f)
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(Palette.CinematicBg)) {
-        NetflixBackdrop(heroDetails)
+        NetflixBackdrop(details = heroDetails, scrollAlpha = backdropAlpha)
 
         Column(
             modifier = Modifier
@@ -119,8 +137,8 @@ internal fun NetflixBrowseLayout(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            itemsIndexed(items, key = { _, p -> "nf_grid_${p.id}" }) { index, poster ->
-                                val focusKey = "nf_grid_${poster.id}"
+                            itemsIndexed(items, key = { index, p -> "nf_grid_${index}_${p.id}" }) { index, poster ->
+                                val focusKey = "nf_grid_${index}_${poster.id}"
                                 PosterCard(
                                     title = poster.name,
                                     imageUrl = poster.image,
@@ -149,6 +167,10 @@ internal fun NetflixBrowseLayout(
                 return@Column
             }
 
+            val tileWidthDp = if (isPhone) 110.dp else 132.dp
+            val tileWidthPx = remember(density, tileWidthDp) { with(density) { tileWidthDp.roundToPx() } }
+            val tileHeightPx = remember(tileWidthPx) { (tileWidthPx * 3) / 2 }
+
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth().focusRestorer(),
@@ -158,14 +180,16 @@ internal fun NetflixBrowseLayout(
                 if (heroDetails != null) {
                     item(key = "nf_hero_header") {
                         NetflixHeroInfo(
+                            screenKey = route,
                             details = heroDetails,
                             series = series,
                             isFavorite = heroDetails.poster.id in favoriteIds,
+                            hasRecents = screenRecents.isNotEmpty(),
                             onOpen = callbacks.onOpenPoster,
                             onToggleFavorite = callbacks.onToggleFavorite,
                             modifier = Modifier
                                 .fillMaxWidth(if (isPhone) 1f else 0.56f)
-                                .padding(top = 4.dp, bottom = 4.dp),
+                                .padding(top = 4.dp, bottom = 2.dp),
                         )
                     }
                 }
@@ -174,6 +198,8 @@ internal fun NetflixBrowseLayout(
                         val cwState = rememberRestorableLazyListState("${route}_nf_continue")
                         val cwWidth = if (isPhone) 168.dp else 216.dp
                         val cwHeight = if (isPhone) 96.dp else 118.dp
+                        val cwWidthPx = remember(density, cwWidth) { with(density) { cwWidth.roundToPx() } }
+                        val cwHeightPx = remember(density, cwHeight) { with(density) { cwHeight.roundToPx() } }
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             DotTitle("تابع المشاهدة", Color(0xFFE50914), fontSize = 16.sp)
                             LazyRow(
@@ -181,8 +207,8 @@ internal fun NetflixBrowseLayout(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
                             ) {
-                                itemsIndexed(screenRecents.take(12), key = { _, r -> "nf_cw_${r.id}" }) { idx, recent ->
-                                    val focusKey = "nf_cw_${recent.id}"
+                                itemsIndexed(screenRecents.take(12), key = { idx, r -> "nf_cw_${idx}_${r.kind}_${r.id}" }) { idx, recent ->
+                                    val focusKey = "nf_cw_${recent.kind}_${recent.id}"
                                     var cwFocused by remember { mutableStateOf(false) }
                                     val cwScale by animateFloatAsState(
                                         targetValue = if (cwFocused && LocalIsTv.current) 1.04f else 1f,
@@ -210,6 +236,10 @@ internal fun NetflixBrowseLayout(
                                         RemoteImage(
                                             url = recent.icon,
                                             fallbackText = recent.title,
+                                            contentScale = ContentScale.Crop,
+                                            alignment = Alignment.TopCenter,
+                                            targetWidthPx = cwWidthPx,
+                                            targetHeightPx = cwHeightPx,
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                         Box(
@@ -254,7 +284,7 @@ internal fun NetflixBrowseLayout(
                         NetflixTop10Row(
                             screenKey = route,
                             top10 = state.top10Items,
-                            onOpenPoster = { poster -> callbacks.onOpenPosterWithKey(poster, "top10_${poster.id}") },
+                            onOpenPoster = { poster -> callbacks.onOpenPosterWithKey(poster, "top10_0_${poster.id}") },
                             onToggleFavorite = callbacks.onToggleFavorite,
                             onFocusedPoster = callbacks.onPosterFocused,
                         )
@@ -270,17 +300,19 @@ internal fun NetflixBrowseLayout(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
                         ) {
-                            itemsIndexed(group.posters, key = { _, it -> "nf_${group.category.id}_${it.id}" }) { idx, poster ->
-                                val focusKey = "nf_${group.category.id}_${poster.id}"
+                            itemsIndexed(group.posters, key = { idx, it -> "nf_${group.category.id}_${idx}_${it.id}" }) { idx, poster ->
+                                val focusKey = "nf_${group.category.id}_${idx}_${poster.id}"
                                 NetflixPosterTile(
                                     poster = poster,
                                     route = route,
                                     focusKey = focusKey,
-                                    isDefault = idx == 0 && state.top10Items.isEmpty(),
+                                    isDefault = false,
+                                    targetWidthPx = tileWidthPx,
+                                    targetHeightPx = tileHeightPx,
                                     onOpen = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                                     onLongClick = { callbacks.onToggleFavorite(poster) },
                                     onFocused = { callbacks.onPosterFocused(poster) },
-                                    modifier = Modifier.width(if (isPhone) 110.dp else 132.dp),
+                                    modifier = Modifier.width(tileWidthDp),
                                 )
                             }
                         }
@@ -298,6 +330,8 @@ internal fun NetflixPosterTile(
     route: String,
     focusKey: String,
     isDefault: Boolean = false,
+    targetWidthPx: Int? = null,
+    targetHeightPx: Int? = null,
     onOpen: () -> Unit,
     onLongClick: () -> Unit,
     onFocused: () -> Unit,
@@ -311,6 +345,7 @@ internal fun NetflixPosterTile(
         label = "nfTileScale",
     )
     val shape = RoundedCornerShape(8.dp)
+    val borderModifier = if (focused) Modifier.border(2.5.dp, Color.White, shape) else Modifier
     Box(
         modifier
             .aspectRatio(2f / 3f)
@@ -325,12 +360,15 @@ internal fun NetflixPosterTile(
             }
             .clip(shape)
             .background(Palette.CardSurface)
-            .combinedClickable(onClick = onOpen, onLongClick = onLongClick)
-            .border(if (focused) 2.5.dp else 0.dp, Color.White, shape),
+            .then(borderModifier)
+            .combinedClickable(onClick = onOpen, onLongClick = onLongClick),
     ) {
         RemoteImage(
             url = poster.image,
             fallbackText = poster.name,
+            alignment = Alignment.TopCenter,
+            targetWidthPx = targetWidthPx,
+            targetHeightPx = targetHeightPx,
             modifier = Modifier.fillMaxSize(),
         )
         Box(

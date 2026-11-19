@@ -36,6 +36,7 @@ import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyGridState
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.util.Ar
 
 @Composable
@@ -80,7 +81,7 @@ fun BrowseScreen(
     }
 
     val playRecent: (RecentItem) -> Unit = { recent ->
-        focusNav.markNavigateFrom(route, "browse_recent_${recent.kind}_${recent.id}")
+        focusNav.markNavigateFrom(route, "nf_cw_${recent.kind}_${recent.id}")
         onPlay(
             PlayRequest(
                 items = listOf(
@@ -129,6 +130,7 @@ fun BrowseScreen(
 
     val gridStorageKey = "${route}_grid_${state.selectedId ?: ALL_CAT_ID}"
     val gridState = rememberRestorableLazyGridState(gridStorageKey)
+    val netflixFeedState = rememberRestorableLazyListState("${route}_netflix_feed")
     val displayMode = LocalDisplayMode.current
 
     val callbacks = remember(route, vm, onOpenItem, onBack) {
@@ -155,12 +157,18 @@ fun BrowseScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        val showTopBar by remember(displayMode, gridState, layoutStyle) {
+        val showTopBar by remember(displayMode, gridState, netflixFeedState, layoutStyle) {
             derivedStateOf {
-                displayMode == DisplayMode.TABLET_OR_TV ||
-                    layoutStyle != VodLayoutStyle.CLASSIC ||
-                    !gridState.canScrollBackward ||
-                    (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset < 28)
+                when {
+                    displayMode == DisplayMode.TABLET_OR_TV -> true
+                    layoutStyle == VodLayoutStyle.NETFLIX ->
+                        !netflixFeedState.canScrollBackward ||
+                            (netflixFeedState.firstVisibleItemIndex == 0 && netflixFeedState.firstVisibleItemScrollOffset < 28)
+                    layoutStyle == VodLayoutStyle.CLASSIC ->
+                        !gridState.canScrollBackward ||
+                            (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset < 28)
+                    else -> true
+                }
             }
         }
 
@@ -207,6 +215,7 @@ fun BrowseScreen(
                         items = items,
                         favoriteIds = favoriteIds,
                         screenRecents = screenRecents,
+                        listState = netflixFeedState,
                         callbacks = callbacks,
                     )
                 }

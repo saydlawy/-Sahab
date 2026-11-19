@@ -86,9 +86,6 @@ class CatalogSync(
                 }
                 if (newEntities.isNotEmpty()) {
                     dao.upsertAll(newEntities)
-                    newEntities.forEach { entity ->
-                        runCatching { firebaseCatalog.saveCatalogItem(entity) }
-                    }
                 }
             }
 

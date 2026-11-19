@@ -427,6 +427,7 @@ fun RemoteImage(
     url: String,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    alignment: Alignment = Alignment.Center,
     fallbackText: String = "",
     fallbackUrl: String? = null,
     targetWidthPx: Int? = null,
@@ -458,6 +459,7 @@ fun RemoteImage(
                 model = request,
                 contentDescription = null,
                 contentScale = contentScale,
+                alignment = alignment,
                 onSuccess = { showFallback = false },
                 onError = {
                     if (secondaryUrl != null && activeUrl != secondaryUrl) {
