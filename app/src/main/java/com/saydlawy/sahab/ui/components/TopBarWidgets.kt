@@ -197,7 +197,7 @@ internal fun CinematicNavTab(
                 vertical = if (compact) 4.dp else 6.dp,
             ),
     ) {
-        SahabIcon(
+        androidx.compose.material3.Icon(
             imageVector = icon,
             contentDescription = label,
             modifier = Modifier.size(if (compact) 19.dp else 22.dp),
