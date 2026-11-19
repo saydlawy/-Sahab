@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -117,9 +118,9 @@ fun YouTubeEmbedPlayer(
 
     Box(modifier = modifier) {
         if (!embedFailed) {
-            AndroidView(
-                key = "$cleanId-$sessionKey",
-                factory = { ctx ->
+            key("$cleanId-$sessionKey") {
+                AndroidView(
+                    factory = { ctx ->
                     WebView(ctx).apply {
                         setBackgroundColor(AndroidColor.TRANSPARENT)
                         webChromeClient = WebChromeClient()
@@ -188,8 +189,9 @@ fun YouTubeEmbedPlayer(
                         webViewRef = this
                     }
                 },
-                modifier = Modifier.matchParentSize(),
-            )
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
         } else {
             TextButton(
                 onClick = {
