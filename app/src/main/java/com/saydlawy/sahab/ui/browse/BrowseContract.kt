@@ -20,6 +20,8 @@ data class FocusedPosterDetails(
     val rating: String = "",
     val runtime: String = "",
     val backdropUrl: String = "",
+    val trailerUrl: String = "",
+    val posterUrls: List<String> = emptyList(),
 )
 
 @Immutable

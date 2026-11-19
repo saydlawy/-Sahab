@@ -235,13 +235,20 @@ class CatalogSync(
                 status = 0,
                 now = now,
                 mediaType = normalizedType,
+                postersJson = cloudData.postersJson,
+                trailerUrl = cloudData.trailerUrl,
             )
             return null // تم الإثراء من Firebase بنجاح دون استدعاء TMDB
         }
         if (!tmdb.hasApiKey()) return null
 
         val catName = runCatching {
-            repo.movieCategories().firstOrNull { it.id == existing.categoryId }?.name ?: ""
+            val cats = if (normalizedType.equals("series", ignoreCase = true)) {
+                repo.seriesCategories()
+            } else {
+                repo.movieCategories()
+            }
+            cats.firstOrNull { it.id == existing.categoryId }?.name ?: ""
         }.getOrElse { "" }
 
         val novaYear = existing.year.toIntOrNull()
@@ -250,6 +257,7 @@ class CatalogSync(
             rawName = existing.titleAr,
             categoryName = catName,
             novaYear = novaYear,
+            mediaType = normalizedType,
         )
 
         val movie = result.movie
@@ -271,6 +279,8 @@ class CatalogSync(
                 status = 0,
                 now = now,
                 mediaType = normalizedType,
+                postersJson = movie.posterUrls.joinToString("\n"),
+                trailerUrl = movie.trailerUrl,
             )
             if (existing.sahabId.startsWith("pending:")) {
                 runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
@@ -298,6 +308,8 @@ class CatalogSync(
                 status = 1,
                 now = now,
                 mediaType = normalizedType,
+                postersJson = movie.posterUrls.joinToString("\n"),
+                trailerUrl = movie.trailerUrl,
             )
             runCatching {
                 dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->

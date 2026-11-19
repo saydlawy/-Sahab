@@ -33,33 +33,31 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
             _state.update { DetailUiState(loading = true) }
             try {
                 var details = container.repo.seriesDetails(id)
-                if (details.plot.isBlank()) {
-                    val savedPlot = withContext(Dispatchers.IO) {
-                        val local = runCatching {
+                val needsMeta = details.plot.isBlank() ||
+                    details.genre.isBlank() ||
+                    details.year.isBlank() ||
+                    details.rating.isBlank() ||
+                    details.cast.isBlank() ||
+                    details.backdrop.isBlank()
+
+                if (needsMeta) {
+                    val mergedMeta = withContext(Dispatchers.IO) {
+                        var candidate = runCatching {
                             container.catalogDb.movieDao().findByStreamIdAndType(id, "series")
                         }.getOrNull()
-                        if (local != null && local.plot.isNotBlank()) {
-                            local.plot
-                        } else {
+
+                        if (candidate == null || candidate.plot.isBlank()) {
                             val remote = runCatching {
                                 container.firebaseCatalog.getCatalogItem("series_pending:$id")
                             }.getOrNull()
-                            if (remote != null && remote.plot.isNotBlank()) {
-                                runCatching {
-                                    container.catalogDb.movieDao().upsert(
-                                        remote.copy(novaStreamId = id, mediaType = "series")
-                                    )
-                                }
-                                remote.plot
-                            } else {
-                                null
+                            if (remote != null && (remote.plot.isNotBlank() || remote.genre.isNotBlank() || remote.year.isNotBlank())) {
+                                val normalized = remote.copy(novaStreamId = id, mediaType = "series")
+                                runCatching { container.catalogDb.movieDao().upsert(normalized) }
+                                candidate = normalized
                             }
                         }
-                    }
-                    if (!savedPlot.isNullOrBlank()) {
-                        details = details.copy(plot = savedPlot)
-                    } else {
-                        val enrichedPlot = withContext(Dispatchers.IO) {
+
+                        if (candidate == null || candidate.plot.isBlank()) {
                             runCatching {
                                 container.catalogSync.enrichOne(
                                     repo = container.repo,
@@ -67,16 +65,51 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                                     streamId = id,
                                     mediaType = "series",
                                 )
-                                container.catalogDb.movieDao()
-                                    .findByStreamIdAndType(id, "series")
-                                    ?.plot
-                                    ?.takeIf { it.isNotBlank() }
-                            }.getOrNull()
+                                container.catalogDb.movieDao().findByStreamIdAndType(id, "series")
+                            }.getOrNull()?.let { enriched ->
+                                candidate = enriched
+                            }
                         }
-                        if (!enrichedPlot.isNullOrBlank()) {
-                            details = details.copy(plot = enrichedPlot)
+                        candidate
+                    }
+
+                    if (mergedMeta != null) {
+                        details = details.copy(
+                            backdrop = details.backdrop.ifBlank { mergedMeta.backdropUrl },
+                            plot = details.plot.ifBlank { mergedMeta.plot },
+                            cast = details.cast.ifBlank { mergedMeta.cast },
+                            genre = details.genre.ifBlank { mergedMeta.genre },
+                            year = details.year.ifBlank { mergedMeta.year },
+                            rating = details.rating.ifBlank { mergedMeta.rating },
+                        )
+                    }
+                }
+                val catalogRecord = withContext(Dispatchers.IO) {
+                    runCatching { container.catalogDb.movieDao().findByStreamIdAndType(id, "series") }.getOrNull()
+                }
+                if (catalogRecord != null) {
+                    val posters = catalogRecord.postersJson
+                        .lineSequence()
+                        .map { line -> line.trim() }
+                        .filter { line -> line.isNotEmpty() }
+                        .toList()
+                    val resolvedTrailer = if (catalogRecord.trailerUrl.isNotBlank()) {
+                        catalogRecord.trailerUrl
+                    } else {
+                        val tid = catalogRecord.tmdbId
+                        if (tid != null && container.tmdb.hasApiKey()) {
+                            withContext(Dispatchers.IO) {
+                                runCatching { container.tmdb.getTvDetailsById(tid)?.trailerUrl }.getOrNull().orEmpty()
+                            }
+                        } else {
+                            ""
                         }
                     }
+                    details = details.copy(
+                        backdrop = details.backdrop.ifBlank { catalogRecord.backdropUrl },
+                        posterUrls = posters,
+                        trailerUrl = resolvedTrailer,
+                    )
                 }
                 _state.update { DetailUiState(loading = false, data = details) }
             } catch (e: CancellationException) {

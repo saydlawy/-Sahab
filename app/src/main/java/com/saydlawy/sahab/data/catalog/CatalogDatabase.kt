@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [CatalogMovieEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class CatalogDatabase : RoomDatabase() {
@@ -83,6 +83,17 @@ abstract class CatalogDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "catalog_movies", "postersJson")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `postersJson` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!hasColumn(db, "catalog_movies", "trailerUrl")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `trailerUrl` TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
         fun getInstance(context: Context): CatalogDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -90,7 +101,7 @@ abstract class CatalogDatabase : RoomDatabase() {
                     CatalogDatabase::class.java,
                     "catalog.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { INSTANCE = it }
             }

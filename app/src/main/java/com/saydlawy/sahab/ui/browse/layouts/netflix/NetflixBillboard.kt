@@ -32,6 +32,7 @@ import com.saydlawy.sahab.ui.browse.layouts.prime.formatHeroRuntime
 import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.RemoteImage
+import com.saydlawy.sahab.ui.components.TrailerAutoPlayBox
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
 
@@ -52,11 +53,10 @@ internal fun NetflixBackdrop(details: FocusedPosterDetails?, modifier: Modifier 
                 .fillMaxHeight(if (compact) 0.44f else 0.70f),
         ) {
             if (details != null) {
-                RemoteImage(
-                    url = details.backdropUrl.ifBlank { details.poster.image },
-                    fallbackUrl = details.poster.image,
-                    fallbackText = details.poster.name,
-                    contentScale = ContentScale.Crop,
+                TrailerAutoPlayBox(
+                    trailerUrl = details.trailerUrl,
+                    posterUrl = details.backdropUrl.ifBlank { details.poster.image },
+                    title = details.poster.name,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

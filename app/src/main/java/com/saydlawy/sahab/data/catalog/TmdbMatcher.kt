@@ -362,7 +362,9 @@ object TmdbMatcher {
         categoryName: String,
         novaYear: Int?,
         maxQueries: Int = 4,
+        mediaType: String = "movie",
     ): EnrichResult {
+        val isTv = mediaType.equals("series", ignoreCase = true) || mediaType.equals("tv", ignoreCase = true)
         val (queries, variants) = generateQueries(rawName, categoryName, novaYear)
         if (queries.isEmpty()) {
             return EnrichResult(null, null, null, Level.EMPTY, "", 0)
@@ -374,7 +376,12 @@ object TmdbMatcher {
 
         for (q in queries.take(maxQueries)) {
             tried++
-            val results = when (val out = tmdb.searchMovieOutcome(q.q, q.year, q.lang)) {
+            val searchOutcome = if (isTv) {
+                tmdb.searchTvOutcome(q.q, q.year, q.lang)
+            } else {
+                tmdb.searchMovieOutcome(q.q, q.year, q.lang)
+            }
+            val results = when (val out = searchOutcome) {
                 is TmdbApi.SearchOutcome.Ok -> out.results
                 TmdbApi.SearchOutcome.MissingKey -> {
                     return EnrichResult(null, null, null, Level.NETWORK_ERROR, q.q, tried)
@@ -390,7 +397,7 @@ object TmdbMatcher {
                 val s = scoreMatch(variants, novaYear, c)
                 when (acceptLevel(s)) {
                     Level.STRONG -> {
-                        val details = tmdb.getMovieDetailsById(c.id)
+                        val details = if (isTv) tmdb.getTvDetailsById(c.id) else tmdb.getMovieDetailsById(c.id)
                         return EnrichResult(c.id, details, s, Level.STRONG, q.q, tried)
                     }
                     Level.WEAK -> {
@@ -405,7 +412,7 @@ object TmdbMatcher {
 
         if (bestWeak != null) {
             val (c, s) = bestWeak!!
-            val details = tmdb.getMovieDetailsById(c.id)
+            val details = if (isTv) tmdb.getTvDetailsById(c.id) else tmdb.getMovieDetailsById(c.id)
             return EnrichResult(c.id, details, s, Level.WEAK, "", tried)
         }
         val finalLevel = if (sawNetworkError) Level.NETWORK_ERROR else Level.REJECT

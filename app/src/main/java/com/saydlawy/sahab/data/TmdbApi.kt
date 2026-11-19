@@ -107,18 +107,77 @@ class TmdbApi(
     private suspend fun getMovieDetails(id: Int): TmdbMovie? {
         val urlBuilder = "https://api.themoviedb.org/3/movie/$id".toHttpUrl().newBuilder()
             .addQueryParameter("language", "ar")
-            .addQueryParameter("append_to_response", "credits")
+            .addQueryParameter("append_to_response", "credits,images,videos")
+            .addQueryParameter("include_image_language", "ar,en,null")
         if (!isBearerV4Token) {
             urlBuilder.addQueryParameter("api_key", trimmedKey)
         }
         val text = execute(urlBuilder.build().toString()) ?: return null
         return withContext(Dispatchers.Default) {
             try {
-                json.decodeFromString<TmdbMovie>(text)
+                val raw = json.decodeFromString<TmdbMovie>(text)
+                val posters = buildPosterUrls(raw.posterPath, raw.images)
+                val trailer = extractTrailerUrl(raw.videos)
+                raw.copy(posterUrls = posters, trailerUrl = trailer)
             } catch (_: Exception) {
                 null
             }
         }
+    }
+
+    suspend fun getTvDetailsById(id: Int): TmdbMovie? {
+        val urlBuilder = "https://api.themoviedb.org/3/tv/$id".toHttpUrl().newBuilder()
+            .addQueryParameter("language", "ar")
+            .addQueryParameter("append_to_response", "credits,images,videos")
+            .addQueryParameter("include_image_language", "ar,en,null")
+        if (!isBearerV4Token) {
+            urlBuilder.addQueryParameter("api_key", trimmedKey)
+        }
+        val text = execute(urlBuilder.build().toString()) ?: return null
+        return withContext(Dispatchers.Default) {
+            try {
+                val tv = json.decodeFromString<TmdbTvRaw>(text)
+                val posters = buildPosterUrls(tv.posterPath, tv.images)
+                val trailer = extractTrailerUrl(tv.videos)
+                TmdbMovie(
+                    id = tv.id,
+                    title = tv.name,
+                    overview = tv.overview,
+                    releaseDate = tv.firstAirDate,
+                    voteAverage = tv.voteAverage,
+                    voteCount = tv.voteCount,
+                    popularity = tv.popularity,
+                    adult = false,
+                    runtime = tv.episodeRunTime.firstOrNull(),
+                    genres = tv.genres,
+                    credits = tv.credits,
+                    posterPath = tv.posterPath,
+                    backdropPath = tv.backdropPath,
+                    posterUrls = posters,
+                    trailerUrl = trailer,
+                )
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun buildPosterUrls(primaryPath: String?, images: TmdbImagesResponse?): List<String> {
+        val paths = buildList {
+            primaryPath?.takeIf { it.isNotBlank() }?.let { add(it) }
+            images?.posters.orEmpty().mapNotNull { it.filePath?.takeIf { p -> p.isNotBlank() } }.forEach { add(it) }
+        }.distinct()
+        return paths.map { "https://image.tmdb.org/t/p/w500$it" }
+    }
+
+    private fun extractTrailerUrl(videos: TmdbVideosResponse?): String {
+        val list = videos?.results.orEmpty()
+        val ytTrailer = list.firstOrNull {
+            it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) && it.key.isNotBlank()
+        } ?: list.firstOrNull {
+            it.site.equals("YouTube", ignoreCase = true) && it.key.isNotBlank()
+        }
+        return ytTrailer?.let { "https://www.youtube.com/watch?v=${it.key}" } ?: ""
     }
 
     private suspend fun execute(url: String): String? = suspendCancellableCoroutine { cont ->
@@ -190,6 +249,40 @@ class TmdbApi(
         else -> emptyList()
     }
 
+    suspend fun searchTvOutcome(
+        query: String,
+        year: Int?,
+        lang: String = "en-US",
+    ): SearchOutcome {
+        if (apiKey.isBlank()) return SearchOutcome.MissingKey
+        if (query.isBlank()) return SearchOutcome.Ok(emptyList())
+        val urlBuilder = "https://api.themoviedb.org/3/search/tv".toHttpUrl().newBuilder()
+            .addQueryParameter("query", query)
+            .addQueryParameter("language", lang)
+            .addQueryParameter("include_adult", "false")
+        if (!isBearerV4Token) urlBuilder.addQueryParameter("api_key", trimmedKey)
+        if (year != null) urlBuilder.addQueryParameter("first_air_date_year", year.toString())
+        val text = execute(urlBuilder.build().toString()) ?: return SearchOutcome.NetworkError
+        val list = withContext(Dispatchers.Default) {
+            try {
+                json.decodeFromString<TvSearchResponse>(text).results.map { item ->
+                    TmdbSearchResult(
+                        id = item.id,
+                        title = item.name,
+                        originalTitle = item.originalName,
+                        releaseDate = item.firstAirDate,
+                        voteCount = item.voteCount,
+                        popularity = item.popularity,
+                        adult = false,
+                    )
+                }
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return SearchOutcome.NetworkError
+        return SearchOutcome.Ok(list)
+    }
+
     /** Public alias for getMovieDetails — used by TmdbMatcher. */
     suspend fun getMovieDetailsById(id: Int): TmdbMovie? = getMovieDetails(id)
 
@@ -243,8 +336,35 @@ data class TmdbMovie(
     val runtime: Int? = null,
     val genres: List<Genre> = emptyList(),
     val credits: Credits? = null,
+    val images: TmdbImagesResponse? = null,
+    val videos: TmdbVideosResponse? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
+    val posterUrls: List<String> = emptyList(),
+    val trailerUrl: String = "",
+)
+
+@Serializable
+data class TmdbImagesResponse(
+    val posters: List<TmdbImageItem> = emptyList(),
+    val backdrops: List<TmdbImageItem> = emptyList(),
+)
+
+@Serializable
+data class TmdbImageItem(
+    @SerialName("file_path") val filePath: String? = null,
+)
+
+@Serializable
+data class TmdbVideosResponse(
+    val results: List<TmdbVideoItem> = emptyList(),
+)
+
+@Serializable
+data class TmdbVideoItem(
+    val key: String = "",
+    val site: String = "",
+    val type: String = "",
 )
 
 @Serializable
@@ -261,3 +381,34 @@ data class Cast(val name: String = "")
 
 @Serializable
 data class Crew(val name: String = "", val job: String = "")
+
+@Serializable
+private data class TvSearchResponse(val results: List<TvSearchItem> = emptyList())
+
+@Serializable
+private data class TvSearchItem(
+    val id: Int = 0,
+    val name: String = "",
+    @SerialName("original_name") val originalName: String = "",
+    @SerialName("first_air_date") val firstAirDate: String = "",
+    @SerialName("vote_count") val voteCount: Int = 0,
+    val popularity: Double = 0.0,
+)
+
+@Serializable
+private data class TmdbTvRaw(
+    val id: Int = 0,
+    val name: String = "",
+    val overview: String = "",
+    @SerialName("first_air_date") val firstAirDate: String = "",
+    @SerialName("vote_average") val voteAverage: Double = 0.0,
+    @SerialName("vote_count") val voteCount: Int = 0,
+    val popularity: Double = 0.0,
+    @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
+    val genres: List<Genre> = emptyList(),
+    val credits: Credits? = null,
+    val images: TmdbImagesResponse? = null,
+    val videos: TmdbVideosResponse? = null,
+    @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("backdrop_path") val backdropPath: String? = null,
+)

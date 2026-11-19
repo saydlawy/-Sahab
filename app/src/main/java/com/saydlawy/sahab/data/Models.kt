@@ -81,6 +81,8 @@ data class MovieDetails(
     val duration: String = "",
     val rating: String = "",
     val ext: String = "",
+    val posterUrls: List<String> = emptyList(),
+    val trailerUrl: String = "",
 )
 
 @Serializable
@@ -107,6 +109,8 @@ data class SeriesDetails(
     val year: String = "",
     val rating: String = "",
     val episodes: List<Episode> = emptyList(),
+    val posterUrls: List<String> = emptyList(),
+    val trailerUrl: String = "",
 ) {
     val seasons: List<Int> get() = episodes.map { it.season }.distinct().sorted()
 }

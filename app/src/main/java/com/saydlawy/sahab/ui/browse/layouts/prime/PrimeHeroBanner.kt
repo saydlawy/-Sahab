@@ -33,6 +33,7 @@ import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.RemoteImage
+import com.saydlawy.sahab.ui.components.TrailerAutoPlayBox
 import com.saydlawy.sahab.ui.components.SahabIcon
 import com.saydlawy.sahab.ui.theme.Palette
 import kotlin.math.roundToInt
@@ -52,11 +53,10 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
     Box(modifier.fillMaxSize()) {
         if (details != null) {
             val primaryImageUrl = if (hasWideBackdrop) details.backdropUrl else details.poster.image
-            RemoteImage(
-                url = primaryImageUrl,
-                fallbackUrl = details.poster.image,
-                fallbackText = details.poster.name,
-                contentScale = ContentScale.Crop,
+            TrailerAutoPlayBox(
+                trailerUrl = details.trailerUrl,
+                posterUrl = primaryImageUrl,
+                title = details.poster.name,
                 modifier = Modifier.fillMaxSize(),
             )
         }

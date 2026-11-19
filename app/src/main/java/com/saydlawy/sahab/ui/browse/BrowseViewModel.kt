@@ -343,6 +343,26 @@ class BrowseViewModel(
                 runCatching { container.catalogDb.movieDao().findByStreamIdAndType(poster.id, mediaType) }.getOrNull()
             }
             if (cached != null && cached.plot.isNotBlank()) {
+                val cachedPosters = cached.postersJson
+                    .lineSequence()
+                    .map { line -> line.trim() }
+                    .filter { line -> line.isNotEmpty() }
+                    .toList()
+                val resolvedTrailer = if (cached.trailerUrl.isNotBlank()) {
+                    cached.trailerUrl
+                } else {
+                    val tid = cached.tmdbId
+                    if (tid != null && container.tmdb.hasApiKey()) {
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                if (series) container.tmdb.getTvDetailsById(tid)?.trailerUrl
+                                else container.tmdb.getMovieDetailsById(tid)?.trailerUrl
+                            }.getOrNull().orEmpty()
+                        }
+                    } else {
+                        ""
+                    }
+                }
                 _state.update {
                     it.copy(
                         focusedDetails = FocusedPosterDetails(
@@ -353,6 +373,8 @@ class BrowseViewModel(
                             rating = cached.rating.ifBlank { poster.rating },
                             runtime = cached.runtime,
                             backdropUrl = cached.backdropUrl.ifBlank { cached.posterUrl.ifBlank { poster.image } },
+                            trailerUrl = resolvedTrailer,
+                            posterUrls = cachedPosters,
                         ),
                     )
                 }

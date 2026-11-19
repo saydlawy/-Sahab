@@ -135,20 +135,29 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
         load()
     }
 
-    private fun CatalogMovieEntity.toMovieDetails() = MovieDetails(
-        id = novaStreamId,
-        name = titleAr.ifBlank { titleEn },
-        image = posterUrl,
-        backdrop = backdropUrl.ifBlank { posterUrl },
-        plot = plot,
-        cast = cast,
-        director = director,
-        genre = genre,
-        year = year,
-        duration = runtime,
-        rating = rating,
-        ext = containerExtension,
-    )
+    private fun CatalogMovieEntity.toMovieDetails(): MovieDetails {
+        val posters = postersJson
+            .lineSequence()
+            .map { line -> line.trim() }
+            .filter { line -> line.isNotEmpty() }
+            .toList()
+        return MovieDetails(
+            id = novaStreamId,
+            name = titleAr.ifBlank { titleEn },
+            image = posterUrl,
+            backdrop = backdropUrl.ifBlank { posterUrl },
+            plot = plot,
+            cast = cast,
+            director = director,
+            genre = genre,
+            year = year,
+            duration = runtime,
+            rating = rating,
+            ext = containerExtension,
+            posterUrls = posters,
+            trailerUrl = trailerUrl,
+        )
+    }
 
     fun load() {
         viewModelScope.launch {

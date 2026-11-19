@@ -78,6 +78,7 @@ interface CatalogMovieDao {
             "tmdbId = :tmdbId, titleEn = :titleEn, year = :year, " +
             "plot = :plot, cast = :cast, director = :director, genre = :genre, " +
             "runtime = :runtime, rating = :rating, backdropUrl = :backdropUrl, " +
+            "postersJson = :postersJson, trailerUrl = :trailerUrl, " +
             "tmdbVoteCount = :voteCount, needsEnrichment = :status, lastEnriched = :now " +
             "WHERE novaStreamId = :streamId AND mediaType = :mediaType"
     )
@@ -97,6 +98,8 @@ interface CatalogMovieDao {
         status: Int,
         now: Long,
         mediaType: String = "movie",
+        postersJson: String = "",
+        trailerUrl: String = "",
     )
 
     @Query("SELECT novaStreamId FROM catalog_movies WHERE mediaType = :mediaType")

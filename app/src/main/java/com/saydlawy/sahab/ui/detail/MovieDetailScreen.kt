@@ -12,9 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -53,6 +59,7 @@ import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassIconButton
 import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
+import com.saydlawy.sahab.ui.components.TrailerAutoPlayBox
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.ProgressLine
@@ -130,6 +137,14 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                         DisplayMode.PHONE_LANDSCAPE -> 20.dp
                         DisplayMode.PHONE_PORTRAIT -> 16.dp
                     }
+                    val posterList = remember(details.id, details.posterUrls, details.image) {
+                        (if (details.posterUrls.isNotEmpty()) details.posterUrls else listOf(details.image))
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .distinct()
+                    }
+                    var selectedPosterIndex by remember(details.id, posterList) { mutableStateOf(0) }
+                    val activePoster = posterList.getOrElse(selectedPosterIndex) { details.image }
 
                     Box(Modifier.fillMaxSize()) {
 
@@ -145,9 +160,23 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                         horizontalArrangement = Arrangement.spacedBy(36.dp),
                                         verticalAlignment = Alignment.Top,
                                     ) {
-                                        MoviePosterFrame(details.image, details.name, Modifier.width(190.dp))
+                                        Column(
+                                            modifier = Modifier.width(190.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            MoviePosterFrame(activePoster, details.name, Modifier.fillMaxWidth())
+                                            if (posterList.size > 1) {
+                                                MoviePostersStrip(
+                                                    posters = posterList,
+                                                    selectedIndex = selectedPosterIndex,
+                                                    title = details.name,
+                                                    onSelect = { selectedPosterIndex = it },
+                                                )
+                                            }
+                                        }
                                         MovieInfoPanel(
                                             details = details,
+                                            activePoster = activePoster,
                                             resumeMs = resumeMs,
                                             durationMs = durationMs,
                                             isFavorite = isFavorite,
@@ -167,9 +196,23 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                                         verticalAlignment = Alignment.Top,
                                     ) {
-                                        MoviePosterFrame(details.image, details.name, Modifier.width(140.dp))
+                                        Column(
+                                            modifier = Modifier.width(140.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            MoviePosterFrame(activePoster, details.name, Modifier.fillMaxWidth())
+                                            if (posterList.size > 1) {
+                                                MoviePostersStrip(
+                                                    posters = posterList,
+                                                    selectedIndex = selectedPosterIndex,
+                                                    title = details.name,
+                                                    onSelect = { selectedPosterIndex = it },
+                                                )
+                                            }
+                                        }
                                         MovieInfoPanel(
                                             details = details,
+                                            activePoster = activePoster,
                                             resumeMs = resumeMs,
                                             durationMs = durationMs,
                                             isFavorite = isFavorite,
@@ -186,13 +229,24 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                 }
                                 DisplayMode.PHONE_PORTRAIT -> {
                                     MoviePosterFrame(
-                                        details.image,
+                                        activePoster,
                                         details.name,
                                         Modifier.width(160.dp).align(Alignment.CenterHorizontally),
                                     )
+                                    if (posterList.size > 1) {
+                                        Spacer(Modifier.height(10.dp))
+                                        MoviePostersStrip(
+                                            posters = posterList,
+                                            selectedIndex = selectedPosterIndex,
+                                            title = details.name,
+                                            onSelect = { selectedPosterIndex = it },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    }
                                     Spacer(Modifier.height(18.dp))
                                     MovieInfoPanel(
                                         details = details,
+                                        activePoster = activePoster,
                                         resumeMs = resumeMs,
                                         durationMs = durationMs,
                                         isFavorite = isFavorite,
@@ -239,8 +293,46 @@ private fun MoviePosterFrame(url: String, title: String, modifier: Modifier) {
 }
 
 @Composable
+private fun MoviePostersStrip(
+    posters: List<String>,
+    selectedIndex: Int,
+    title: String,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(posters, key = { idx, url -> "${url}_$idx" }) { idx, url ->
+            val selected = idx == selectedIndex
+            val thumbShape = RoundedCornerShape(10.dp)
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .aspectRatio(2f / 3f)
+                    .clip(thumbShape)
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) Palette.Glow else Palette.GlassBorder,
+                        shape = thumbShape,
+                    )
+                    .clickable { onSelect(idx) },
+            ) {
+                RemoteImage(
+                    url = url,
+                    fallbackText = title,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun MovieInfoPanel(
     details: MovieDetails,
+    activePoster: String,
     resumeMs: Long,
     durationMs: Long,
     isFavorite: Boolean,
@@ -257,6 +349,19 @@ private fun MovieInfoPanel(
     val showMetadata = themeCustomization.isVisible("details_metadata")
     val showActions = themeCustomization.isVisible("details_actions")
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (details.trailerUrl.isNotBlank()) {
+            TrailerAutoPlayBox(
+                trailerUrl = details.trailerUrl,
+                posterUrl = details.backdrop.ifBlank { activePoster },
+                title = details.name,
+                autoPlayDelayMs = 200L,
+                startMuted = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(210.dp)
+                    .clip(RoundedCornerShape(18.dp)),
+            )
+        }
         if (showMetadata) {
             Text(
                 details.name,

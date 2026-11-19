@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -179,6 +181,17 @@ private fun SeriesContent(
     }
     val season = seasons.getOrNull(selectedSeasonIndex) ?: seasons.firstOrNull()
     val visibleEpisodes = details.episodes.filter { it.season == season }
+    val posterList = remember(details.id, details.cover, details.posterUrls, season, visibleEpisodes) {
+        val seasonCovers = visibleEpisodes.map { it.image.trim() }.filter { it.isNotEmpty() }
+        val basePosters = if (details.posterUrls.isNotEmpty()) details.posterUrls else listOf(details.cover)
+        (basePosters.map { it.trim() } + seasonCovers + listOf(details.cover.trim()))
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+    var selectedPosterIndex by remember(details.id, season, posterList) { mutableIntStateOf(0) }
+    val activePoster = posterList.getOrElse(selectedPosterIndex) { details.cover }
+    val seasonPreviewPoster = visibleEpisodes.firstOrNull { it.image.isNotBlank() }?.image
+        ?: details.backdrop.ifBlank { activePoster }
     val queue = remember(details) { details.episodes.map { playItem(details, it) } }
     val episodeIds = remember(details) { details.episodes.map { it.id }.toSet() }
     val progress = remember(recents, details.id, episodeIds) {
@@ -218,9 +231,24 @@ private fun SeriesContent(
                             horizontalArrangement = Arrangement.spacedBy(36.dp),
                             verticalAlignment = Alignment.Top,
                         ) {
-                            SeriesCoverFrame(details.cover, details.name, Modifier.width(185.dp))
+                            Column(
+                                modifier = Modifier.width(185.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                SeriesCoverFrame(activePoster, details.name, Modifier.fillMaxWidth())
+                                if (posterList.size > 1) {
+                                    SeriesPostersStrip(
+                                        posters = posterList,
+                                        selectedIndex = selectedPosterIndex,
+                                        title = details.name,
+                                        onSelect = { selectedPosterIndex = it },
+                                    )
+                                }
+                            }
                             SeriesInfoPanel(
                                 details = details,
+                                previewPoster = seasonPreviewPoster,
+                                season = season,
                                 resumeIndex = resumeIndex,
                                 resumePositionMs = resumePosMs,
                                 queue = queue,
@@ -239,9 +267,24 @@ private fun SeriesContent(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
                             verticalAlignment = Alignment.Top,
                         ) {
-                            SeriesCoverFrame(details.cover, details.name, Modifier.width(140.dp))
+                            Column(
+                                modifier = Modifier.width(140.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                SeriesCoverFrame(activePoster, details.name, Modifier.fillMaxWidth())
+                                if (posterList.size > 1) {
+                                    SeriesPostersStrip(
+                                        posters = posterList,
+                                        selectedIndex = selectedPosterIndex,
+                                        title = details.name,
+                                        onSelect = { selectedPosterIndex = it },
+                                    )
+                                }
+                            }
                             SeriesInfoPanel(
                                 details = details,
+                                previewPoster = seasonPreviewPoster,
+                                season = season,
                                 resumeIndex = resumeIndex,
                                 resumePositionMs = resumePosMs,
                                 queue = queue,
@@ -258,13 +301,25 @@ private fun SeriesContent(
                     DisplayMode.PHONE_PORTRAIT -> {
                         Column {
                             SeriesCoverFrame(
-                                details.cover,
+                                activePoster,
                                 details.name,
                                 Modifier.width(160.dp).align(Alignment.CenterHorizontally),
                             )
+                            if (posterList.size > 1) {
+                                Spacer(Modifier.height(10.dp))
+                                SeriesPostersStrip(
+                                    posters = posterList,
+                                    selectedIndex = selectedPosterIndex,
+                                    title = details.name,
+                                    onSelect = { selectedPosterIndex = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                             Spacer(Modifier.height(16.dp))
                             SeriesInfoPanel(
                                 details = details,
+                                previewPoster = seasonPreviewPoster,
+                                season = season,
                                 resumeIndex = resumeIndex,
                                 resumePositionMs = resumePosMs,
                                 queue = queue,
@@ -361,8 +416,47 @@ private fun SeriesCoverFrame(url: String, title: String, modifier: Modifier) {
 }
 
 @Composable
+private fun SeriesPostersStrip(
+    posters: List<String>,
+    selectedIndex: Int,
+    title: String,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(posters, key = { idx, url -> "${url}_$idx" }) { idx, url ->
+            val selected = idx == selectedIndex
+            val thumbShape = RoundedCornerShape(10.dp)
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .aspectRatio(2f / 3f)
+                    .clip(thumbShape)
+                    .border(
+                        width = if (selected) 2.dp else 1.dp,
+                        color = if (selected) Palette.Glow else Palette.GlassBorder,
+                        shape = thumbShape,
+                    )
+                    .clickable { onSelect(idx) },
+            ) {
+                RemoteImage(
+                    url = url,
+                    fallbackText = title,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SeriesInfoPanel(
     details: SeriesDetails,
+    previewPoster: String,
+    season: Int?,
     resumeIndex: Int,
     resumePositionMs: Long,
     queue: List<PlayItem>,
@@ -377,7 +471,23 @@ private fun SeriesInfoPanel(
     val themeCustomization = LocalThemeCustomization.current
     val showMetadata = themeCustomization.isVisible("details_metadata")
     val showActions = themeCustomization.isVisible("details_actions")
+    val trailerKey = if (season != null) "${details.trailerUrl}#s$season" else details.trailerUrl
     Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (details.trailerUrl.isNotBlank()) {
+            androidx.compose.runtime.key(trailerKey) {
+                com.saydlawy.sahab.ui.components.TrailerAutoPlayBox(
+                    trailerUrl = details.trailerUrl,
+                    posterUrl = previewPoster,
+                    title = details.name,
+                    autoPlayDelayMs = 200L,
+                    startMuted = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(210.dp)
+                        .clip(RoundedCornerShape(18.dp)),
+                )
+            }
+        }
         if (showMetadata) {
             Text(
                 details.name,
