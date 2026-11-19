@@ -109,6 +109,7 @@ class TmdbApi(
             .addQueryParameter("language", "ar")
             .addQueryParameter("append_to_response", "credits,images,videos")
             .addQueryParameter("include_image_language", "ar,en,null")
+            .addQueryParameter("include_video_language", "ar,en,null")
         if (!isBearerV4Token) {
             urlBuilder.addQueryParameter("api_key", trimmedKey)
         }
@@ -130,6 +131,7 @@ class TmdbApi(
             .addQueryParameter("language", "ar")
             .addQueryParameter("append_to_response", "credits,images,videos")
             .addQueryParameter("include_image_language", "ar,en,null")
+            .addQueryParameter("include_video_language", "ar,en,null")
         if (!isBearerV4Token) {
             urlBuilder.addQueryParameter("api_key", trimmedKey)
         }
@@ -165,19 +167,25 @@ class TmdbApi(
     private fun buildPosterUrls(primaryPath: String?, images: TmdbImagesResponse?): List<String> {
         val paths = buildList {
             primaryPath?.takeIf { it.isNotBlank() }?.let { add(it) }
-            images?.posters.orEmpty().mapNotNull { it.filePath?.takeIf { p -> p.isNotBlank() } }.forEach { add(it) }
-        }.distinct()
+            images?.posters.orEmpty()
+                .mapNotNull { it.filePath?.takeIf { p -> p.isNotBlank() } }
+                .forEach { add(it) }
+        }.distinct().take(10)
         return paths.map { "https://image.tmdb.org/t/p/w500$it" }
     }
 
     private fun extractTrailerUrl(videos: TmdbVideosResponse?): String {
-        val list = videos?.results.orEmpty()
-        val ytTrailer = list.firstOrNull {
-            it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) && it.key.isNotBlank()
-        } ?: list.firstOrNull {
+        val ytVideos = videos?.results.orEmpty().filter {
             it.site.equals("YouTube", ignoreCase = true) && it.key.isNotBlank()
         }
-        return ytTrailer?.let { "https://www.youtube.com/watch?v=${it.key}" } ?: ""
+        val bestVideo = ytVideos.firstOrNull {
+            it.type.equals("Trailer", ignoreCase = true) && it.official
+        } ?: ytVideos.firstOrNull {
+            it.type.equals("Trailer", ignoreCase = true)
+        } ?: ytVideos.firstOrNull {
+            it.type.equals("Teaser", ignoreCase = true) && it.official
+        } ?: ytVideos.firstOrNull()
+        return bestVideo?.let { "https://www.youtube.com/watch?v=${it.key}" } ?: ""
     }
 
     private suspend fun execute(url: String): String? = suspendCancellableCoroutine { cont ->
@@ -365,6 +373,7 @@ data class TmdbVideoItem(
     val key: String = "",
     val site: String = "",
     val type: String = "",
+    val official: Boolean = false,
 )
 
 @Serializable

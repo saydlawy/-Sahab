@@ -167,7 +167,7 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                             MoviePosterFrame(activePoster, details.name, Modifier.fillMaxWidth())
                                             if (posterList.size > 1) {
                                                 MoviePostersStrip(
-                                                    posters = posterList,
+                                                    posters = posterList.take(8),
                                                     selectedIndex = selectedPosterIndex,
                                                     title = details.name,
                                                     onSelect = { selectedPosterIndex = it },
@@ -203,7 +203,7 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                                             MoviePosterFrame(activePoster, details.name, Modifier.fillMaxWidth())
                                             if (posterList.size > 1) {
                                                 MoviePostersStrip(
-                                                    posters = posterList,
+                                                    posters = posterList.take(8),
                                                     selectedIndex = selectedPosterIndex,
                                                     title = details.name,
                                                     onSelect = { selectedPosterIndex = it },
