@@ -219,22 +219,24 @@ class AppContainer(context: Context) {
         appScope.launch {
             // مزامنة تفضيلات الواجهة بعد ثانيتين من التغيير (فقط بعد نجاح الدمج الأولي)
             combine(
-                listOf(
+                combine(
                     prefs.lightEffects,
                     prefs.homeChannelsLayout,
                     prefs.homeChannelsSource,
+                ) { light, layout, source -> Triple(light, layout, source) },
+                combine(
                     prefs.homeChannelsCategoryId,
                     prefs.moviesLayoutStyle,
                     prefs.seriesLayoutStyle,
-                )
-            ) { arr ->
+                ) { categoryId, moviesStyle, seriesStyle -> Triple(categoryId, moviesStyle, seriesStyle) },
+            ) { (light, layout, source), (categoryId, moviesStyle, seriesStyle) ->
                 CloudPreferences(
-                    lightEffects = arr[0] as Boolean,
-                    homeChannelsLayout = (arr[1] as com.saydlawy.sahab.data.HomeChannelsLayout).name,
-                    homeChannelsSource = (arr[2] as com.saydlawy.sahab.data.HomeChannelsSource).name,
-                    homeChannelsCategoryId = arr[3] as String,
-                    moviesLayoutStyle = (arr[4] as com.saydlawy.sahab.data.VodLayoutStyle).name,
-                    seriesLayoutStyle = (arr[5] as com.saydlawy.sahab.data.VodLayoutStyle).name,
+                    lightEffects = light,
+                    homeChannelsLayout = layout.name,
+                    homeChannelsSource = source.name,
+                    homeChannelsCategoryId = categoryId,
+                    moviesLayoutStyle = moviesStyle.name,
+                    seriesLayoutStyle = seriesStyle.name,
                 )
             }.distinctUntilChanged().drop(1).debounce(2000L).collect { cloudPrefs ->
                 if (prefsMergeDone && authManager.currentUser != null && cloudPrefs != lastUploadedPreferences) {
