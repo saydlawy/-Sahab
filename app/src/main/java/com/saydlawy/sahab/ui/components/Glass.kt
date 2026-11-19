@@ -440,10 +440,9 @@ fun RemoteImage(
             if (showFallback) {
                 FallbackLetter(fallbackText)
             }
-            val request = remember(context, activeUrl) {
+            val request = remember<ImageRequest>(context, activeUrl) {
                 ImageRequest.Builder(context)
                     .data(activeUrl)
-                    .crossfade(false)
                     .build()
             }
             AsyncImage(

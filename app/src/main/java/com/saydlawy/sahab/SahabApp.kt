@@ -219,12 +219,14 @@ class AppContainer(context: Context) {
         appScope.launch {
             // مزامنة تفضيلات الواجهة بعد ثانيتين من التغيير (فقط بعد نجاح الدمج الأولي)
             combine(
-                prefs.lightEffects,
-                prefs.homeChannelsLayout,
-                prefs.homeChannelsSource,
-                prefs.homeChannelsCategoryId,
-                prefs.moviesLayoutStyle,
-                prefs.seriesLayoutStyle,
+                listOf(
+                    prefs.lightEffects,
+                    prefs.homeChannelsLayout,
+                    prefs.homeChannelsSource,
+                    prefs.homeChannelsCategoryId,
+                    prefs.moviesLayoutStyle,
+                    prefs.seriesLayoutStyle,
+                )
             ) { arr ->
                 CloudPreferences(
                     lightEffects = arr[0] as Boolean,
@@ -398,8 +400,8 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
                 add(OkHttpNetworkFetcherFactory(callFactory = { coilClient }))
             }
             .memoryCache {
-                MemoryCache.Builder(context)
-                    .maxSizePercent(0.25)
+                MemoryCache.Builder()
+                    .maxSizePercent(context, 0.25)
                     .build()
             }
             .diskCache {
