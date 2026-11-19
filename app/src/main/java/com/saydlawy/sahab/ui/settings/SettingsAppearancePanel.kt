@@ -10,9 +10,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
@@ -121,7 +125,9 @@ internal fun SettingsAppearancePanel(container: AppContainer) {
                     Spacer(Modifier.height(4.dp))
                     DotTitle("لون التركيز في سينما OLED", Palette.FocusCyan, fontSize = 15.sp)
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusGroup(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         OledAccentPresets.forEach { preset ->
@@ -336,7 +342,10 @@ private fun AppearanceChoiceRow(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, color = Palette.TextDim, fontSize = 13.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.focusGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             options.forEach { (key, label) ->
                 val active = selected == key
                 var chipFocused by remember { mutableStateOf(false) }
@@ -376,9 +385,25 @@ private fun AppearanceSlider(
     onValue: (Float) -> Unit,
 ) {
     var localValue by remember(value) { mutableStateOf(value) }
-    Column {
+    var sliderFocused by remember { mutableStateOf(false) }
+    val step = ((range.endInclusive - range.start) / 20f).coerceAtLeast(0.02f)
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .onFocusChanged { sliderFocused = it.isFocused }
+            .border(
+                width = if (sliderFocused) 1.5.dp else 0.dp,
+                color = if (sliderFocused) Palette.FocusCyan else Color.Transparent,
+                shape = RoundedCornerShape(12.dp),
+            )
+            .padding(horizontal = if (sliderFocused) 8.dp else 0.dp, vertical = if (sliderFocused) 4.dp else 0.dp),
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(title, color = Palette.TextDim, fontSize = 13.sp)
+            Text(
+                title,
+                color = if (sliderFocused) Palette.FocusCyan else Palette.TextDim,
+                fontSize = 13.sp,
+            )
             Text(label, color = Palette.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
         Slider(
@@ -386,6 +411,27 @@ private fun AppearanceSlider(
             onValueChange = { localValue = it },
             onValueChangeFinished = { onValue(localValue) },
             valueRange = range,
+            modifier = Modifier.onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            val next = (localValue + step).coerceIn(range.start, range.endInclusive)
+                            localValue = next
+                            onValue(next)
+                            true
+                        }
+                        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            val next = (localValue - step).coerceIn(range.start, range.endInclusive)
+                            localValue = next
+                            onValue(next)
+                            true
+                        }
+                        else -> false
+                    }
+                } else {
+                    false
+                }
+            },
         )
     }
 }

@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -119,6 +121,12 @@ fun SettingsScreen(
         }
     }
 
+    BackHandler(enabled = isWide) {
+        val activeKey = "settings_menu_${selectedCategory ?: "appearance"}"
+        focusNav.restoreAfterDialogDismiss(Routes.SETTINGS, activeKey)
+        onBack()
+    }
+
     Column(Modifier.fillMaxSize()) {
         if (isWide || selectedCategory == null) {
             SahabTopBar(current = Routes.SETTINGS, onBack = onBack)
@@ -136,6 +144,8 @@ fun SettingsScreen(
                     Modifier
                         .weight(0.32f)
                         .fillMaxHeight()
+                        .focusGroup()
+                        .focusRestorer()
                         .verticalScroll(rememberScrollState())
                         .padding(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -201,6 +211,8 @@ fun SettingsScreen(
                     Modifier
                         .weight(0.68f)
                         .fillMaxHeight()
+                        .focusGroup()
+                        .focusRestorer()
                         .verticalScroll(rememberScrollState()),
                 ) {
                     SettingsDetailContent(selectedCategory ?: "appearance", container, onOpenCloudLogin, onLoggedOut)
