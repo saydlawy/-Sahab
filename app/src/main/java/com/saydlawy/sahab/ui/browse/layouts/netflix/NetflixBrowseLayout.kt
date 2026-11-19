@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.data.Poster
+import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalIsTv
@@ -70,6 +71,7 @@ internal fun NetflixBrowseLayout(
     state: BrowseUiState,
     items: List<Poster>,
     favoriteIds: Set<String>,
+    screenRecents: List<RecentItem> = emptyList(),
     callbacks: BrowseLayoutCallbacks,
 ) {
     val displayMode = LocalDisplayMode.current
@@ -96,7 +98,7 @@ internal fun NetflixBrowseLayout(
                 categories = state.categories,
                 selectedId = state.selectedId,
                 query = state.query,
-                hasRecents = false,
+                hasRecents = true,
                 onQuery = callbacks.onQuery,
                 onSelect = callbacks.onSelectCategory,
             )
@@ -147,25 +149,97 @@ internal fun NetflixBrowseLayout(
                 return@Column
             }
 
-            if (heroDetails != null) {
-                NetflixHeroInfo(
-                    details = heroDetails,
-                    series = series,
-                    isFavorite = heroDetails.poster.id in favoriteIds,
-                    onOpen = callbacks.onOpenPoster,
-                    onToggleFavorite = callbacks.onToggleFavorite,
-                    modifier = Modifier
-                        .fillMaxWidth(if (isPhone) 1f else 0.56f)
-                        .padding(top = 4.dp, bottom = 2.dp),
-                )
-            }
-
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth().focusRestorer(),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 26.dp),
             ) {
+                if (heroDetails != null) {
+                    item(key = "nf_hero_header") {
+                        NetflixHeroInfo(
+                            details = heroDetails,
+                            series = series,
+                            isFavorite = heroDetails.poster.id in favoriteIds,
+                            onOpen = callbacks.onOpenPoster,
+                            onToggleFavorite = callbacks.onToggleFavorite,
+                            modifier = Modifier
+                                .fillMaxWidth(if (isPhone) 1f else 0.56f)
+                                .padding(top = 4.dp, bottom = 4.dp),
+                        )
+                    }
+                }
+                if (screenRecents.isNotEmpty()) {
+                    item(key = "nf_continue_watching") {
+                        val cwState = rememberRestorableLazyListState("${route}_nf_continue")
+                        val cwWidth = if (isPhone) 168.dp else 216.dp
+                        val cwHeight = if (isPhone) 96.dp else 118.dp
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DotTitle("تابع المشاهدة", Palette.Accent, fontSize = 16.sp)
+                            LazyRow(
+                                state = cwState,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                            ) {
+                                itemsIndexed(screenRecents.take(12), key = { _, r -> "nf_cw_${r.id}" }) { idx, recent ->
+                                    val focusKey = "nf_cw_${recent.id}"
+                                    var cwFocused by remember { mutableStateOf(false) }
+                                    val cwScale by animateFloatAsState(
+                                        targetValue = if (cwFocused && LocalIsTv.current) 1.04f else 1f,
+                                        animationSpec = tween(130),
+                                        label = "nfCwScale",
+                                    )
+                                    val cwShape = RoundedCornerShape(8.dp)
+                                    Box(
+                                        Modifier
+                                            .width(cwWidth)
+                                            .height(cwHeight)
+                                            .graphicsLayer { scaleX = cwScale; scaleY = cwScale }
+                                            .restorableFocus(route, focusKey, isDefault = idx == 0)
+                                            .onFocusChanged { cwFocused = it.isFocused }
+                                            .clip(cwShape)
+                                            .background(Palette.CardSurface)
+                                            .combinedClickable(onClick = { callbacks.onPlayRecent(recent) })
+                                            .border(if (cwFocused) 2.5.dp else 0.dp, Color.White, cwShape),
+                                    ) {
+                                        RemoteImage(
+                                            url = recent.image,
+                                            fallbackText = recent.name,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .fillMaxWidth()
+                                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))))
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        ) {
+                                            Text(
+                                                text = recent.name,
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        val pct = recent.progressPercent.coerceIn(0, 100)
+                                        if (pct > 0) {
+                                            Box(
+                                                Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .fillMaxWidth(pct / 100f)
+                                                    .height(3.dp)
+                                                    .background(Color(0xFFE50914)),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (state.top10Items.isNotEmpty()) {
                     item(key = "nf_top10") {
                         NetflixTop10Row(
@@ -223,8 +297,8 @@ internal fun NetflixPosterTile(
     var focused by remember { mutableStateOf(false) }
     val isTv = LocalIsTv.current
     val scale by animateFloatAsState(
-        targetValue = if (focused && isTv) 1.07f else 1f,
-        animationSpec = tween(120),
+        targetValue = if (focused && isTv) 1.04f else 1f,
+        animationSpec = tween(130),
         label = "nfTileScale",
     )
     val shape = RoundedCornerShape(8.dp)

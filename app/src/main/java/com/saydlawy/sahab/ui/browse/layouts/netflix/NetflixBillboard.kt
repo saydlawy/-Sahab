@@ -60,18 +60,17 @@ internal fun NetflixBackdrop(details: FocusedPosterDetails?, modifier: Modifier 
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            val sideColors = if (rtl) {
-                listOf(Color.Transparent, bg.copy(alpha = 0.60f), bg)
+            val sideStops = if (rtl) {
+                arrayOf(0.0f to bg.copy(alpha = 0.45f), 0.16f to Color.Transparent, 0.72f to bg.copy(alpha = 0.65f), 1.0f to bg)
             } else {
-                listOf(bg, bg.copy(alpha = 0.60f), Color.Transparent)
+                arrayOf(0.0f to bg, 0.28f to bg.copy(alpha = 0.65f), 0.84f to Color.Transparent, 1.0f to bg.copy(alpha = 0.45f))
             }
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(
-                        Brush.horizontalGradient(
-                            if (compact) listOf(bg.copy(alpha = 0.30f), bg.copy(alpha = 0.30f)) else sideColors,
-                        ),
+                        if (compact) Brush.horizontalGradient(listOf(bg.copy(alpha = 0.32f), bg.copy(alpha = 0.32f)))
+                        else Brush.horizontalGradient(colorStops = sideStops),
                     ),
             )
         }

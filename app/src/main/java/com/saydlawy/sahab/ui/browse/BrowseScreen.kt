@@ -206,6 +206,7 @@ fun BrowseScreen(
                         state = state,
                         items = items,
                         favoriteIds = favoriteIds,
+                        screenRecents = screenRecents,
                         callbacks = callbacks,
                     )
                 }
