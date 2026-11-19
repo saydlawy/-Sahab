@@ -354,8 +354,11 @@ class FirebaseCatalogService {
     suspend fun saveCatalogItem(entity: CatalogMovieEntity) = suspendCancellableCoroutine { cont ->
         val aliases = aliasesFor(entity)
         val tmdbDocId = entity.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
+        val normalizedMediaType = entity.mediaType.ifBlank { "movie" }
         val data = buildMap<String, Any?> {
+            put("sahabId", entity.sahabId)
             put("novaStreamId", entity.novaStreamId)
+            put("categoryId", entity.categoryId)
             put("titleAr", entity.titleAr)
             put("titleEn", entity.titleEn)
             put("year", entity.year)
@@ -363,7 +366,7 @@ class FirebaseCatalogService {
             put("plotSource", entity.plotSource)
             put("plotConfidence", entity.plotConfidence)
             put("identifiedTitle", entity.identifiedTitle)
-            put("mediaType", entity.mediaType)
+            put("mediaType", normalizedMediaType)
             put("cast", entity.cast)
             put("director", entity.director)
             put("genre", entity.genre)
@@ -374,52 +377,50 @@ class FirebaseCatalogService {
             put("tmdbId", entity.tmdbId)
             put("imdbId", entity.imdbId)
             put("tmdbVoteCount", entity.tmdbVoteCount)
+            put("novaAdded", entity.novaAdded)
+            put("containerExtension", entity.containerExtension)
+            put("isAdult", entity.isAdult)
+            put("updatedAt", System.currentTimeMillis())
             if (aliases.isNotEmpty()) put("aliases", aliases)
         }
-        if (tmdbDocId != null) {
-            val docRef = collection.document(tmdbDocId)
-            docRef.get()
-                .addOnSuccessListener { snap ->
-                    if (!snap.exists()) {
-                        val createPayload = data.filterValues { v ->
-                            v != null && (v !is String || v.isNotBlank())
-                        }
-                        docRef.set(createPayload, SetOptions.merge())
-                            .addOnCompleteListener { cont.resume(Unit) }
-                    } else {
-                        val delta = mutableMapOf<String, Any?>()
-                        for ((k, v) in data) {
-                            if (k == "aliases") continue
-                            if (v == null || (v is String && v.isBlank())) continue
-                            val existing = snap.get(k)
-                            if (existing == null || (existing is String && existing.isBlank())) {
-                                delta[k] = v
-                            }
-                        }
-                        if (aliases.isNotEmpty()) {
-                            delta["aliases"] = FieldValue.arrayUnion(*aliases.toTypedArray())
-                        }
-                        if (delta.isEmpty()) {
-                            cont.resume(Unit)
-                        } else {
-                            docRef.set(delta, SetOptions.merge())
-                                .addOnCompleteListener { cont.resume(Unit) }
+        val targetDocId = tmdbDocId ?: entity.sahabId.ifBlank { return@suspendCancellableCoroutine }
+        val docRef = collection.document(targetDocId)
+        docRef.get()
+            .addOnSuccessListener { snap ->
+                if (!snap.exists()) {
+                    val createPayload = data.filterValues { v ->
+                        v != null && (v !is String || v.isNotBlank())
+                    }
+                    docRef.set(createPayload, SetOptions.merge())
+                        .addOnCompleteListener { cont.resume(Unit) }
+                } else {
+                    val delta = mutableMapOf<String, Any?>()
+                    var hasContentChange = false
+                    for ((k, v) in data) {
+                        if (k == "aliases" || k == "updatedAt") continue
+                        if (v == null || (v is String && v.isBlank())) continue
+                        val existing = snap.get(k)
+                        if (existing == null || (existing is String && existing.isBlank()) || existing != v) {
+                            delta[k] = v
+                            hasContentChange = true
                         }
                     }
+                    if (aliases.isNotEmpty()) {
+                        delta["aliases"] = FieldValue.arrayUnion(*aliases.toTypedArray())
+                        hasContentChange = true
+                    }
+                    if (hasContentChange) {
+                        delta["updatedAt"] = System.currentTimeMillis()
+                    }
+                    if (delta.isEmpty()) {
+                        cont.resume(Unit)
+                    } else {
+                        docRef.set(delta, SetOptions.merge())
+                            .addOnCompleteListener { cont.resume(Unit) }
+                    }
                 }
-                .addOnFailureListener { cont.resume(Unit) }
-        } else {
-            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-            if (uid.isNullOrBlank()) {
-                cont.resume(Unit)
-                return@suspendCancellableCoroutine
             }
-            db.collection("users").document(uid)
-                .collection("custom_catalog")
-                .document(entity.sahabId)
-                .set(data, SetOptions.merge())
-                .addOnCompleteListener { cont.resume(Unit) }
-        }
+            .addOnFailureListener { cont.resume(Unit) }
     }
 
     suspend fun linkPendingAliasToTmdb(streamId: String, tmdbDocId: String, titleAr: String = "") {

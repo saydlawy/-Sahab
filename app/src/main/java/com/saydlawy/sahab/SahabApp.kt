@@ -404,6 +404,7 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
             .memoryCache {
                 MemoryCache.Builder()
                     .maxSizePercent(context, 0.25)
+                    .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
@@ -418,7 +419,9 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
     private val coilClient: OkHttpClient by lazy {
         container.client.newBuilder()
             .cache(null)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(18, TimeUnit.SECONDS)
             .build()
     }
 }

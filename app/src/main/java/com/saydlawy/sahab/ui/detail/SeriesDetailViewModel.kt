@@ -58,6 +58,24 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                     }
                     if (!savedPlot.isNullOrBlank()) {
                         details = details.copy(plot = savedPlot)
+                    } else {
+                        val enrichedPlot = withContext(Dispatchers.IO) {
+                            runCatching {
+                                container.catalogSync.enrichOne(
+                                    repo = container.repo,
+                                    tmdb = container.tmdb,
+                                    streamId = id,
+                                    mediaType = "series",
+                                )
+                                container.catalogDb.movieDao()
+                                    .findByStreamIdAndType(id, "series")
+                                    ?.plot
+                                    ?.takeIf { it.isNotBlank() }
+                            }.getOrNull()
+                        }
+                        if (!enrichedPlot.isNullOrBlank()) {
+                            details = details.copy(plot = enrichedPlot)
+                        }
                     }
                 }
                 _state.update { DetailUiState(loading = false, data = details) }

@@ -86,6 +86,9 @@ class CatalogSync(
                 }
                 if (newEntities.isNotEmpty()) {
                     dao.upsertAll(newEntities)
+                    newEntities.forEach { entity ->
+                        runCatching { firebaseCatalog.saveCatalogItem(entity) }
+                    }
                 }
             }
 
@@ -197,8 +200,10 @@ class CatalogSync(
         tmdb: com.saydlawy.sahab.data.TmdbApi,
         streamId: String,
         force: Boolean = false,
+        mediaType: String = "movie",
     ): com.saydlawy.sahab.data.catalog.TmdbMatcher.EnrichResult? {
-        val existing = dao.findByStreamId(streamId) ?: return null
+        val normalizedType = mediaType.ifBlank { "movie" }
+        val existing = dao.findByStreamId(streamId, normalizedType) ?: return null
         if (!force && (existing.needsEnrichment == 0 || existing.needsEnrichment == -1)) return null
 
         val now = System.currentTimeMillis()
@@ -228,7 +233,8 @@ class CatalogSync(
                 backdropUrl = cloudData.backdropUrl,
                 voteCount = cloudData.tmdbVoteCount,
                 status = 0,
-                now = now
+                now = now,
+                mediaType = normalizedType,
             )
             return null // تم الإثراء من Firebase بنجاح دون استدعاء TMDB
         }
@@ -264,17 +270,18 @@ class CatalogSync(
                 voteCount = movie.voteCount,
                 status = 0,
                 now = now,
+                mediaType = normalizedType,
             )
             if (existing.sahabId.startsWith("pending:")) {
                 runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
-                runCatching {
-                    dao.findByStreamId(streamId)?.let { enrichedEntity ->
-                        firebaseCatalog.saveCatalogItem(enrichedEntity)
-                    }
+            }
+            runCatching {
+                dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
+                    firebaseCatalog.saveCatalogItem(enrichedEntity)
                 }
             }
         } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {
-            // Weak match — store data but keep needsEnrichment=1 for potential retry
+            // Weak match — store data in Room & Firebase but keep needsEnrichment=1 for potential retry
             dao.applyEnrichment(
                 streamId = streamId,
                 tmdbId = movie.id,
@@ -290,7 +297,13 @@ class CatalogSync(
                 voteCount = movie.voteCount,
                 status = 1,
                 now = now,
+                mediaType = normalizedType,
             )
+            runCatching {
+                dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
+                    firebaseCatalog.saveCatalogItem(enrichedEntity)
+                }
+            }
         } else if (
             result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.NETWORK_ERROR ||
             (movie == null && (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG ||
@@ -298,7 +311,7 @@ class CatalogSync(
         ) {
             // Transient network/key error or details fetch failed — keep needsEnrichment=1 to retry later.
         } else {
-            dao.markFailed(streamId, now)
+            dao.markFailed(streamId, now, normalizedType)
         }
         return result
     }

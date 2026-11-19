@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.size.Precision
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
@@ -428,21 +429,29 @@ fun RemoteImage(
     contentScale: ContentScale = ContentScale.Crop,
     fallbackText: String = "",
     fallbackUrl: String? = null,
+    targetWidthPx: Int? = null,
+    targetHeightPx: Int? = null,
 ) {
     val primaryUrl = url.trim().ifBlank { fallbackUrl?.trim().orEmpty() }
     val secondaryUrl = fallbackUrl?.trim()?.takeIf { it.isNotBlank() && it != primaryUrl }
 
-    Box(modifier.background(Color.White.copy(alpha = 0.05f))) {
+    Box(modifier.background(Palette.CardSurface)) {
         if (primaryUrl.isNotBlank()) {
             val context = LocalContext.current
             var activeUrl by remember(primaryUrl, secondaryUrl) { mutableStateOf(primaryUrl) }
-            var showFallback by remember(primaryUrl, secondaryUrl) { mutableStateOf(true) }
+            var showFallback by remember(primaryUrl, secondaryUrl) { mutableStateOf(false) }
             if (showFallback) {
                 FallbackLetter(fallbackText)
             }
-            val request = remember<ImageRequest>(context, activeUrl) {
+            val request = remember<ImageRequest>(context, activeUrl, targetWidthPx, targetHeightPx) {
                 ImageRequest.Builder(context)
                     .data(activeUrl)
+                    .precision(Precision.INEXACT)
+                    .apply {
+                        if (targetWidthPx != null && targetHeightPx != null && targetWidthPx > 0 && targetHeightPx > 0) {
+                            size(targetWidthPx, targetHeightPx)
+                        }
+                    }
                     .build()
             }
             AsyncImage(
@@ -453,6 +462,7 @@ fun RemoteImage(
                 onError = {
                     if (secondaryUrl != null && activeUrl != secondaryUrl) {
                         activeUrl = secondaryUrl
+                        showFallback = false
                     } else {
                         showFallback = true
                     }

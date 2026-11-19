@@ -62,6 +62,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -148,32 +150,47 @@ fun PosterCard(
         if (focused && onFocused != null) {
             LaunchedEffect(Unit) { onFocused() }
         }
+        val isTv = LocalIsTv.current
+        var posterSize by remember { mutableStateOf(IntSize.Zero) }
         Box(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Palette.CardSurface),
+                .background(Palette.CardSurface)
+                .onSizeChanged { posterSize = it },
         ) {
             RemoteImage(
                 url = imageUrl,
                 fallbackText = title,
                 modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
                 contentScale = contentScale,
+                targetWidthPx = posterSize.width.takeIf { it > 0 },
+                targetHeightPx = posterSize.height.takeIf { it > 0 },
             )
-            // Deep bottom gradient matching reference movie cards
+            // Deep bottom gradient matching reference movie cards (simplified on TV for fast D-pad scroll)
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color.Transparent,
-                                0.48f to Palette.CinematicBg.copy(alpha = 0.20f),
-                                0.76f to Palette.CinematicBg.copy(alpha = 0.80f),
-                                1.0f to Palette.CinematicBg.copy(alpha = 0.97f),
-                            ),
-                        ),
+                        if (isTv) {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    Palette.CinematicBg.copy(alpha = 0.45f),
+                                    Palette.CinematicBg.copy(alpha = 0.95f),
+                                ),
+                            )
+                        } else {
+                            Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.0f to Color.Transparent,
+                                    0.48f to Palette.CinematicBg.copy(alpha = 0.20f),
+                                    0.76f to Palette.CinematicBg.copy(alpha = 0.80f),
+                                    1.0f to Palette.CinematicBg.copy(alpha = 0.97f),
+                                ),
+                            )
+                        },
                     ),
             )
             // Focused inner cyan rim highlight matching reference "سيد الظلام" card
