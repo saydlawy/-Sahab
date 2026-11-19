@@ -85,7 +85,7 @@ jobs:
 
       # Unit tests
       - name: Run unit tests
-        run: gradle :app:testReleaseUnitTest --no-daemon --stacktrace
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
 
       # Build release APK
       - name: Build release APK
