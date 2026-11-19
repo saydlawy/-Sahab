@@ -285,7 +285,7 @@ fun HomeScreen(
                         "section_top_rated" -> TrendingMoviesSection(
                             movies = topRatedMovies,
                             onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
-                            title = "الأعلى تقييماً",
+                            title = "الأعلى 10",
                             iconEmoji = "⭐",
                             rowKey = "home_top_rated_row",
                         )

@@ -213,12 +213,7 @@ private fun PrimeTop10Shelf(
     val cardW: Dp = if (isPhone) 96.dp else 132.dp
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            text = androidx.compose.ui.text.buildAnnotatedString {
-                pushStyle(androidx.compose.ui.text.SpanStyle(color = PrimeCyan, fontWeight = FontWeight.Bold))
-                append("Prime ")
-                pop()
-                append("الأعلى 10")
-            },
+            text = "الأعلى 10",
             color = Color.White,
             fontSize = if (isPhone) 14.sp else 18.sp,
             fontWeight = FontWeight.Bold,
@@ -229,7 +224,7 @@ private fun PrimeTop10Shelf(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
         ) {
-            itemsIndexed(posters, key = { _, p -> "prime_top10_${p.id}" }) { index, poster ->
+            itemsIndexed(posters.take(10), key = { _, p -> "prime_top10_${p.id}" }) { index, poster ->
                 val rank = index + 1
                 val focusKey = "prime_top10_${poster.id}"
                 Box(Modifier.width(cardW + if (rank >= 10) 76.dp else 48.dp)) {

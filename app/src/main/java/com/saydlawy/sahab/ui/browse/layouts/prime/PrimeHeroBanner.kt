@@ -51,67 +51,14 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
         details.backdropUrl != details.poster.image
     Box(modifier.fillMaxSize()) {
         if (details != null) {
-            if (hasWideBackdrop) {
-                RemoteImage(
-                    url = details.backdropUrl,
-                    fallbackUrl = details.poster.image,
-                    fallbackText = details.poster.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                RemoteImage(
-                    url = details.poster.image,
-                    fallbackText = details.poster.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .blur(26.dp)
-                        .graphicsLayer { alpha = 0.42f },
-                )
-                val posterShape = RoundedCornerShape(12.dp)
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 8.dp, end = if (compact) 12.dp else 28.dp)
-                        .fillMaxWidth(if (compact) 0.34f else 0.22f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    RemoteImage(
-                        url = details.poster.image,
-                        fallbackText = details.poster.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(if (compact) 0.44f else 0.48f)
-                            .clip(posterShape)
-                            .border(1.dp, Color.White.copy(alpha = 0.24f), posterShape),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(0.14f)
-                            .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)),
-                    ) {
-                        RemoteImage(
-                            url = details.poster.image,
-                            fallbackText = details.poster.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    scaleY = -1f
-                                    alpha = 0.24f
-                                },
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Brush.verticalGradient(listOf(Color.Transparent, bg))),
-                        )
-                    }
-                }
-            }
+            val primaryImageUrl = if (hasWideBackdrop) details.backdropUrl else details.poster.image
+            RemoteImage(
+                url = primaryImageUrl,
+                fallbackUrl = details.poster.image,
+                fallbackText = details.poster.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         val sideStops = if (rtl) {
             arrayOf(
@@ -159,7 +106,7 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
 
 internal val PrimeCyan = Color(0xFF00A8E1)
 
-/** Title block: rank badge, big title, meta line, synopsis and the "included" line. */
+/** Title block: rank badge (1..10 only), big title, and real metadata line. */
 @Composable
 internal fun PrimeHeroInfo(
     details: FocusedPosterDetails?,
@@ -168,18 +115,19 @@ internal fun PrimeHeroInfo(
 ) {
     val item = details ?: return
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
+    val validRank = rank?.takeIf { it in 1..10 }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SahabIcon(Ic.CheckCircle, null, Modifier.size(14.dp), PrimeCyan)
-            val badgeText = if (rank != null) "#$rank في الأعلى تقييماً  •  متاح ضمن اشتراكك" else "متاح ضمن اشتراكك"
-            Text(
-                text = badgeText,
-                color = PrimeCyan,
-                fontSize = if (compact) 11.sp else 13.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (validRank != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "#$validRank",
+                    color = PrimeCyan,
+                    fontSize = if (compact) 12.sp else 14.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         Text(
             text = item.poster.name,
@@ -191,10 +139,16 @@ internal fun PrimeHeroInfo(
         )
         val ratingValue = item.rating.toDoubleOrNull()
         val formattedRuntime = formatHeroRuntime(item.runtime)
+        val realGenres = item.genre
+            .split(",", "/", "،", "•")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("، ")
         val metaTail = listOf(
-            item.year,
-            item.genre.substringBefore(",").trim(),
-            formattedRuntime,
+            item.year.trim(),
+            realGenres,
+            formattedRuntime.trim(),
         ).filter { it.isNotBlank() }.joinToString("  •  ")
         if (ratingValue != null || metaTail.isNotBlank()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

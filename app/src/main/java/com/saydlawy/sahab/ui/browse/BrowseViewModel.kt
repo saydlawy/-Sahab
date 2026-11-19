@@ -72,7 +72,9 @@ class BrowseViewModel(
                 .thenByDescending { it.added },
         )
         val hero = ranked.filter { it.image.isNotBlank() }.take(6).ifEmpty { allItems.take(6) }
-        val top10 = ranked.take(10)
+        val top10 = ranked
+            .filter { (it.rating.toDoubleOrNull() ?: 0.0) > 0.0 }
+            .take(10)
         val byCat = allItems.groupBy { it.categoryId }
         val groups = categories.mapNotNull { cat ->
             val list = byCat[cat.id].orEmpty()

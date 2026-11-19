@@ -125,8 +125,8 @@ private fun TrendingMovieCard(
     val subtitleText = when {
         movie.genre.isNotBlank() -> movie.genre
         movie.plot.isNotBlank() -> movie.plot
-        movie.year.isNotBlank() -> "إصدار ${movie.year}"
-        else -> "أحدث الإضافات"
+        movie.year.isNotBlank() -> movie.year
+        else -> ""
     }
 
     GlassCard(
@@ -163,25 +163,6 @@ private fun TrendingMovieCard(
                         ),
                     ),
             )
-
-            // Top-Start "جديد" blue pill badge matching "سيد الظلام" in reference image
-            if (isNew) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Palette.NewBadgeBlue)
-                        .padding(horizontal = 7.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        text = "جديد",
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                }
-            }
 
             // Focused glowing cyan border highlight matching reference image
             if (focused) {
