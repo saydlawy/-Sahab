@@ -175,7 +175,7 @@ internal fun NetflixBrowseLayout(
                         val cwWidth = if (isPhone) 168.dp else 216.dp
                         val cwHeight = if (isPhone) 96.dp else 118.dp
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            DotTitle("تابع المشاهدة", Palette.Accent, fontSize = 16.sp)
+                            DotTitle("تابع المشاهدة", Color(0xFFE50914), fontSize = 16.sp)
                             LazyRow(
                                 state = cwState,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
