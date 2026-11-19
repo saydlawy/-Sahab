@@ -158,20 +158,47 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             }
 
             if (fromRoom != null) {
-                _state.update { DetailUiState(loading = false, data = fromRoom.toMovieDetails()) }
+                var currentDetails = fromRoom.toMovieDetails()
+                _state.update { DetailUiState(loading = false, data = currentDetails) }
 
-                // 2. Background enrichment if needed
-                if (fromRoom.needsEnrichment == 1) {
+                // 2. Background enrichment if needed or if plot is missing in Room
+                if (fromRoom.needsEnrichment == 1 || currentDetails.plot.isBlank()) {
                     try {
                         container.catalogSync.enrichOne(container.repo, container.tmdb, id)
                         val updated = withContext(Dispatchers.IO) {
                             runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
                         }
                         if (updated != null) {
-                            _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
+                            currentDetails = updated.toMovieDetails()
+                            _state.update { DetailUiState(loading = false, data = currentDetails) }
                         }
                     } catch (_: Exception) {
                         // Keep showing basic data on enrichment failure
+                    }
+                }
+
+                // 3. Fallback to repo.movieDetails when plot is still blank after Room lookup/enrichment
+                if (currentDetails.plot.isBlank()) {
+                    try {
+                        val remote = container.repo.movieDetails(id)
+                        val merged = currentDetails.copy(
+                            image = currentDetails.image.ifBlank { remote.image },
+                            backdrop = if (currentDetails.backdrop.isBlank() || currentDetails.backdrop == currentDetails.image) {
+                                remote.backdrop.ifBlank { currentDetails.backdrop }
+                            } else {
+                                currentDetails.backdrop
+                            },
+                            plot = remote.plot.ifBlank { currentDetails.plot },
+                            cast = currentDetails.cast.ifBlank { remote.cast },
+                            director = currentDetails.director.ifBlank { remote.director },
+                            genre = currentDetails.genre.ifBlank { remote.genre },
+                            year = currentDetails.year.ifBlank { remote.year },
+                            duration = currentDetails.duration.ifBlank { remote.duration },
+                            rating = currentDetails.rating.ifBlank { remote.rating },
+                        )
+                        _state.update { DetailUiState(loading = false, data = merged) }
+                    } catch (_: Exception) {
+                        // Keep existing details if remote fallback fails
                     }
                 }
                 return@launch

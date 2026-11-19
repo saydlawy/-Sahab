@@ -209,30 +209,28 @@ class CatalogSync(
             return null
         }
 
-        // 1. البحث في السحابة (Firebase) أولاً (إلا عند طلب التحديث اليدوي القسري)
-        if (!force) {
-            val cloudLookupId = existing.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
-                ?: existing.sahabId
-            val cloudData = firebaseCatalog.getCatalogItem(cloudLookupId)
-            if (cloudData != null && cloudData.plot.isNotBlank()) {
-                dao.applyEnrichment(
-                    streamId = streamId,
-                    tmdbId = cloudData.tmdbId,
-                    titleEn = cloudData.titleEn,
-                    year = cloudData.year,
-                    plot = cloudData.plot,
-                    cast = cloudData.cast,
-                    director = cloudData.director,
-                    genre = cloudData.genre,
-                    runtime = cloudData.runtime,
-                    rating = cloudData.rating,
-                    backdropUrl = cloudData.backdropUrl,
-                    voteCount = cloudData.tmdbVoteCount,
-                    status = 0,
-                    now = now
-                )
-                return null // تم الإثراء من السحابة بنجاح
-            }
+        // 1. البحث في السحابة (Firebase) أولاً لتفادي استدعاء TMDB إذا كانت البيانات موجودة سحابياً
+        val cloudLookupId = existing.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
+            ?: existing.sahabId
+        val cloudData = firebaseCatalog.getCatalogItem(cloudLookupId)
+        if (cloudData != null && cloudData.plot.isNotBlank()) {
+            dao.applyEnrichment(
+                streamId = streamId,
+                tmdbId = cloudData.tmdbId,
+                titleEn = cloudData.titleEn,
+                year = cloudData.year,
+                plot = cloudData.plot,
+                cast = cloudData.cast,
+                director = cloudData.director,
+                genre = cloudData.genre,
+                runtime = cloudData.runtime,
+                rating = cloudData.rating,
+                backdropUrl = cloudData.backdropUrl,
+                voteCount = cloudData.tmdbVoteCount,
+                status = 0,
+                now = now
+            )
+            return null // تم الإثراء من Firebase بنجاح دون استدعاء TMDB
         }
         if (!tmdb.hasApiKey()) return null
 
@@ -269,6 +267,11 @@ class CatalogSync(
             )
             if (existing.sahabId.startsWith("pending:")) {
                 runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
+                runCatching {
+                    dao.findByStreamId(streamId)?.let { enrichedEntity ->
+                        firebaseCatalog.saveCatalogItem(enrichedEntity)
+                    }
+                }
             }
         } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {
             // Weak match — store data but keep needsEnrichment=1 for potential retry
