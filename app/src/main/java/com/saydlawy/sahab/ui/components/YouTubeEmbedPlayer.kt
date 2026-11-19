@@ -1,6 +1,8 @@
 package com.saydlawy.sahab.ui.components
 
 import android.annotation.SuppressLint
+import android.os.Build
+import androidx.annotation.RequiresApi
 import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.net.Uri
@@ -140,7 +142,10 @@ fun YouTubeEmbedPlayer(
                                 detail: RenderProcessGoneDetail?,
                             ): Boolean {
                                 releaseWebView()
-                                if (detail?.didCrash() == true) {
+                                @RequiresApi(Build.VERSION_CODES.O)
+                                fun isCrash(): Boolean = detail?.didCrash() == true
+
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isCrash()) {
                                     sessionKey += 1
                                 } else {
                                     embedFailed = true
