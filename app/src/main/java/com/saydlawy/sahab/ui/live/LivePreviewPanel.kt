@@ -14,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -605,16 +607,22 @@ internal fun EpgScheduleRow(
 ) {
     val shape = RoundedCornerShape(appDp(12))
     val isNow = state == EpgRowState.NOW
-    val bg: Brush = if (isNow) Palette.ActiveFill else Brush.verticalGradient(listOf(Palette.Glass, Palette.Glass))
-    val borderColor = if (isNow) Palette.Glow else Palette.GlassBorder
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val bg: Brush = if (focused || isNow) Palette.ActiveFill else Brush.verticalGradient(listOf(Palette.Glass, Palette.Glass))
+    val borderColor = when {
+        focused -> Palette.FocusCyan
+        isNow -> Palette.Glow
+        else -> Palette.GlassBorder
+    }
 
     Row(
         Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(bg)
-            .border(appDp(1), borderColor, shape)
-            .clickable(onClick = onClick)
+            .border(if (focused) appDp(2) else appDp(1), borderColor, shape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = appDp(12), vertical = appDp(9)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,

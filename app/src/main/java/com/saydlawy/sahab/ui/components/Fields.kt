@@ -169,8 +169,7 @@ fun GlassTextField(
                 fontWeight = FontWeight.Bold,
                 color = Palette.Glow,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { reveal = !reveal }
+                    .tvFocusHighlight(RoundedCornerShape(10.dp)) { reveal = !reveal }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }

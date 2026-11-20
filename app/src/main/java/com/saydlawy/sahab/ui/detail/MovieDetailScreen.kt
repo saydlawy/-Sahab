@@ -3,6 +3,8 @@ package com.saydlawy.sahab.ui.detail
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -241,17 +243,23 @@ private fun MovieNetflixContent(
                             itemsIndexed(posterList.take(10), key = { idx, url -> "${url}_$idx" }) { idx, url ->
                                 val selected = idx == selectedPosterIndex
                                 val thumbShape = RoundedCornerShape(10.dp)
+                                val interaction = remember { MutableInteractionSource() }
+                                val focused by interaction.collectIsFocusedAsState()
                                 Box(
                                     modifier = Modifier
                                         .width(thumbWidth)
                                         .aspectRatio(2f / 3f)
                                         .clip(thumbShape)
                                         .border(
-                                            width = if (selected) 2.dp else 1.dp,
-                                            color = if (selected) Color.White else Palette.GlassBorder,
+                                            width = if (focused) 2.5.dp else if (selected) 2.dp else 1.dp,
+                                            color = when {
+                                                focused -> Palette.FocusCyan
+                                                selected -> Color.White
+                                                else -> Palette.GlassBorder
+                                            },
                                             shape = thumbShape,
                                         )
-                                        .clickable { selectedPosterIndex = idx },
+                                        .clickable(interactionSource = interaction, indication = null) { selectedPosterIndex = idx },
                                 ) {
                                     RemoteImage(
                                         url = url,

@@ -58,6 +58,7 @@ import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.GlassCard
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.RemoteImage
+import com.saydlawy.sahab.ui.components.tvFocusHighlight
 import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
@@ -116,8 +117,7 @@ internal fun ContinueWatchingSection(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onClearRecents)
+                        .tvFocusHighlight(RoundedCornerShape(8.dp), onClick = onClearRecents)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }

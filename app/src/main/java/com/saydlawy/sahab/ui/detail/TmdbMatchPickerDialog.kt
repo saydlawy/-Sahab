@@ -1,7 +1,10 @@
 package com.saydlawy.sahab.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,12 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,6 +44,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil3.compose.AsyncImage
 import com.saydlawy.sahab.data.TmdbSearchResult
+import com.saydlawy.sahab.ui.components.GlassTextField
+import com.saydlawy.sahab.ui.components.Ic
+import com.saydlawy.sahab.ui.theme.Palette
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -93,13 +96,13 @@ fun TmdbMatchPickerDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedTextField(
+                    GlassTextField(
                         value = query,
                         onValueChange = { query = it },
-                        singleLine = true,
-                        placeholder = { Text("ابحث بالاسم الإنجليزي أو العربي") },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { runSearch(query) }),
+                        placeholder = "ابحث بالاسم الإنجليزي أو العربي",
+                        leading = Ic.Search,
+                        imeAction = ImeAction.Search,
+                        onImeAction = { runSearch(query) },
                         modifier = Modifier.weight(1f),
                     )
                     Button(onClick = { runSearch(query) }, enabled = !loading) {
@@ -158,13 +161,20 @@ private fun TmdbCandidateRow(
     val year = item.releaseDate.take(4)
     val rating = if (item.voteAverage > 0.0) String.format(Locale.US, "%.1f", item.voteAverage) else ""
     val posterUrl = item.posterPath?.let { "https://image.tmdb.org/t/p/w185$it" }
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = 0.06f))
-            .clickable(onClick = onClick)
+            .background(if (focused) Palette.FocusCyan.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f))
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) Palette.FocusCyan else Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+            )
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

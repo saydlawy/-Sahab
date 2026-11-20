@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -106,6 +107,30 @@ fun Modifier.initialFocus(enabled: Boolean): Modifier {
         }
     }
     return this.focusRequester(requester)
+}
+
+/**
+ * Adds a visible cyan focus ring & tint for clickable controls on Android TV.
+ */
+@Composable
+fun Modifier.tvFocusHighlight(
+    shape: Shape = RoundedCornerShape(10.dp),
+    onClick: () -> Unit,
+): Modifier {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    return this
+        .clip(shape)
+        .then(
+            if (focused) {
+                Modifier
+                    .background(Palette.FocusCyan.copy(alpha = 0.16f))
+                    .border(2.dp, Palette.FocusCyan, shape)
+            } else {
+                Modifier
+            },
+        )
+        .clickable(interactionSource = interaction, indication = null, onClick = onClick)
 }
 
 /**
