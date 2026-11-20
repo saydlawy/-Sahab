@@ -236,9 +236,9 @@ class SyncCoordinator(private val container: AppContainer) {
     }
 
     private fun isNetworkAvailable(context: Context): Boolean = runCatching {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
-        val network = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(network) ?: return false
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return@runCatching true
+        val network = cm.activeNetwork ?: return@runCatching false
+        val caps = cm.getNetworkCapabilities(network) ?: return@runCatching false
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }.getOrDefault(true)
 
@@ -297,7 +297,7 @@ class SyncCoordinator(private val container: AppContainer) {
      * 4) channelSync.sync -> 5) epgSync.sync (يعمل فقط بعد channelSync ناجح).
      * كل خطوة تُسجّل وتفشل بمعزل دون إيقاف السلسلة.
      */
-    suspend fun runFullSync(context: Context, forceCatalog: Boolean = false, reason: String = "startup") = syncMutex.withLock {
+    suspend fun runFullSync(context: Context, forceCatalog: Boolean = false, reason: String = "startup"): Unit = syncMutex.withLock {
         container.prefs.migrateSyncKeysIfNeeded()
 
         runCatching {

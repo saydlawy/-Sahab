@@ -105,13 +105,14 @@ class WeatherService(
             }
             try {
                 // 1. Manual city override first, else IP geolocation
-                val manualCity = prefs?.getString("manual_city", "").orEmpty()
+                val store = prefs
+                val manualCity = store?.getString("manual_city", "").orEmpty()
                 val hasManual = manualCity.isNotBlank() &&
-                    prefs?.contains("manual_lat") == true &&
-                    prefs.contains("manual_lon")
+                    store?.contains("manual_lat") == true &&
+                    store.contains("manual_lon")
                 val loc = if (hasManual) null else fetchIpLocation()
-                val lat = if (hasManual) prefs?.getFloat("manual_lat", 29.37f)?.toDouble() ?: 29.37 else (loc?.first ?: 29.37)
-                val lon = if (hasManual) prefs?.getFloat("manual_lon", 47.98f)?.toDouble() ?: 47.98 else (loc?.second ?: 47.98)
+                val lat = if (hasManual) store?.getFloat("manual_lat", 29.37f)?.toDouble() ?: 29.37 else (loc?.first ?: 29.37)
+                val lon = if (hasManual) store?.getFloat("manual_lon", 47.98f)?.toDouble() ?: 47.98 else (loc?.second ?: 47.98)
                 val rawCity = if (hasManual) manualCity else (loc?.third ?: "Kuwait City")
 
                 // 2. Real-time weather from Open-Meteo
