@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -54,6 +55,21 @@ interface CatalogMovieDao {
 
     @Query("UPDATE catalog_movies SET lastSeen = :now, deleted = 0 WHERE novaStreamId IN (:streamIds) AND mediaType = :mediaType")
     suspend fun touchBulk(streamIds: List<String>, now: Long, mediaType: String = "movie"): Int
+
+    @Transaction
+    suspend fun applySyncBatch(
+        existingIds: List<String>,
+        newEntities: List<CatalogMovieEntity>,
+        now: Long,
+        mediaType: String,
+    ) {
+        if (existingIds.isNotEmpty()) {
+            touchBulk(existingIds, now, mediaType)
+        }
+        if (newEntities.isNotEmpty()) {
+            upsertAll(newEntities)
+        }
+    }
 
     @Query("UPDATE catalog_movies SET deleted = 1 WHERE deleted = 0 AND lastSeen < :cutoff")
     suspend fun softDeleteBefore(cutoff: Long): Int

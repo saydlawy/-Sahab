@@ -81,12 +81,7 @@ class CatalogSync(
                     }
                 }
 
-                if (existingInBatch.isNotEmpty()) {
-                    dao.touchBulk(existingInBatch, now)
-                }
-                if (newEntities.isNotEmpty()) {
-                    dao.upsertAll(newEntities)
-                }
+                dao.applySyncBatch(existingInBatch, newEntities, now, "movie")
             }
 
             // 5. Soft-delete stale (movies not seen for >24h)

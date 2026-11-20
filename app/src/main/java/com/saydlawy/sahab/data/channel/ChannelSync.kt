@@ -7,9 +7,14 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.saydlawy.sahab.data.Channel
 import com.saydlawy.sahab.data.Repository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -164,31 +169,49 @@ class ChannelSync(
         val errors: List<String>,
     )
 
-    private suspend fun fetchFirebase(channels: List<Channel>): FirebaseFetchResult {
-        val slugs = channels.map { slug(it.name) }.filter { it.isNotEmpty() }.distinct()
-        if (slugs.isEmpty()) return FirebaseFetchResult(emptyMap(), emptySet(), 0, emptyList())
+    private data class ChunkFetchResult(
+        val data: Map<String, FirebaseChannelData> = emptyMap(),
+        val error: String? = null,
+    )
 
-        val result = mutableMapOf<String, FirebaseChannelData>()
+    private suspend fun fetchFirebase(channels: List<Channel>): FirebaseFetchResult = coroutineScope {
+        val slugs = channels.map { slug(it.name) }.filter { it.isNotEmpty() }.distinct()
+        if (slugs.isEmpty()) return@coroutineScope FirebaseFetchResult(emptyMap(), emptySet(), 0, emptyList())
+
+        val semaphore = Semaphore(4)
+        // whereIn: Firestore allows up to 30 values per query; bound concurrency with Semaphore(4)
+        val chunkResults = slugs.chunked(WHERE_IN_LIMIT).mapIndexed { index, chunk ->
+            async {
+                semaphore.withPermit {
+                    try {
+                        val docs = queryByIds(chunk)
+                        val chunkMap = HashMap<String, FirebaseChannelData>(docs.size)
+                        docs.forEach { doc ->
+                            docToFirebaseData(doc)?.let { chunkMap[doc.id] = it }
+                        }
+                        ChunkFetchResult(data = chunkMap)
+                    } catch (e: Exception) {
+                        val msg = "Firebase query #${index + 1} (${chunk.size} ids): " +
+                            (e.message ?: e.javaClass.simpleName)
+                        Log.e(TAG, msg, e)
+                        ChunkFetchResult(error = msg)
+                    }
+                }
+            }
+        }.awaitAll()
+
+        val result = HashMap<String, FirebaseChannelData>(slugs.size)
         val errors = mutableListOf<String>()
         var failedBatches = 0
-
-        // whereIn: Firestore allows up to 30 values per query
-        slugs.chunked(WHERE_IN_LIMIT).forEachIndexed { index, chunk ->
-            try {
-                val docs = queryByIds(chunk)
-                docs.forEach { doc ->
-                    docToFirebaseData(doc)?.let { result[doc.id] = it }
-                }
-            } catch (e: Exception) {
+        chunkResults.forEach { r ->
+            result.putAll(r.data)
+            if (r.error != null) {
                 failedBatches++
-                val msg = "Firebase query #${index + 1} (${chunk.size} ids): " +
-                    (e.message ?: e.javaClass.simpleName)
-                Log.e(TAG, msg, e)
-                errors.add(msg)
+                errors.add(r.error)
             }
         }
 
-        return FirebaseFetchResult(
+        FirebaseFetchResult(
             data = result,
             queriedSlugs = slugs.toSet(),
             failedBatches = failedBatches,

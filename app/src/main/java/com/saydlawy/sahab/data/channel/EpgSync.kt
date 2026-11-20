@@ -5,9 +5,14 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -121,30 +126,48 @@ class EpgSync(
         val errors: List<String>,
     )
 
+    private data class ChunkFetchResult(
+        val entities: List<EpgProgramEntity> = emptyList(),
+        val error: String? = null,
+    )
+
     private suspend fun fetchFirebase(
         epgIds: List<String>,
         cutoffSec: Long,
-    ): FirebaseFetchResult {
+    ): FirebaseFetchResult = coroutineScope {
+        val semaphore = Semaphore(4)
+        val chunkResults = epgIds.chunked(WHERE_IN_LIMIT).mapIndexed { index, chunk ->
+            async {
+                semaphore.withPermit {
+                    try {
+                        val docs = queryByIds(chunk)
+                        val list = ArrayList<EpgProgramEntity>(docs.size * 8)
+                        docs.forEach { doc ->
+                            list.addAll(docToPrograms(doc, cutoffSec))
+                        }
+                        ChunkFetchResult(entities = list)
+                    } catch (e: Exception) {
+                        val msg = "Firebase epg query #${index + 1} (${chunk.size} ids): " +
+                            (e.message ?: e.javaClass.simpleName)
+                        Log.e(TAG, msg, e)
+                        ChunkFetchResult(error = msg)
+                    }
+                }
+            }
+        }.awaitAll()
+
         val out = mutableListOf<EpgProgramEntity>()
         val errors = mutableListOf<String>()
         var failedBatches = 0
-
-        epgIds.chunked(WHERE_IN_LIMIT).forEachIndexed { index, chunk ->
-            try {
-                val docs = queryByIds(chunk)
-                docs.forEach { doc ->
-                    out.addAll(docToPrograms(doc, cutoffSec))
-                }
-            } catch (e: Exception) {
+        chunkResults.forEach { r ->
+            out.addAll(r.entities)
+            if (r.error != null) {
                 failedBatches++
-                val msg = "Firebase epg query #${index + 1} (${chunk.size} ids): " +
-                    (e.message ?: e.javaClass.simpleName)
-                Log.e(TAG, msg, e)
-                errors.add(msg)
+                errors.add(r.error)
             }
         }
 
-        return FirebaseFetchResult(out, failedBatches, errors)
+        FirebaseFetchResult(out, failedBatches, errors)
     }
 
     private suspend fun queryByIds(epgIds: List<String>): List<DocumentSnapshot> =
