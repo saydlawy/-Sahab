@@ -117,6 +117,27 @@ class BrowseViewModel(
         return loaded
     }
 
+    private suspend fun enrichWithTmdb(items: List<Poster>): List<Poster> {
+        if (items.isEmpty()) return items
+        val facets = getFacetsMap()
+        if (facets.isEmpty()) return items
+        return withContext(Dispatchers.Default) {
+            items.map { p ->
+                val f = facets[p.id]
+                val tmdbRating = f?.rating?.takeIf { it > 0.0 }?.let {
+                    String.format(java.util.Locale.US, "%.1f", it)
+                }.orEmpty()
+                val tmdbYear = VodCustomOrganizer.extractTmdbYear(f?.year)
+                val tmdbGenre = VodCustomOrganizer.primaryGenre(f?.genre)
+                p.copy(
+                    rating = tmdbRating,
+                    year = tmdbYear,
+                    genre = tmdbGenre,
+                )
+            }
+        }
+    }
+
     private suspend fun applyOrganization(
         allItems: List<Poster>,
         mode: VodOrganizationMode = _state.value.organizationMode,
@@ -236,16 +257,17 @@ class BrowseViewModel(
                 val preferredCat = initialCategoryId ?: _state.value.selectedId
 
                 if (!cachedAll.isNullOrEmpty()) {
-                    updateSearchPool(cachedAll)
-                    val counts = computeCounts(cachedAll)
+                    val enrichedAll = enrichWithTmdb(cachedAll)
+                    updateSearchPool(enrichedAll)
+                    val counts = computeCounts(enrichedAll)
                     defaultCounts = counts
-                    val (hero, top10, groups) = buildLayoutCollections(categories, cachedAll)
+                    val (hero, top10, groups) = buildLayoutCollections(categories, enrichedAll)
                     val targetCat = preferredCat ?: ALL_CAT_ID
                     val initialItems = if (targetCat == ALL_CAT_ID || targetCat == FAV_CAT_ID || targetCat == RECENTS_CAT_ID) {
-                        cachedAll
+                        enrichedAll
                     } else {
                         withContext(Dispatchers.Default) {
-                            cachedAll.filter { it.categoryId == targetCat }.ifEmpty { cachedAll }
+                            enrichedAll.filter { it.categoryId == targetCat }.ifEmpty { enrichedAll }
                         }
                     }
                     _state.update {
@@ -255,7 +277,7 @@ class BrowseViewModel(
                             items = initialItems,
                             loadingCategories = false,
                             loadingItems = false,
-                            totalCount = cachedAll.size,
+                            totalCount = enrichedAll.size,
                             categoryCounts = counts,
                             featuredHeroItems = hero,
                             top10Items = top10,
@@ -266,7 +288,7 @@ class BrowseViewModel(
                         )
                     }
                     if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
-                        applyOrganization(cachedAll, preferredCat = preferredCat)
+                        applyOrganization(enrichedAll, preferredCat = preferredCat)
                     }
                     hero.firstOrNull()?.let { fetchDetailsForHero(it) }
                     if (initialQuery.isNotBlank()) {
@@ -286,7 +308,8 @@ class BrowseViewModel(
                 select(firstCatId)
 
                 viewModelScope.launch {
-                    val allItems = runCatching { fetchItems(null) }.getOrDefault(emptyList())
+                    val rawAll = runCatching { fetchItems(null) }.getOrDefault(emptyList())
+                    val allItems = enrichWithTmdb(rawAll)
                     if (allItems.isNotEmpty()) {
                         updateSearchPool(allItems)
                         val counts = computeCounts(allItems)
@@ -379,6 +402,18 @@ class BrowseViewModel(
                 }
                 return
             }
+        }
+        if (categoryId.startsWith(CUSTOM_CAT_PREFIX)) {
+            val customList = customItemsByCategory[categoryId].orEmpty()
+            _state.update {
+                it.copy(
+                    selectedId = categoryId,
+                    items = customList,
+                    loadingItems = false,
+                    error = null,
+                )
+            }
+            return
         }
         val cachedPool = searchPool
         if (!cachedPool.isNullOrEmpty()) {

@@ -178,13 +178,14 @@ private fun MovieNetflixContent(
         }
     }
 
-    val heroMedia = details.backdrop.ifBlank { activePoster }
+    val showingSelectedGalleryImage = selectedPosterIndex > 0
+    val heroMedia = if (showingSelectedGalleryImage) activePoster else details.backdrop.ifBlank { activePoster }
 
     Box(Modifier.fillMaxSize()) {
         MovieHeroBackdrop(
             backdropUrl = heroMedia,
             fallbackPoster = activePoster,
-            trailerUrl = details.trailerUrl,
+            trailerUrl = if (showingSelectedGalleryImage) "" else details.trailerUrl,
             title = details.name,
             scrollAlpha = backdropAlpha,
         )

@@ -63,6 +63,7 @@ data class Poster(
     val rating: String = "",
     val ext: String = "",
     val year: String = "",
+    val genre: String = "",
     val categoryId: String = "",
     val added: Long = 0L,
 )

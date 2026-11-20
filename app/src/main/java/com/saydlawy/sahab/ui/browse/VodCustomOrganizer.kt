@@ -198,12 +198,19 @@ internal object VodCustomOrganizer {
         return genreAliases[lower] ?: genreAliases[clean] ?: clean
     }
 
+    fun primaryGenre(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        val first = raw.split(',', '،', '/', '|', '&').firstOrNull()?.trim().orEmpty()
+        if (first.isEmpty()) return ""
+        return normalizeGenre(first)
+    }
+
+    fun extractTmdbYear(facetYear: String?): String {
+        return facetYear?.let { yearRegex.find(it)?.value }.orEmpty()
+    }
+
     private fun extractYear(facetYear: String?, posterYear: String, title: String): Int? {
-        val fromFacet = facetYear?.let { yearRegex.find(it)?.value?.toIntOrNull() }
-        if (fromFacet != null) return fromFacet
-        val fromPoster = yearRegex.find(posterYear)?.value?.toIntOrNull()
-        if (fromPoster != null) return fromPoster
-        return yearRegex.find(title)?.value?.toIntOrNull()
+        return facetYear?.let { yearRegex.find(it)?.value?.toIntOrNull() }
     }
 
     private fun yearToBucketLabel(year: Int?): String = when {

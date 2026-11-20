@@ -137,6 +137,7 @@ fun PosterCard(
     contentScale: ContentScale = ContentScale.Crop,
     quality: String? = null,
     subtitle: String = "",
+    genre: String = "",
     progress: Float? = null,
     onFocused: (() -> Unit)? = null,
 ) {
@@ -202,6 +203,28 @@ fun PosterCard(
                 )
             }
 
+            // Top-left (in RTL: TopEnd) TMDB genre badge
+            if (genre.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Palette.CinematicBg.copy(alpha = 0.78f))
+                        .border(0.8.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = genre,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
             // Bottom overlay content: Title, Subtitle, and Bottom Row (Star Rating on right, Quality pill on left)
             Column(
                 modifier = Modifier
@@ -218,23 +241,14 @@ fun PosterCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (subtitle.isNotBlank()) {
-                    Text(
-                        text = subtitle,
-                        fontSize = 11.sp,
-                        color = Palette.TextMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (badge.isNotBlank() || !quality.isNullOrBlank()) {
+                if (badge.isNotBlank() || subtitle.isNotBlank()) {
                     Spacer(Modifier.height(2.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // Right side in RTL: Gold star rating
+                        // Bottom-right in RTL: TMDB Gold star rating
                         if (badge.isNotBlank()) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -258,23 +272,15 @@ fun PosterCard(
                             Spacer(Modifier.width(1.dp))
                         }
 
-                        // Left side in RTL: Quality badge (4K / UHD / FHD / HD) - never collides with top-right poster logos!
-                        if (!quality.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Palette.CardSurfaceElevated.copy(alpha = 0.85f))
-                                    .border(0.8.dp, Color.White.copy(alpha = 0.24f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                            ) {
-                                Text(
-                                    text = quality,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (quality == "4K" || quality == "UHD") Color.White else Palette.TextDim,
-                                    maxLines = 1,
-                                )
-                            }
+                        // Bottom-left in RTL: TMDB Year
+                        if (subtitle.isNotBlank()) {
+                            Text(
+                                text = subtitle,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Palette.TextMuted,
+                                maxLines = 1,
+                            )
                         }
                     }
                 }

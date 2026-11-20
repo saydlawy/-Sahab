@@ -361,6 +361,7 @@ private fun ClassicPosterGrid(
                             badge = poster.rating,
                             quality = qualityOf(poster.name),
                             subtitle = poster.year,
+                            genre = poster.genre,
                             onClick = { onOpenPoster(poster) },
                             onLongClick = { onToggleFavorite(poster) },
                             modifier = Modifier.restorableFocus(

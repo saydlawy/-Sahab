@@ -145,6 +145,7 @@ internal fun NetflixBrowseLayout(
                                     badge = poster.rating,
                                     quality = qualityOf(poster.name),
                                     subtitle = poster.year,
+                            genre = poster.genre,
                                     onClick = { callbacks.onOpenPosterWithKey(poster, focusKey) },
                                     onLongClick = { callbacks.onToggleFavorite(poster) },
                                     onFocused = { callbacks.onPosterFocused(poster) },

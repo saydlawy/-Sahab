@@ -63,6 +63,7 @@ internal fun NetflixTop10Row(
                         badge = poster.rating,
                         quality = qualityOf(poster.name),
                         subtitle = poster.year,
+                            genre = poster.genre,
                         onClick = { onOpenPoster(poster) },
                         onLongClick = { onToggleFavorite(poster) },
                         onFocused = { onFocusedPoster(poster) },
