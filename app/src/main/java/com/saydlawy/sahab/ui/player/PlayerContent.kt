@@ -98,6 +98,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -147,6 +149,7 @@ import com.saydlawy.sahab.util.ChannelLogoResolver
 internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack: () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val isTv = LocalIsTv.current
     val displayMode = LocalDisplayMode.current
     val vm: PlayerViewModel = appViewModel { PlayerViewModel(it, request) }
@@ -451,26 +454,30 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    LaunchedEffect(exo, isPlayerReleased, controlsVisible, showEpisodesDrawer, displayMode) {
+    LaunchedEffect(exo, isPlayerReleased, controlsVisible, showEpisodesDrawer, displayMode, lifecycleOwner) {
         if (isPlayerReleased) return@LaunchedEffect
         val shouldTickUi = controlsVisible || showEpisodesDrawer || displayMode == DisplayMode.PHONE_PORTRAIT
         if (!shouldTickUi) return@LaunchedEffect
-        while (!isPlayerReleased) {
-            val cur = exo.currentPosition.coerceAtLeast(0L)
-            val buf = exo.bufferedPosition.coerceAtLeast(cur)
-            val dur = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
-            vm.onProgressUpdate(cur, buf, dur)
-            delay(500)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (!isPlayerReleased) {
+                val cur = exo.currentPosition.coerceAtLeast(0L)
+                val buf = exo.bufferedPosition.coerceAtLeast(cur)
+                val dur = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+                vm.onProgressUpdate(cur, buf, dur)
+                delay(500)
+            }
         }
     }
 
-    LaunchedEffect(exo, isPlayerReleased, isLive, isPlaying) {
+    LaunchedEffect(exo, isPlayerReleased, isLive, isPlaying, lifecycleOwner) {
         if (isPlayerReleased || isLive || !isPlaying) return@LaunchedEffect
-        while (!isPlayerReleased && isPlaying) {
-            delay(30_000L)
-            if (isPlayerReleased || !exo.isPlaying) break
-            val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-            vm.saveProgressIfVod(exo.currentPosition, total)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (!isPlayerReleased && isPlaying) {
+                delay(30_000L)
+                if (isPlayerReleased || !exo.isPlaying) break
+                val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                vm.saveProgressIfVod(exo.currentPosition, total)
+            }
         }
     }
 
@@ -628,17 +635,20 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         initialValue = null to null,
         item.id,
         isLive,
+        lifecycleOwner,
     ) {
         if (!isLive) {
             value = null to null
             return@produceState
         }
-        while (true) {
-            val t = System.currentTimeMillis() / 1000
-            val cur = runCatching { dao.currentProgramFor(item.id, t) }.getOrNull()
-            val nxt = runCatching { dao.nextProgramFor(item.id, t) }.getOrNull()
-            value = cur to nxt
-            kotlinx.coroutines.delay(60_000L)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val t = System.currentTimeMillis() / 1000
+                val cur = runCatching { dao.currentProgramFor(item.id, t) }.getOrNull()
+                val nxt = runCatching { dao.nextProgramFor(item.id, t) }.getOrNull()
+                value = cur to nxt
+                kotlinx.coroutines.delay(60_000L)
+            }
         }
     }
     val currentProgram = livePrograms.first?.let { Program(it.title, it.description, it.start, it.end) }

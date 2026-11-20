@@ -7,6 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -37,70 +40,73 @@ fun LiveVideoStallWatchdog(
     onEscalate: () -> Boolean = { false },
 ) {
     val escalate by rememberUpdatedState(onEscalate)
-    LaunchedEffect(player, enabled, itemKey) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(player, enabled, itemKey, lifecycleOwner) {
         if (player == null || !enabled) return@LaunchedEffect
-        var lastRendered = -1
-        var frozenSinceMs = 0L
-        var positionAtFreezeMs = 0L
-        var recoveries = 0
-        var windowStartMs = SystemClock.elapsedRealtime()
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var lastRendered = -1
+            var frozenSinceMs = 0L
+            var positionAtFreezeMs = 0L
+            var recoveries = 0
+            var windowStartMs = SystemClock.elapsedRealtime()
 
-        while (isActive) {
-            delay(SAMPLE_MS)
-            val counters = player.videoDecoderCounters
-            if (counters == null) {
+            while (isActive) {
+                delay(SAMPLE_MS)
+                val counters = player.videoDecoderCounters
+                if (counters == null) {
+                    lastRendered = -1
+                    continue
+                }
+
+                val armed = player.isPlaying &&
+                    player.playbackState == Player.STATE_READY &&
+                    player.videoFormat != null
+                if (!armed) {
+                    lastRendered = -1
+                    continue
+                }
+
+                counters.ensureUpdated()
+                val rendered = counters.renderedOutputBufferCount
+                val now = SystemClock.elapsedRealtime()
+                val position = player.currentPosition
+                if (rendered != lastRendered) {
+                    lastRendered = rendered
+                    frozenSinceMs = now
+                    positionAtFreezeMs = position
+                    continue
+                }
+
+                val frozenFor = now - frozenSinceMs
+                val audioAdvanced = position - positionAtFreezeMs
+                if (frozenFor < STALL_MS || audioAdvanced < MIN_AUDIO_ADVANCE_MS) continue
+
+                if (now - windowStartMs > RECOVERY_WINDOW_MS) {
+                    windowStartMs = now
+                    recoveries = 0
+                }
+                if (recoveries >= MAX_RECOVERIES) {
+                    // Give up for this item: probably a still-image / ultra low-fps channel.
+                    frozenSinceMs = now
+                    positionAtFreezeMs = position
+                    continue
+                }
+                recoveries++
+                val stallMsg = "Live video stall: no frame for ${frozenFor}ms while audio advanced " +
+                    "${audioAdvanced}ms (rendered=$rendered, dropped=${counters.droppedBufferCount}) " +
+                    "-> recovery #$recoveries"
+                Log.w(TAG, stallMsg)
+                runCatching { com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log(stallMsg) }
+                // stop() resets the renderers, which releases the deadlocked MediaCodec instance.
+                player.stop()
+                val escalated = recoveries >= 2 && escalate()
+                if (!escalated) {
+                    player.seekToDefaultPosition()
+                    player.prepare()
+                    player.play()
+                }
                 lastRendered = -1
-                continue
             }
-
-            val armed = player.isPlaying &&
-                player.playbackState == Player.STATE_READY &&
-                player.videoFormat != null
-            if (!armed) {
-                lastRendered = -1
-                continue
-            }
-
-            counters.ensureUpdated()
-            val rendered = counters.renderedOutputBufferCount
-            val now = SystemClock.elapsedRealtime()
-            val position = player.currentPosition
-            if (rendered != lastRendered) {
-                lastRendered = rendered
-                frozenSinceMs = now
-                positionAtFreezeMs = position
-                continue
-            }
-
-            val frozenFor = now - frozenSinceMs
-            val audioAdvanced = position - positionAtFreezeMs
-            if (frozenFor < STALL_MS || audioAdvanced < MIN_AUDIO_ADVANCE_MS) continue
-
-            if (now - windowStartMs > RECOVERY_WINDOW_MS) {
-                windowStartMs = now
-                recoveries = 0
-            }
-            if (recoveries >= MAX_RECOVERIES) {
-                // Give up for this item: probably a still-image / ultra low-fps channel.
-                frozenSinceMs = now
-                positionAtFreezeMs = position
-                continue
-            }
-            recoveries++
-            val stallMsg = "Live video stall: no frame for ${frozenFor}ms while audio advanced " +
-                "${audioAdvanced}ms (rendered=$rendered, dropped=${counters.droppedBufferCount}) " +
-                "-> recovery #$recoveries"
-            Log.w(TAG, stallMsg)
-            runCatching { com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log(stallMsg) }
-            // stop() resets the renderers, which releases the deadlocked MediaCodec instance.
-            player.stop()
-            val escalated = recoveries >= 2 && escalate()
-            if (!escalated) {
-                player.seekToDefaultPosition()
-                player.prepare()
-                player.play()
-            }
-            lastRendered = -1
         }
     }
 }

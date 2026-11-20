@@ -73,7 +73,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -242,10 +244,12 @@ internal fun ChannelRow(
 ) {
     val container = LocalContainer.current
     val dao = remember(container) { container.channelDb.channelDao() }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val programs by produceState<Pair<EpgProgramEntity?, EpgProgramEntity?>>(
         initialValue = null to null,
         channel.id,
         channel.epgId,
+        lifecycleOwner,
     ) {
         if (channel.epgId.isBlank()) {
             value = null to null
@@ -254,12 +258,14 @@ internal fun ChannelRow(
         // LIVE-01: rows that only fly past during a fast scroll leave composition before this
         // delay ends, so they never hit Room (avoids hundreds of EPG queries/sec on 10k lists).
         kotlinx.coroutines.delay(EPG_ROW_SETTLE_MS)
-        while (true) {
-            val t = System.currentTimeMillis() / 1000
-            val cur = runCatching { dao.currentProgramFor(channel.id, t) }.getOrNull()
-            val nxt = runCatching { dao.nextProgramFor(channel.id, t) }.getOrNull()
-            value = cur to nxt
-            kotlinx.coroutines.delay(60_000L)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val t = System.currentTimeMillis() / 1000
+                val cur = runCatching { dao.currentProgramFor(channel.id, t) }.getOrNull()
+                val nxt = runCatching { dao.nextProgramFor(channel.id, t) }.getOrNull()
+                value = cur to nxt
+                kotlinx.coroutines.delay(60_000L)
+            }
         }
     }
     val program = programs.first

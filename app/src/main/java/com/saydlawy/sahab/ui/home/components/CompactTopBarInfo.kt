@@ -8,37 +8,31 @@ import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.data.weather.WeatherCondition
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.components.Ic
+import com.saydlawy.sahab.ui.components.rememberNow
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.formatNowMillis
-import kotlinx.coroutines.delay
 import java.util.Locale
 
 @Composable
 fun CompactTopBarInfo(modifier: Modifier = Modifier) {
     val container = LocalContainer.current
-    val weather by container.weather.weather.collectAsState()
-    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    val weather by container.weather.weather.collectAsStateWithLifecycle()
+    val now = rememberNow()
 
     LaunchedEffect(Unit) {
         container.weather.refreshIfNeeded()
-        while (true) {
-            delay(30_000L)
-            now = System.currentTimeMillis()
-        }
     }
 
     val timeStr = remember(now) {

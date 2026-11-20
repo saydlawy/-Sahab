@@ -60,6 +60,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.LocalTabNavigator
@@ -175,14 +178,18 @@ fun BrandMark(
     }
 }
 
-/** Ticking "now" epoch millis value, refreshed every 30s. */
+/** Ticking "now" epoch millis value, refreshed every 30s while lifecycle is STARTED. */
 @Composable
 fun rememberNow(periodMs: Long = 30_000L): Long {
+    val lifecycleOwner = LocalLifecycleOwner.current
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(periodMs) {
-        while (true) {
-            delay(periodMs)
+    LaunchedEffect(lifecycleOwner, periodMs) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             now = System.currentTimeMillis()
+            while (true) {
+                delay(periodMs)
+                now = System.currentTimeMillis()
+            }
         }
     }
     return now
