@@ -133,6 +133,31 @@ interface CatalogMovieDao {
     suspend fun searchCatalog(query: String, mediaType: String = "movie", limit: Int = 100): List<CatalogMovieEntity>
 
     @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "ORDER BY novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPaged(mediaType: String = "movie", limit: Int, offset: Int): List<CatalogMovieEntity>
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND categoryId = :catId " +
+            "ORDER BY novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedByCategory(catId: String, mediaType: String = "movie", limit: Int, offset: Int): List<CatalogMovieEntity>
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "AND (titleAr LIKE '%' || :query || '%' OR titleEn LIKE '%' || :query || '%') " +
+            "ORDER BY novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun searchCatalogPaged(query: String, mediaType: String = "movie", limit: Int = 100, offset: Int = 0): List<CatalogMovieEntity>
+
+    @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType")
+    suspend fun countByType(mediaType: String = "movie"): Int
+
+    @Query(
         "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded FROM catalog_movies " +
             "WHERE deleted = 0 AND mediaType = :mediaType AND novaStreamId != ''"
     )

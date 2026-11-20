@@ -339,14 +339,37 @@ class BrowseViewModel(
                 }
 
                 val firstCatId = preferredCat ?: categories.firstOrNull()?.id ?: ALL_CAT_ID
-                _state.update {
-                    it.copy(
-                        categories = categories,
-                        selectedId = firstCatId,
-                        loadingCategories = false,
-                    )
+                val mediaType = if (series) "series" else "movie"
+                val initialRoomPage = if (preferredCat == null || preferredCat == ALL_CAT_ID) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            container.catalogDb.movieDao().getPaged(mediaType = mediaType, limit = 120, offset = 0)
+                                .map { it.toPoster() }
+                        }.getOrDefault(emptyList())
+                    }
+                } else {
+                    emptyList()
                 }
-                select(firstCatId)
+                if (initialRoomPage.isNotEmpty()) {
+                    _state.update {
+                        it.copy(
+                            categories = categories,
+                            selectedId = ALL_CAT_ID,
+                            items = initialRoomPage,
+                            loadingCategories = false,
+                            loadingItems = false,
+                        )
+                    }
+                } else {
+                    _state.update {
+                        it.copy(
+                            categories = categories,
+                            selectedId = firstCatId,
+                            loadingCategories = false,
+                        )
+                    }
+                    select(firstCatId)
+                }
 
                 viewModelScope.launch {
                     val rawAll = runCatching { fetchItems(null) }.getOrDefault(emptyList())
@@ -520,6 +543,20 @@ class BrowseViewModel(
             delay(250)
             _state.update { it.copy(searching = true) }
             try {
+                if (indexedPool == null && searchPool == null) {
+                    val mediaType = if (series) "series" else "movie"
+                    val roomMatches = withContext(Dispatchers.IO) {
+                        runCatching {
+                            container.catalogDb.movieDao()
+                                .searchCatalogPaged(query.trim(), mediaType = mediaType, limit = 200, offset = 0)
+                                .map { it.toPoster() }
+                        }.getOrDefault(emptyList())
+                    }
+                    if (roomMatches.isNotEmpty()) {
+                        _state.update { it.copy(searchResults = roomMatches, searching = false) }
+                        return@launch
+                    }
+                }
                 val indexed = indexedPool ?: run {
                     val pool = searchPool ?: fetchItems(null).also { updateSearchPool(it) }
                     indexedPool ?: withContext(Dispatchers.Default) {
@@ -857,6 +894,30 @@ class BrowseViewModel(
             }
         }
     }
+
+    suspend fun loadCatalogPage(categoryId: String?, limit: Int = 100, offset: Int = 0): List<Poster> =
+        withContext(Dispatchers.IO) {
+            val mediaType = if (series) "series" else "movie"
+            val dao = container.catalogDb.movieDao()
+            val entities = if (categoryId.isNullOrBlank() || categoryId == ALL_CAT_ID) {
+                dao.getPaged(mediaType = mediaType, limit = limit, offset = offset)
+            } else {
+                dao.getPagedByCategory(catId = categoryId, mediaType = mediaType, limit = limit, offset = offset)
+            }
+            entities.map { it.toPoster() }
+        }
+
+    private fun CatalogMovieEntity.toPoster(): Poster = Poster(
+        id = novaStreamId,
+        name = titleAr.ifBlank { titleEn },
+        image = posterUrl,
+        rating = cleanRating(rating),
+        ext = containerExtension,
+        year = VodCustomOrganizer.extractTmdbYear(year),
+        genre = VodCustomOrganizer.primaryGenre(genre),
+        categoryId = categoryId,
+        added = novaAdded,
+    )
 
     fun toggleFavorite(poster: Poster) {
         val kind = if (series) Kind.SERIES else Kind.MOVIE
