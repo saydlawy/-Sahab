@@ -11,11 +11,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import com.saydlawy.sahab.BuildConfig
 import com.saydlawy.sahab.ui.LocalIsTv
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -41,8 +44,11 @@ data class SavedScrollPosition(
 @Stable
 class FocusNavigationController {
 
-    /** Last known focused item key for each screenKey (e.g. "home" -> "trending_128491"). */
-    private val lastFocusedByScreen = mutableStateMapOf<String, String>()
+    /** Last known focused item key for each screenKey (plain map to avoid snapshot recompositions). */
+    private val lastFocusedByScreen = HashMap<String, String>()
+
+    /** Tracks only whether a screen has recorded any focus yet (toggled at most once per screen). */
+    private val hasAnySavedByScreen = mutableStateMapOf<String, Boolean>()
 
     /** Active pending restoration target per screenKey; non-null when returning via Back or closing a Dialog. */
     private val pendingRestoreByScreen = mutableStateMapOf<String, String>()
@@ -83,7 +89,12 @@ class FocusNavigationController {
         if (screenKey.isNotBlank() && itemKey.isNotBlank()) {
             val prev = lastFocusedByScreen[screenKey]
             lastFocusedByScreen[screenKey] = itemKey
-            android.util.Log.d("SAHAB_FOCUS", "FOCUS screen=$screenKey item=$itemKey prev=$prev")
+            if (hasAnySavedByScreen[screenKey] != true) {
+                hasAnySavedByScreen[screenKey] = true
+            }
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("SAHAB_FOCUS", "FOCUS screen=$screenKey item=$itemKey prev=$prev")
+            }
         }
     }
 
@@ -91,16 +102,23 @@ class FocusNavigationController {
     fun markNavigateFrom(screenKey: String, itemKey: String) {
         if (screenKey.isNotBlank() && itemKey.isNotBlank()) {
             lastFocusedByScreen[screenKey] = itemKey
+            if (hasAnySavedByScreen[screenKey] != true) {
+                hasAnySavedByScreen[screenKey] = true
+            }
             pendingRestoreByScreen[screenKey] = itemKey
             restoreGenerationByScreen[screenKey] = (restoreGenerationByScreen[screenKey] ?: 0) + 1
-            android.util.Log.d("SAHAB_FOCUS", "NAV_FROM screen=$screenKey item=$itemKey")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("SAHAB_FOCUS", "NAV_FROM screen=$screenKey item=$itemKey")
+            }
         }
     }
 
     /** Called when a screen becomes active again after Back press or Dialog dismissal. */
     fun onScreenResumed(screenKey: String) {
         val target = pendingRestoreByScreen[screenKey] ?: lastFocusedByScreen[screenKey]
-        android.util.Log.d("SAHAB_FOCUS", "RESUME screen=$screenKey target=$target")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("SAHAB_FOCUS", "RESUME screen=$screenKey target=$target")
+        }
         if (!target.isNullOrBlank()) {
             pendingRestoreByScreen[screenKey] = target
             restoreGenerationByScreen[screenKey] = (restoreGenerationByScreen[screenKey] ?: 0) + 1
@@ -123,7 +141,7 @@ class FocusNavigationController {
     fun restoreGeneration(screenKey: String): Int = restoreGenerationByScreen[screenKey] ?: 0
 
     fun hasSavedFocus(screenKey: String): Boolean =
-        !pendingRestoreByScreen[screenKey].isNullOrBlank() || !lastFocusedByScreen[screenKey].isNullOrBlank()
+        !pendingRestoreByScreen[screenKey].isNullOrBlank() || hasAnySavedByScreen[screenKey] == true
 
     fun consumeRestore(screenKey: String, itemKey: String) {
         if (pendingRestoreByScreen[screenKey] == itemKey) {
@@ -274,20 +292,24 @@ fun Modifier.restorableFocus(
     val requester = remember(screenKey, itemKey) { FocusRequester() }
     val bringIntoViewRequester = remember(screenKey, itemKey) { BringIntoViewRequester() }
 
-    val pendingTarget = controller.pendingTarget(screenKey)
-    val restoreGen = controller.restoreGeneration(screenKey)
-    val hasAnySaved = controller.hasSavedFocus(screenKey)
-
-    val shouldRestoreThis = pendingTarget == itemKey ||
-        (isTv && pendingTarget == null && !hasAnySaved && isDefaultEntry)
+    val shouldRestoreThis by remember(screenKey, itemKey, isDefaultEntry, isTv) {
+        derivedStateOf {
+            val pending = controller.pendingTarget(screenKey)
+            pending == itemKey || (isTv && pending == null && !controller.hasSavedFocus(screenKey) && isDefaultEntry)
+        }
+    }
 
     if (shouldRestoreThis) {
+        val pendingTarget = controller.pendingTarget(screenKey)
+        val restoreGen = controller.restoreGeneration(screenKey)
         LaunchedEffect(screenKey, itemKey, restoreGen, pendingTarget) {
             withFrameNanos { }
             runCatching { bringIntoViewRequester.bringIntoView() }
             withFrameNanos { }
             val focusedOk = runCatching { requester.requestFocus() }.isSuccess
-            android.util.Log.d("SAHAB_FOCUS", "RESTORE_TRY screen=$screenKey item=$itemKey ok=$focusedOk isTv=$isTv pending=$pendingTarget")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("SAHAB_FOCUS", "RESTORE_TRY screen=$screenKey item=$itemKey ok=$focusedOk isTv=$isTv pending=$pendingTarget")
+            }
             if (focusedOk && pendingTarget == itemKey) {
                 controller.consumeRestore(screenKey, itemKey)
             }
