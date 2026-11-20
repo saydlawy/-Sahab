@@ -320,11 +320,12 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         saveNow()
         vm.flushRecents()
         val inPip = context.findActivity()?.isInPictureInPictureMode == true
-        // O-03: keep live audio (MediaSessionService) or phone PiP running in background;
-        // on TV or VOD outside PiP, pause normally.
-        if (!inPip && !(isLive && !isTv) && (exo.playWhenReady || exo.isPlaying)) {
+        if (!inPip && (exo.playWhenReady || exo.isPlaying)) {
             stoppedByLifecycle = true
             exo.pause()
+            if (isLive) {
+                exo.stop()
+            }
         }
     }
 
@@ -383,7 +384,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             }
         }
         exo.addListener(listener)
-        SahabMediaSessionBridge.attach(context, exo, allowBackgroundService = isLive && !isTv)
+        SahabMediaSessionBridge.attach(context, exo, allowBackgroundService = false)
         onDispose {
             SahabMediaSessionBridge.detach(context, exo)
             exo.removeListener(listener)
