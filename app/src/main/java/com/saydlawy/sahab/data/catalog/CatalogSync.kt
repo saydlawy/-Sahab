@@ -304,7 +304,7 @@ class CatalogSync(
                 }
             }
         } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {
-            // Weak match — store data in Room & Firebase but keep needsEnrichment=1 for potential retry
+            // Weak match — store in local Room only (keep needsEnrichment=1), never pollute shared Firebase catalog
             dao.applyEnrichment(
                 streamId = streamId,
                 tmdbId = movie.id,
@@ -325,11 +325,6 @@ class CatalogSync(
                 trailerUrl = movie.trailerUrl,
                 castJson = encodeTmdbCastJson(movie.credits?.cast),
             )
-            runCatching {
-                dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
-                    firebaseCatalog.saveCatalogItem(enrichedEntity)
-                }
-            }
         } else if (
             result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.NETWORK_ERROR ||
             (movie == null && (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG ||

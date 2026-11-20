@@ -733,29 +733,31 @@ class BrowseViewModel(
                             ),
                         )
                     }
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            container.firebaseCatalog.saveCatalogItem(
-                                CatalogMovieEntity(
-                                    sahabId = CatalogMovieEntity.idFromTmdb(tmdbItem.id),
-                                    novaStreamId = poster.id,
-                                    categoryId = poster.categoryId,
-                                    titleAr = poster.name,
-                                    titleEn = tmdbItem.title,
-                                    year = resolvedYear,
-                                    plot = tmdbItem.overview,
-                                    genre = resolvedGenre,
-                                    runtime = resolvedRuntime,
-                                    rating = resolvedRating,
-                                    posterUrl = poster.image,
-                                    backdropUrl = resolvedBackdrop,
-                                    tmdbId = tmdbItem.id,
-                                    tmdbVoteCount = tmdbItem.voteCount,
-                                    mediaType = mediaType,
-                                    postersJson = tmdbItem.posterUrls.joinToString("\n"),
-                                    trailerUrl = tmdbItem.trailerUrl,
-                                ),
-                            )
+                    if (enriched.level == TmdbMatcher.Level.STRONG) {
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                container.firebaseCatalog.saveCatalogItem(
+                                    CatalogMovieEntity(
+                                        sahabId = CatalogMovieEntity.idFromTmdb(tmdbItem.id),
+                                        novaStreamId = poster.id,
+                                        categoryId = poster.categoryId,
+                                        titleAr = poster.name,
+                                        titleEn = tmdbItem.title,
+                                        year = resolvedYear,
+                                        plot = tmdbItem.overview,
+                                        genre = resolvedGenre,
+                                        runtime = resolvedRuntime,
+                                        rating = resolvedRating,
+                                        posterUrl = poster.image,
+                                        backdropUrl = resolvedBackdrop,
+                                        tmdbId = tmdbItem.id,
+                                        tmdbVoteCount = tmdbItem.voteCount,
+                                        mediaType = mediaType,
+                                        postersJson = tmdbItem.posterUrls.joinToString("\n"),
+                                        trailerUrl = tmdbItem.trailerUrl,
+                                    ),
+                                )
+                            }
                         }
                     }
                     return@launch

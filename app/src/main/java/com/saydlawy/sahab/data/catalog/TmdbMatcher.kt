@@ -285,7 +285,7 @@ object TmdbMatcher {
                 votes >= 1000 -> 1.0; votes >= 500 -> 0.85; votes >= 100 -> 0.65
                 votes >= 50 -> 0.45; votes >= 10 -> 0.25; else -> 0.05
             }
-            0.5 to (titleSim * 0.60 + vt * 0.35 + min(pop / 100, 1.0) * 0.05)
+            0.5 to (titleSim * 0.80 + vt * 0.15 + min(pop / 100, 1.0) * 0.05)
         }
 
         val langAdjusted = if (preferArabic) {
@@ -311,15 +311,17 @@ object TmdbMatcher {
 
     fun acceptLevel(m: Score): Level {
         if (m.yearMatch == 0.0) return Level.REJECT
+        val tokenGateOk = m.jaccard >= 0.60 || m.jw >= 0.98
+        if (!tokenGateOk) return Level.REJECT
         if (m.titleSim >= 0.98 && m.yearMatch == 1.0) return Level.STRONG
         if (m.titleSim >= 0.98 && m.yearMatch == 0.5 && m.votes >= 20) return Level.STRONG
         if (m.titleSim >= 0.90 && m.yearMatch >= 0.85 && m.votes >= 10) return Level.STRONG
-        if (m.final >= 0.70 && m.titleSim >= 0.85 && m.yearMatch >= 0.85 && m.votes >= 5) return Level.STRONG
+        if (m.final >= 0.72 && m.titleSim >= 0.85 && m.yearMatch >= 0.85 && m.votes >= 5) return Level.STRONG
         if (m.titleSim >= 0.99 && m.yearMatch == 0.5 && m.votes >= 5) return Level.STRONG
         if (m.titleSim >= 0.90 && m.yearMatch == 0.5 && m.votes >= 50) return Level.STRONG
         if (m.titleSim >= 0.95 && m.yearMatch >= 0.85 && m.votes >= 1) return Level.STRONG
         if (m.titleSim >= 0.96 && m.votes >= 1) return Level.WEAK
-        if (m.final >= 0.60 && m.titleSim >= 0.80) return Level.WEAK
+        if (m.final >= 0.62 && m.titleSim >= 0.82 && m.jaccard >= 0.60) return Level.WEAK
         return Level.REJECT
     }
 
@@ -367,9 +369,6 @@ object TmdbMatcher {
             if (wordsSig.size >= 3) {
                 add(wordsSig.take(2).joinToString(" "), year, lang)
                 add(wordsSig.take(2).joinToString(" "), null, lang)
-            }
-            if (wordsSig.size >= 2 && wordsSig[0].length >= 4) {
-                add(wordsSig[0], year, lang); add(wordsSig[0], null, lang)
             }
         }
         return queries to variants

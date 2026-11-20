@@ -162,15 +162,17 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                                 tmdbVoteCount = tv.voteCount,
                                 postersJson = tv.posterUrls.joinToString("\n"),
                                 trailerUrl = tv.trailerUrl.ifBlank { details.trailerUrl },
-                                needsEnrichment = 0,
+                                needsEnrichment = if (enriched.level == TmdbMatcher.Level.STRONG) 0 else 1,
                                 lastEnriched = now,
                                 lastSeen = now,
                             )
                             withContext(Dispatchers.IO) {
                                 runCatching { container.catalogDb.movieDao().upsert(entity) }
                             }
-                            container.appScope.launch(Dispatchers.IO) {
-                                runCatching { container.firebaseCatalog.saveCatalogItem(entity) }
+                            if (enriched.level == TmdbMatcher.Level.STRONG) {
+                                container.appScope.launch(Dispatchers.IO) {
+                                    runCatching { container.firebaseCatalog.saveCatalogItem(entity) }
+                                }
                             }
                             mergedMeta = entity
                         }

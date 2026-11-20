@@ -192,4 +192,17 @@ class TmdbMatcherTest {
         // Should be weak or reject — NOT strong
         assertTrue(TmdbMatcher.acceptLevel(s) != TmdbMatcher.Level.STRONG)
     }
+
+    @Test
+    fun `generateQueries does not emit single word prefix queries for multiword titles`() {
+        val (queries, _) = TmdbMatcher.generateQueries("Curse Of The Witchs Doll", "", null)
+        assertTrue(queries.none { it.q.equals("curse", ignoreCase = true) })
+    }
+
+    @Test
+    fun `acceptLevel rejects partial token overlap even with high votes`() {
+        val variants = listOf("the town of ghosts")
+        val s = TmdbMatcher.scoreMatch(variants, null, result("The Town", year = "2010", votes = 5000))
+        assertEquals(TmdbMatcher.Level.REJECT, TmdbMatcher.acceptLevel(s))
+    }
 }
