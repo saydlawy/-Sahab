@@ -8,10 +8,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
-import java.util.Locale
 import android.content.Context
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
+import com.saydlawy.sahab.util.RatingSanitizer
 import java.util.zip.GZIPInputStream
 
 /**
@@ -156,7 +156,10 @@ class CatalogSync(
                         if (trimmed.isNotEmpty()) {
                             total++
                             try {
-                                val entity = json.decodeFromString<CatalogMovieEntity>(trimmed)
+                                val decoded = json.decodeFromString<CatalogMovieEntity>(trimmed)
+                                val entity = decoded.copy(
+                                    rating = RatingSanitizer.format(decoded.rating, decoded.tmdbVoteCount),
+                                )
                                 batch.add(entity)
                                 if (batch.size >= 500) {
                                     dao.upsertAll(batch)
@@ -226,7 +229,7 @@ class CatalogSync(
                 director = cloudData.director,
                 genre = cloudData.genre,
                 runtime = cloudData.runtime,
-                rating = cloudData.rating,
+                rating = RatingSanitizer.format(cloudData.rating, cloudData.tmdbVoteCount),
                 backdropUrl = cloudData.backdropUrl,
                 voteCount = cloudData.tmdbVoteCount,
                 status = 0,
@@ -285,7 +288,7 @@ class CatalogSync(
                 director = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: "",
                 genre = movie.genres.joinToString(", ") { it.name },
                 runtime = movie.runtime?.let { "${it}m" } ?: "",
-                rating = if (movie.voteAverage > 0) String.format(Locale.US, "%.1f", movie.voteAverage) else "",
+                rating = RatingSanitizer.format(movie.voteAverage, movie.voteCount),
                 backdropUrl = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: "",
                 voteCount = movie.voteCount,
                 status = 0,
@@ -315,7 +318,7 @@ class CatalogSync(
                 director = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: "",
                 genre = movie.genres.joinToString(", ") { it.name },
                 runtime = movie.runtime?.let { "${it}m" } ?: "",
-                rating = if (movie.voteAverage > 0) String.format(Locale.US, "%.1f", movie.voteAverage) else "",
+                rating = RatingSanitizer.format(movie.voteAverage, movie.voteCount),
                 backdropUrl = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: "",
                 voteCount = movie.voteCount,
                 status = 1,
@@ -363,7 +366,7 @@ class CatalogSync(
             director = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: "",
             genre = movie.genres.joinToString(", ") { it.name },
             runtime = movie.runtime?.let { "${it}m" } ?: "",
-            rating = if (movie.voteAverage > 0) String.format(Locale.US, "%.1f", movie.voteAverage) else "",
+            rating = RatingSanitizer.format(movie.voteAverage, movie.voteCount),
             backdropUrl = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: "",
             voteCount = movie.voteCount,
             status = 0,

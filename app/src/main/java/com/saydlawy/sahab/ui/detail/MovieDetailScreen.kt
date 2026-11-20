@@ -74,6 +74,7 @@ import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.RatingSanitizer
 import com.saydlawy.sahab.util.formatDuration
 
 private val NetflixRed = Color(0xFFE50914)
@@ -406,9 +407,7 @@ private fun MovieHeroInfoBlock(
     modifier: Modifier = Modifier,
 ) {
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
-    val cleanRating = details.rating.trim().takeIf {
-        it.isNotBlank() && it != "0" && it != "0.0" && it != "0.00"
-    }.orEmpty()
+    val cleanRating = RatingSanitizer.format(details.rating)
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {

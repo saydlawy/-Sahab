@@ -11,6 +11,7 @@ import com.saydlawy.sahab.data.HomeChannelsSource
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.util.RatingSanitizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,8 +76,8 @@ class HomeViewModel(
             }.getOrNull().orEmpty()
             if (instant.isNotEmpty()) {
                 val topInstant = instant
-                    .filter { (it.rating.toDoubleOrNull() ?: 0.0) > 0.0 }
-                    .sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+                    .filter { RatingSanitizer.parseValid(it.rating, it.tmdbVoteCount) != null }
+                    .sortedByDescending { RatingSanitizer.rankingScore(it.rating, it.tmdbVoteCount) }
                     .take(18)
                 _state.update { it.copy(trendingMovies = instant, topRatedMovies = topInstant.ifEmpty { it.topRatedMovies }) }
             }
@@ -90,8 +91,8 @@ class HomeViewModel(
             }.getOrNull().orEmpty()
             if (enriched.isNotEmpty()) {
                 val topEnriched = enriched
-                    .filter { (it.rating.toDoubleOrNull() ?: 0.0) > 0.0 }
-                    .sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }
+                    .filter { RatingSanitizer.parseValid(it.rating, it.tmdbVoteCount) != null }
+                    .sortedByDescending { RatingSanitizer.rankingScore(it.rating, it.tmdbVoteCount) }
                     .take(18)
                 _state.update { it.copy(trendingMovies = enriched, topRatedMovies = topEnriched.ifEmpty { it.topRatedMovies }) }
             }

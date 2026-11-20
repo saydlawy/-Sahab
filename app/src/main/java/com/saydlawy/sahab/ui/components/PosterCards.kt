@@ -78,6 +78,7 @@ import coil3.request.ImageRequest
 import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.util.RatingSanitizer
 
 @Composable
 fun SkeletonGrid(
@@ -141,6 +142,7 @@ fun PosterCard(
     progress: Float? = null,
     onFocused: (() -> Unit)? = null,
 ) {
+    val cleanBadge = remember(badge) { RatingSanitizer.format(badge) }
     GlassCard(
         onClick = onClick,
         modifier = modifier,
@@ -241,7 +243,7 @@ fun PosterCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (badge.isNotBlank() || subtitle.isNotBlank()) {
+                if (cleanBadge.isNotBlank() || subtitle.isNotBlank()) {
                     Spacer(Modifier.height(2.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -249,7 +251,7 @@ fun PosterCard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // Bottom-right in RTL: TMDB Gold star rating
-                        if (badge.isNotBlank()) {
+                        if (cleanBadge.isNotBlank()) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -261,7 +263,7 @@ fun PosterCard(
                                     modifier = Modifier.size(12.dp),
                                 )
                                 Text(
-                                    text = badge,
+                                    text = cleanBadge,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Palette.Gold,

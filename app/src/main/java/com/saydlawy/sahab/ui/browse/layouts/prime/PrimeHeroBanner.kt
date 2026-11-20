@@ -38,6 +38,7 @@ import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.TrailerAutoPlayBox
 import com.saydlawy.sahab.ui.components.SahabIcon
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.util.RatingSanitizer
 import kotlin.math.roundToInt
 
 /**
@@ -152,7 +153,8 @@ internal fun PrimeHeroInfo(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        val ratingValue = item.rating.toDoubleOrNull()
+        val ratingValue = RatingSanitizer.parseValid(item.rating)
+        val formattedRating = RatingSanitizer.format(item.rating)
         val formattedRuntime = formatHeroRuntime(item.runtime)
         val realGenres = item.genre
             .split(",", "/", "،", "•")
@@ -167,7 +169,7 @@ internal fun PrimeHeroInfo(
         ).filter { it.isNotBlank() }.joinToString("  •  ")
         if (ratingValue != null || metaTail.isNotBlank()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (ratingValue != null && ratingValue > 0.0) {
+                if (ratingValue != null && formattedRating.isNotBlank()) {
                     val filled = (ratingValue / 2.0).roundToInt().coerceIn(0, 5)
                     Text(
                         text = "★".repeat(filled) + "☆".repeat(5 - filled),
@@ -175,7 +177,7 @@ internal fun PrimeHeroInfo(
                         fontSize = if (compact) 12.sp else 14.sp,
                     )
                     Text(
-                        text = item.rating,
+                        text = formattedRating,
                         color = Color.White,
                         fontSize = if (compact) 12.sp else 13.sp,
                         fontWeight = FontWeight.Bold,

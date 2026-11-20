@@ -15,7 +15,7 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.data.catalog.TmdbMatcher
-import java.util.Locale
+import com.saydlawy.sahab.util.RatingSanitizer
 import com.saydlawy.sahab.util.normalizeForSearch
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
@@ -161,17 +161,15 @@ class BrowseViewModel(
     private suspend fun enrichWithTmdb(items: List<Poster>): List<Poster> {
         if (items.isEmpty()) return items
         val facets = getFacetsMap()
-        if (facets.isEmpty()) return items
         return withContext(Dispatchers.Default) {
             items.map { p ->
                 val f = facets[p.id]
-                val tmdbRating = f?.rating?.toDoubleOrNull()?.takeIf { it > 0.0 }?.let {
-                    String.format(java.util.Locale.US, "%.1f", it)
-                }.orEmpty()
+                val tmdbRating = RatingSanitizer.format(f?.rating, f?.tmdbVoteCount)
+                val finalRating = tmdbRating.ifBlank { RatingSanitizer.format(p.rating) }
                 val tmdbYear = VodCustomOrganizer.extractTmdbYear(f?.year)
                 val tmdbGenre = VodCustomOrganizer.primaryGenre(f?.genre)
                 p.copy(
-                    rating = tmdbRating.ifBlank { p.rating },
+                    rating = finalRating,
                     year = tmdbYear.ifBlank { p.year },
                     genre = tmdbGenre.ifBlank { p.genre },
                 )
@@ -243,14 +241,16 @@ class BrowseViewModel(
     private suspend fun buildLayoutCollections(
         categories: List<Category>,
         allItems: List<Poster>,
+        facets: Map<String, CatalogFacetRow> = cachedFacets.orEmpty(),
     ): Triple<List<Poster>, List<Poster>, List<CategoryPosterGroup>> = withContext(Dispatchers.Default) {
         val ranked = allItems.sortedWith(
-            compareByDescending<Poster> { it.rating.toDoubleOrNull() ?: 0.0 }
-                .thenByDescending { it.added },
+            compareByDescending<Poster> {
+                RatingSanitizer.rankingScore(it.rating, facets[it.id]?.tmdbVoteCount)
+            }.thenByDescending { it.added },
         )
         val hero = ranked.filter { it.image.isNotBlank() }.take(6).ifEmpty { allItems.take(6) }
         val top10 = ranked
-            .filter { (it.rating.toDoubleOrNull() ?: 0.0) > 0.0 }
+            .filter { RatingSanitizer.parseValid(it.rating, facets[it.id]?.tmdbVoteCount) != null }
             .take(10)
         val byCat = allItems.groupBy { it.categoryId }
         val groups = categories.mapNotNull { cat ->
@@ -324,7 +324,7 @@ class BrowseViewModel(
                             top10Items = top10,
                             categoryGroups = groups,
                             focusedDetails = it.focusedDetails ?: hero.firstOrNull()?.let { p ->
-                                FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+                                FocusedPosterDetails(poster = p, year = p.year, rating = cleanRating(p.rating), backdropUrl = p.image)
                             },
                         )
                     }
@@ -434,7 +434,8 @@ class BrowseViewModel(
             }
             if (pool.isNullOrEmpty()) {
                 itemsJob = viewModelScope.launch {
-                    val all = runCatching { fetchItems(null) }.getOrDefault(emptyList())
+                    val rawAll = runCatching { fetchItems(null) }.getOrDefault(emptyList())
+                    val all = enrichWithTmdb(rawAll)
                     if (all.isNotEmpty()) {
                         updateSearchPool(all)
                         _state.update {
@@ -513,7 +514,7 @@ class BrowseViewModel(
     private suspend fun fetchCategoryItems(categoryId: String) {
         try {
                 val targetId = if (categoryId == ALL_CAT_ID) null else categoryId
-                val items = fetchItems(targetId)
+                val items = enrichWithTmdb(fetchItems(targetId))
                 if (categoryId == ALL_CAT_ID) updateSearchPool(items)
                 _state.update {
                     it.copy(
@@ -558,7 +559,7 @@ class BrowseViewModel(
                     }
                 }
                 val indexed = indexedPool ?: run {
-                    val pool = searchPool ?: fetchItems(null).also { updateSearchPool(it) }
+                    val pool = searchPool ?: enrichWithTmdb(fetchItems(null)).also { updateSearchPool(it) }
                     indexedPool ?: withContext(Dispatchers.Default) {
                         pool.map { it to it.name.normalizeForSearch() }
                     }
@@ -579,12 +580,7 @@ class BrowseViewModel(
         }
     }
 
-    private fun cleanRating(raw: String): String {
-        val v = raw.trim()
-        val num = v.toDoubleOrNull() ?: return ""
-        if (num <= 0.0 || num >= 9.9) return ""
-        return v
-    }
+    private fun cleanRating(raw: String): String = RatingSanitizer.format(raw)
 
     fun onPosterFocused(poster: Poster) {
         if (_state.value.focusedDetails?.poster?.id == poster.id) return
@@ -637,7 +633,8 @@ class BrowseViewModel(
                             plot = cached.plot,
                             genre = cached.genre,
                             year = cached.year.ifBlank { poster.year },
-                            rating = cleanRating(cached.rating).ifBlank { cleanRating(poster.rating) },
+                            rating = RatingSanitizer.format(cached.rating, cached.tmdbVoteCount)
+                                .ifBlank { cleanRating(poster.rating) },
                             runtime = cached.runtime,
                             backdropUrl = cached.backdropUrl.ifBlank { cached.posterUrl.ifBlank { poster.image } },
                             trailerUrl = resolvedTrailer,
@@ -656,6 +653,7 @@ class BrowseViewModel(
                 runCatching { container.firebaseCatalog.getCatalogItem(lookupId) }.getOrNull()
             }
             if (cloudItem != null && cloudItem.plot.isNotBlank()) {
+                val cleanCloudRating = RatingSanitizer.format(cloudItem.rating, cloudItem.tmdbVoteCount)
                 val cloudPosters = cloudItem.postersJson
                     .lineSequence()
                     .map { it.trim() }
@@ -668,7 +666,7 @@ class BrowseViewModel(
                             plot = cloudItem.plot,
                             genre = cloudItem.genre,
                             year = cloudItem.year.ifBlank { poster.year },
-                            rating = cleanRating(cloudItem.rating).ifBlank { cleanRating(poster.rating) },
+                            rating = cleanCloudRating.ifBlank { cleanRating(poster.rating) },
                             runtime = cloudItem.runtime,
                             backdropUrl = cloudItem.backdropUrl.ifBlank { cloudItem.posterUrl.ifBlank { poster.image } },
                             trailerUrl = cloudItem.trailerUrl,
@@ -691,7 +689,7 @@ class BrowseViewModel(
                                 director = cloudItem.director,
                                 genre = cloudItem.genre,
                                 runtime = cloudItem.runtime,
-                                rating = cloudItem.rating,
+                                rating = cleanCloudRating,
                                 backdropUrl = cloudItem.backdropUrl,
                                 voteCount = cloudItem.tmdbVoteCount,
                                 status = 0,
@@ -707,6 +705,7 @@ class BrowseViewModel(
                                     novaStreamId = poster.id,
                                     categoryId = cloudItem.categoryId.ifBlank { poster.categoryId },
                                     mediaType = mediaType,
+                                    rating = cleanCloudRating,
                                     posterUrl = cloudItem.posterUrl.ifBlank { poster.image },
                                     needsEnrichment = 0,
                                     lastEnriched = now,
@@ -783,11 +782,8 @@ class BrowseViewModel(
                 }
                 val tmdbItem = enriched?.movie
                 if (tmdbItem != null && (enriched.level == TmdbMatcher.Level.STRONG || enriched.level == TmdbMatcher.Level.WEAK)) {
-                    val resolvedRating = if (tmdbItem.voteAverage > 0) {
-                        String.format(Locale.US, "%.1f", tmdbItem.voteAverage)
-                    } else {
-                        xtreamRating
-                    }
+                    val resolvedRating = RatingSanitizer.format(tmdbItem.voteAverage, tmdbItem.voteCount)
+                        .ifBlank { xtreamRating }
                     val resolvedBackdrop = tmdbItem.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
                         ?.ifBlank { xtreamBackdrop.ifBlank { poster.image } }
                         ?: xtreamBackdrop.ifBlank { poster.image }
@@ -911,7 +907,7 @@ class BrowseViewModel(
         id = novaStreamId,
         name = titleAr.ifBlank { titleEn },
         image = posterUrl,
-        rating = cleanRating(rating),
+        rating = RatingSanitizer.format(rating, tmdbVoteCount),
         ext = containerExtension,
         year = VodCustomOrganizer.extractTmdbYear(year),
         genre = VodCustomOrganizer.primaryGenre(genre),

@@ -14,6 +14,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import com.saydlawy.sahab.util.RatingSanitizer
 import java.util.Locale
 import kotlin.coroutines.resume
 
@@ -292,10 +293,9 @@ class FirebaseCatalogService {
             ?: fb?.titleAr?.takeIf { it.isNotBlank() }
             ?: room?.titleEn?.takeIf { it.isNotBlank() && anyArabic(it) }
             ?: cleanXtreamName.ifBlank { poster.name }
-        val bestRating = fb?.rating?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
-            ?: room?.rating?.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
-            ?: poster.rating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
-            ?: ""
+        val bestRating = RatingSanitizer.format(fb?.rating, fb?.tmdbVoteCount)
+            .ifBlank { RatingSanitizer.format(room?.rating, room?.tmdbVoteCount) }
+            .ifBlank { RatingSanitizer.format(poster.rating) }
         val bestYear = fb?.year?.ifBlank { null }
             ?: room?.year?.ifBlank { null }
             ?: poster.year
@@ -453,6 +453,7 @@ class FirebaseCatalogService {
     }
 
     private fun mapToEntity(id: String, data: Map<String, Any>): CatalogMovieEntity {
+        val voteCount = (data["tmdbVoteCount"] as? Number)?.toInt()
         return CatalogMovieEntity(
             sahabId = id,
             novaStreamId = data["novaStreamId"] as? String ?: "",
@@ -469,12 +470,12 @@ class FirebaseCatalogService {
             director = data["director"] as? String ?: "",
             genre = data["genre"] as? String ?: "",
             runtime = data["runtime"] as? String ?: "",
-            rating = data["rating"] as? String ?: "",
+            rating = RatingSanitizer.format(data["rating"] as? String, voteCount),
             posterUrl = data["posterUrl"] as? String ?: "",
             backdropUrl = data["backdropUrl"] as? String ?: "",
             imdbId = data["imdbId"] as? String ?: "",
             tmdbId = (data["tmdbId"] as? Number)?.toInt(),
-            tmdbVoteCount = (data["tmdbVoteCount"] as? Number)?.toInt(),
+            tmdbVoteCount = voteCount,
             needsEnrichment = 0,
             lastEnriched = System.currentTimeMillis(),
         )

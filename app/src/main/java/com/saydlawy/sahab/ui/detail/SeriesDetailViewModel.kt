@@ -8,6 +8,7 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.SeriesDetails
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.data.catalog.TmdbMatcher
+import com.saydlawy.sahab.util.RatingSanitizer
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +17,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 class SeriesDetailViewModel(private val container: AppContainer, private val id: String) : ViewModel() {
 
@@ -39,12 +39,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
         fetchDetails(forceRefresh = true)
     }
 
-    private fun cleanRating(raw: String): String {
-        val v = raw.trim()
-        val num = v.toDoubleOrNull() ?: return ""
-        if (num <= 0.0 || num >= 9.9) return ""
-        return v
-    }
+    private fun cleanRating(raw: String): String = RatingSanitizer.format(raw)
 
     private fun fetchDetails(forceRefresh: Boolean) {
         viewModelScope.launch {
@@ -130,11 +125,8 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                         val tv = enriched?.movie
                         if (tv != null && (enriched.level == TmdbMatcher.Level.STRONG || enriched.level == TmdbMatcher.Level.WEAK)) {
                             val now = System.currentTimeMillis()
-                            val resolvedRating = if (tv.voteAverage > 0) {
-                                String.format(Locale.US, "%.1f", tv.voteAverage)
-                            } else {
-                                details.rating
-                            }
+                            val resolvedRating = RatingSanitizer.format(tv.voteAverage, tv.voteCount)
+                                .ifBlank { details.rating }
                             val resolvedBackdrop = tv.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
                                 ?.ifBlank { details.backdrop.ifBlank { details.cover } }
                                 ?: details.backdrop.ifBlank { details.cover }
@@ -203,7 +195,9 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                             .ifEmpty { details.castMembers },
                         genre = details.genre.ifBlank { mergedMeta.genre },
                         year = details.year.ifBlank { mergedMeta.year },
-                        rating = cleanRating(details.rating).ifBlank { cleanRating(mergedMeta.rating) },
+                        rating = cleanRating(details.rating).ifBlank {
+                            RatingSanitizer.format(mergedMeta.rating, mergedMeta.tmdbVoteCount)
+                        },
                         posterUrls = if (posters.isNotEmpty()) posters else details.posterUrls,
                         trailerUrl = resolvedTrailer.ifBlank { details.trailerUrl },
                     )
@@ -271,7 +265,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                         backdropUrl = details.backdrop,
                         cast = details.cast,
                         genre = details.genre,
-                        rating = details.rating,
+                        rating = cleanRating(details.rating),
                     )).copy(
                         plot = result.story,
                         plotSource = "gemini_user_key",

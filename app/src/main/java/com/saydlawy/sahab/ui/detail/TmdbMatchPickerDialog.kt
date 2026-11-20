@@ -51,8 +51,8 @@ import com.saydlawy.sahab.data.TmdbSearchResult
 import com.saydlawy.sahab.ui.components.GlassTextField
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.util.RatingSanitizer
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 @Composable
 fun TmdbMatchPickerDialog(
@@ -163,7 +163,7 @@ private fun TmdbCandidateRow(
     onClick: () -> Unit,
 ) {
     val year = item.releaseDate.take(4)
-    val rating = if (item.voteAverage > 0.0) String.format(Locale.US, "%.1f", item.voteAverage) else ""
+    val rating = RatingSanitizer.format(item.voteAverage, item.voteCount)
     val posterUrl = item.posterPath?.let { "https://image.tmdb.org/t/p/w185$it" }
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()

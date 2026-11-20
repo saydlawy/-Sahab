@@ -158,13 +158,13 @@ interface CatalogMovieDao {
     suspend fun countByType(mediaType: String = "movie"): Int
 
     @Query(
-        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded FROM catalog_movies " +
+        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount FROM catalog_movies " +
             "WHERE deleted = 0 AND mediaType = :mediaType AND novaStreamId != ''"
     )
     suspend fun getFacetMetadata(mediaType: String): List<CatalogFacetRow>
 
     @Query(
-        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded FROM catalog_movies " +
+        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount FROM catalog_movies " +
             "WHERE deleted = 0 AND mediaType = :mediaType AND novaStreamId != ''"
     )
     fun observeFacetMetadata(mediaType: String): Flow<List<CatalogFacetRow>>
@@ -180,4 +180,5 @@ data class CatalogFacetRow(
     val cast: String,
     val rating: String,
     val novaAdded: Long,
+    val tmdbVoteCount: Int? = null,
 )

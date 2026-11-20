@@ -2,6 +2,7 @@ package com.saydlawy.sahab.data
 
 import android.util.Log
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.RatingSanitizer
 import com.saydlawy.sahab.data.catalog.TmdbMatcher
 import com.saydlawy.sahab.data.catalog.encodeTmdbCastJson
 import com.saydlawy.sahab.data.catalog.parseCastMembersJson
@@ -536,7 +537,7 @@ class Repository(
                 backdrop = base.backdrop.ifBlank { tmdbData.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }.orEmpty() },
                 plot = base.plot.ifBlank { tmdbData.overview },
                 year = base.year.ifBlank { tmdbData.releaseDate.take(4) },
-                rating = base.rating.ifBlank { if (tmdbData.voteAverage > 0) String.format(Locale.US, "%.1f", tmdbData.voteAverage) else "" },
+                rating = base.rating.ifBlank { RatingSanitizer.format(tmdbData.voteAverage, tmdbData.voteCount) },
                 duration = base.duration.ifBlank { tmdbData.runtime?.let { "${it}m" }.orEmpty() },
                 genre = base.genre.ifBlank { tmdbData.genres.joinToString(", ") { it.name } },
                 director = base.director.ifBlank { tmdbData.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty() },
@@ -895,10 +896,7 @@ class Repository(
         }
     }
 
-    private fun formatRating(raw: String): String {
-        val value = raw.toDoubleOrNull() ?: return ""
-        return if (value <= 0.0 || value >= 9.9) "" else String.format(Locale.US, "%.1f", value)
-    }
+    private fun formatRating(raw: String): String = RatingSanitizer.format(raw)
 
     private fun yearOf(raw: String): String =
         YEAR_REGEX.find(raw)?.value.orEmpty()

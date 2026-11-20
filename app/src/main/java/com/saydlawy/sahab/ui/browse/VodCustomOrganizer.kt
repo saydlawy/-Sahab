@@ -4,6 +4,7 @@ import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.VodCustomGrouping
 import com.saydlawy.sahab.data.catalog.CatalogFacetRow
+import com.saydlawy.sahab.util.RatingSanitizer
 
 internal const val CUSTOM_CAT_PREFIX = "__CUSTOM__:"
 
@@ -91,10 +92,18 @@ internal object VodCustomOrganizer {
             return CustomOrganizationResult(emptyList(), emptyMap(), emptyMap())
         }
 
-        val sortedItems = allItems.sortedWith(
+        val sanitizedItems = allItems.map { item ->
+            val f = facetsByStreamId[item.id]
+            val clean = RatingSanitizer.format(f?.rating, f?.tmdbVoteCount)
+                .ifBlank { RatingSanitizer.format(item.rating) }
+            if (clean == item.rating) item else item.copy(rating = clean)
+        }
+
+        val sortedItems = sanitizedItems.sortedWith(
             compareByDescending<Poster> { item ->
                 val f = facetsByStreamId[item.id]
-                f?.rating?.toDoubleOrNull() ?: item.rating.toDoubleOrNull() ?: 0.0
+                val facetScore = RatingSanitizer.rankingScore(f?.rating, f?.tmdbVoteCount)
+                if (facetScore > 0.0) facetScore else RatingSanitizer.rankingScore(item.rating)
             }.thenByDescending { item ->
                 val f = facetsByStreamId[item.id]
                 maxOf(f?.novaAdded ?: 0L, item.added)

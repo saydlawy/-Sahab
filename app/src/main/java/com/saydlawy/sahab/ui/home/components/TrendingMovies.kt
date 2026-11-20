@@ -45,6 +45,7 @@ import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.util.RatingSanitizer
 
 @Composable
 fun TrendingMoviesSection(
@@ -123,7 +124,7 @@ private fun TrendingMovieCard(
     modifier: Modifier = Modifier,
 ) {
     val qualityTag = qualityOf(movie.titleAr)
-    val ratingText = movie.rating.takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
+    val ratingText = RatingSanitizer.format(movie.rating, movie.tmdbVoteCount).takeIf { it.isNotBlank() }
     val subtitleText = when {
         movie.genre.isNotBlank() -> movie.genre
         movie.plot.isNotBlank() -> movie.plot

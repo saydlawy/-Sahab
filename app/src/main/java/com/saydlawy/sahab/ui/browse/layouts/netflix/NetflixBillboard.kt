@@ -53,6 +53,7 @@ import com.saydlawy.sahab.ui.components.TrailerAutoPlayBox
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.RatingSanitizer
 
 private val NetflixRed = Color(0xFFE50914)
 private val NetflixMatchGreen = Color(0xFF46D369)
@@ -210,9 +211,7 @@ internal fun NetflixHeroInfo(
 ) {
     val item = details ?: return
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
-    val cleanRating = item.rating.trim().takeIf {
-        it.isNotBlank() && it != "0" && it != "0.0" && it != "0.00"
-    }.orEmpty()
+    val cleanRating = RatingSanitizer.format(item.rating)
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {

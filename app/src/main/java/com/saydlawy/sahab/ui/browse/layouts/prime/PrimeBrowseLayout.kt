@@ -58,6 +58,7 @@ import com.saydlawy.sahab.ui.browse.BrowseUiState
 import com.saydlawy.sahab.ui.browse.FAV_CAT_ID
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
 import com.saydlawy.sahab.ui.browse.layouts.ContinueWatchingProgressBar
+import com.saydlawy.sahab.util.RatingSanitizer
 import com.saydlawy.sahab.ui.browse.layouts.TvPivotScrollContainer
 import com.saydlawy.sahab.ui.browse.layouts.rememberDebouncedHero
 import com.saydlawy.sahab.ui.components.MessageBox
@@ -474,7 +475,7 @@ private fun PrimeTile(
             )
         }
         val cleanRating = remember(poster.rating) {
-            poster.rating.trim().takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
+            RatingSanitizer.format(poster.rating).takeIf { it.isNotBlank() }
         }
         if (cleanRating != null) {
             Text(

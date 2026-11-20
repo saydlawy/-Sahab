@@ -7,6 +7,7 @@ import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.MovieDetails
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.util.RatingSanitizer
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -87,7 +88,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                             director = details.director,
                             genre = details.genre,
                             runtime = details.duration,
-                            rating = details.rating,
+                            rating = RatingSanitizer.format(details.rating),
                             containerExtension = details.ext,
                             needsEnrichment = 0,
                             lastEnriched = now,
@@ -153,7 +154,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             genre = genre,
             year = year,
             duration = runtime,
-            rating = rating,
+            rating = RatingSanitizer.format(rating, tmdbVoteCount),
             ext = containerExtension,
             posterUrls = posters,
             trailerUrl = trailerUrl,
@@ -204,7 +205,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                             genre = currentDetails.genre.ifBlank { remote.genre },
                             year = currentDetails.year.ifBlank { remote.year },
                             duration = currentDetails.duration.ifBlank { remote.duration },
-                            rating = currentDetails.rating.ifBlank { remote.rating },
+                            rating = RatingSanitizer.format(currentDetails.rating).ifBlank { RatingSanitizer.format(remote.rating) },
                         )
                         _state.update { DetailUiState(loading = false, data = merged) }
                     } catch (_: Exception) {
