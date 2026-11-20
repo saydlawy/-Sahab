@@ -119,12 +119,11 @@ internal object VodCustomOrganizer {
                 .split(splitRegex)
                 .mapNotNull { token -> normalizeGenre(token) }
                 .distinct()
-            if (normalized.isEmpty()) {
+            val primaryGenre = normalized.firstOrNull()
+            if (primaryGenre == null) {
                 buckets.getOrPut(OTHER_GENRE) { ArrayList() }.add(poster)
             } else {
-                for (g in normalized) {
-                    buckets.getOrPut(g) { ArrayList() }.add(poster)
-                }
+                buckets.getOrPut(primaryGenre) { ArrayList() }.add(poster)
             }
         }
         val orderedKeys = buckets.keys.sortedWith(

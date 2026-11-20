@@ -875,7 +875,7 @@ class Repository(
 
     private fun formatRating(raw: String): String {
         val value = raw.toDoubleOrNull() ?: return ""
-        return if (value <= 0.0) "" else String.format(Locale.US, "%.1f", value)
+        return if (value <= 0.0 || value >= 9.9) "" else String.format(Locale.US, "%.1f", value)
     }
 
     private fun yearOf(raw: String): String =
