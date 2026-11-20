@@ -115,6 +115,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
             start = Routes.HOME
             onReady()
             if (container.authManager.currentUser != null) {
+                container.ensureAutoSyncStarted()
                 container.syncCoordinator.syncFcmToken(context)
                 container.appScope.launch {
                     container.syncCoordinator.performCloudRestoreAndMerge(waitForMerge = false)
@@ -122,6 +123,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
             }
             container.syncCoordinator.triggerFullSync(context, forceCatalog = false, reason = "startup_local")
         } else if (container.authManager.currentUser != null) {
+            container.ensureAutoSyncStarted()
             container.syncCoordinator.syncFcmToken(context)
             val restoredAccount = container.syncCoordinator.performCloudRestoreAndMerge(
                 waitForMerge = false,
@@ -337,6 +339,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                         if (!restoringCloud) {
                             restoringCloud = true
                             scope.launch {
+                                container.ensureAutoSyncStarted()
                                 container.syncCoordinator.syncFcmToken(context)
                                 val restoredAccount = runCatching {
                                     container.syncCoordinator.performCloudRestoreAndMerge()
@@ -421,6 +424,8 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                 onBack = back,
                 onOpenCloudLogin = { nav.navigate(Routes.CLOUD_LOGIN) },
                 onLoggedOut = {
+                    container.stopAutoSync()
+                    com.saydlawy.sahab.data.CatalogSyncWorker.cancelPeriodic(context)
                     container.mergeCoordinator.reset()
                     container.authManager.signOut(context)
                     container.repo.setAccount(null)

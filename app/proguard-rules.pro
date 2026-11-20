@@ -45,3 +45,6 @@
 -keep class com.google.firebase.datastorage.** { *; }
 -dontwarn androidx.datastore.**
 -dontwarn com.google.firebase.datastorage.**
+
+# WorkManager CoroutineWorker
+-keep class com.saydlawy.sahab.data.CatalogSyncWorker { <init>(android.content.Context, androidx.work.WorkerParameters); }

@@ -1,6 +1,8 @@
 package com.saydlawy.sahab.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import android.widget.Toast
 import com.google.firebase.messaging.FirebaseMessaging
@@ -222,6 +224,7 @@ class SyncCoordinator(private val container: AppContainer) {
      */
     fun triggerFullSync(context: Context, forceCatalog: Boolean = false, reason: String = "startup") {
         val appContext = context.applicationContext
+        CatalogSyncWorker.schedulePeriodic(appContext)
         val previous = activeSyncJob
         if (!forceCatalog && previous?.isActive == true) {
             return
@@ -231,6 +234,13 @@ class SyncCoordinator(private val container: AppContainer) {
             runFullSync(appContext, forceCatalog = forceCatalog, reason = reason)
         }
     }
+
+    private fun isNetworkAvailable(context: Context): Boolean = runCatching {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }.getOrDefault(true)
 
     /**
      * يشغّل المزامنة اليدوية من الإعدادات داخل [container.appScope] بحيث تستمر حتى لو أغلق المستخدم شاشة الإعدادات.
@@ -299,6 +309,11 @@ class SyncCoordinator(private val container: AppContainer) {
             Log.d("SahabSync", "[$reason] step 1/5: prewarmCatalog")
             runCatching { container.repo.prewarmCatalog() }
                 .onFailure { Log.w("SahabSync", "[$reason] prewarm failed: ${it.message}") }
+        }
+
+        if (!forceCatalog && !isNetworkAvailable(context)) {
+            Log.d("SahabSync", "[$reason] offline — skipping network sync steps")
+            return@withLock
         }
 
         Log.d("SahabSync", "[$reason] step 2/5: syncCatalog (force=$forceCatalog)")

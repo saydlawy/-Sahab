@@ -30,6 +30,7 @@ import com.saydlawy.sahab.ui.player.SahabPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.saydlawy.sahab.data.auth.CloudPreferences
@@ -204,57 +205,75 @@ class AppContainer(context: Context) {
         recentsFlushTrigger.tryEmit(Unit)
     }
 
+    private val autoSyncLock = Any()
+    private var autoSyncJob: Job? = null
+
+    fun startAutoSync() = ensureAutoSyncStarted()
+
     @OptIn(FlowPreview::class)
-    fun startAutoSync() {
-        appScope.launch {
-            // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين (فقط بعد نجاح الدمج الأولي)
-            prefs.favorites.distinctUntilChanged().drop(1).debounce(2000L).collect { favs ->
-                if (favoritesMergeDone && authManager.currentUser != null && favs != lastUploadedFavorites) {
-                    userSyncService.saveFavorites(favs)
-                    lastUploadedFavorites = favs
+    fun ensureAutoSyncStarted() {
+        synchronized(autoSyncLock) {
+            if (authManager.currentUser == null || autoSyncJob?.isActive == true) return
+            val job = SupervisorJob(appScope.coroutineContext[Job])
+            autoSyncJob = job
+            val syncScope = CoroutineScope(appScope.coroutineContext + job)
+            syncScope.launch {
+                // مزامنة المفضلة بعد توقف المستخدم عن التفاعل لمدة ثانيتين (فقط بعد نجاح الدمج الأولي)
+                prefs.favorites.distinctUntilChanged().drop(1).debounce(2000L).collect { favs ->
+                    if (favoritesMergeDone && authManager.currentUser != null && favs != lastUploadedFavorites) {
+                        userSyncService.saveFavorites(favs)
+                        lastUploadedFavorites = favs
+                    }
+                }
+            }
+            syncScope.launch {
+                // خنق رفع سجل المشاهدة أثناء التشغيل المستمر إلى مرة واحدة كل 3 دقائق (180 ثانية)
+                prefs.recents.distinctUntilChanged().drop(1).sample(180_000L).collect { recents ->
+                    uploadRecentsIfNeeded(recents)
+                }
+            }
+            syncScope.launch {
+                // خنق طلبات الرفع عند الخروج المتكرر إلى مرة كل 15 ثانية (SAH-M04)
+                recentsFlushTrigger.debounce(15_000L).collect {
+                    uploadRecentsIfNeeded(prefs.recents.first())
+                }
+            }
+            syncScope.launch {
+                // مزامنة تفضيلات الواجهة بعد ثانيتين من التغيير (فقط بعد نجاح الدمج الأولي)
+                combine(
+                    combine(
+                        prefs.lightEffects,
+                        prefs.homeChannelsLayout,
+                        prefs.homeChannelsSource,
+                    ) { light, layout, source -> Triple(light, layout, source) },
+                    combine(
+                        prefs.homeChannelsCategoryId,
+                        prefs.moviesLayoutStyle,
+                        prefs.seriesLayoutStyle,
+                    ) { categoryId, moviesStyle, seriesStyle -> Triple(categoryId, moviesStyle, seriesStyle) },
+                ) { (light, layout, source), (categoryId, moviesStyle, seriesStyle) ->
+                    CloudPreferences(
+                        lightEffects = light,
+                        homeChannelsLayout = layout.name,
+                        homeChannelsSource = source.name,
+                        homeChannelsCategoryId = categoryId,
+                        moviesLayoutStyle = moviesStyle.name,
+                        seriesLayoutStyle = seriesStyle.name,
+                    )
+                }.distinctUntilChanged().drop(1).debounce(2000L).collect { cloudPrefs ->
+                    if (prefsMergeDone && authManager.currentUser != null && cloudPrefs != lastUploadedPreferences) {
+                        userSyncService.savePreferences(cloudPrefs)
+                        lastUploadedPreferences = cloudPrefs
+                    }
                 }
             }
         }
-        appScope.launch {
-            // خنق رفع سجل المشاهدة أثناء التشغيل المستمر إلى مرة واحدة كل 3 دقائق (180 ثانية)
-            prefs.recents.distinctUntilChanged().drop(1).sample(180_000L).collect { recents ->
-                uploadRecentsIfNeeded(recents)
-            }
-        }
-        appScope.launch {
-            // خنق طلبات الرفع عند الخروج المتكرر إلى مرة كل 15 ثانية (SAH-M04)
-            recentsFlushTrigger.debounce(15_000L).collect {
-                uploadRecentsIfNeeded(prefs.recents.first())
-            }
-        }
-        appScope.launch {
-            // مزامنة تفضيلات الواجهة بعد ثانيتين من التغيير (فقط بعد نجاح الدمج الأولي)
-            combine(
-                combine(
-                    prefs.lightEffects,
-                    prefs.homeChannelsLayout,
-                    prefs.homeChannelsSource,
-                ) { light, layout, source -> Triple(light, layout, source) },
-                combine(
-                    prefs.homeChannelsCategoryId,
-                    prefs.moviesLayoutStyle,
-                    prefs.seriesLayoutStyle,
-                ) { categoryId, moviesStyle, seriesStyle -> Triple(categoryId, moviesStyle, seriesStyle) },
-            ) { (light, layout, source), (categoryId, moviesStyle, seriesStyle) ->
-                CloudPreferences(
-                    lightEffects = light,
-                    homeChannelsLayout = layout.name,
-                    homeChannelsSource = source.name,
-                    homeChannelsCategoryId = categoryId,
-                    moviesLayoutStyle = moviesStyle.name,
-                    seriesLayoutStyle = seriesStyle.name,
-                )
-            }.distinctUntilChanged().drop(1).debounce(2000L).collect { cloudPrefs ->
-                if (prefsMergeDone && authManager.currentUser != null && cloudPrefs != lastUploadedPreferences) {
-                    userSyncService.savePreferences(cloudPrefs)
-                    lastUploadedPreferences = cloudPrefs
-                }
-            }
+    }
+
+    fun stopAutoSync() {
+        synchronized(autoSyncLock) {
+            autoSyncJob?.cancel()
+            autoSyncJob = null
         }
     }
 
@@ -398,7 +417,7 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
         FirebaseApp.initializeApp(this)
         AppCheckInstaller.install()
         container = AppContainer(this)
-        container.startAutoSync()
+        container.ensureAutoSyncStarted()
         container.appScope.launch {
             // L-05: warm EncryptedSharedPreferences / MasterKey off the main thread.
             container.aiKeys
