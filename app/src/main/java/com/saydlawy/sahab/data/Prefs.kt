@@ -40,6 +40,17 @@ enum class HomeChannelsSource {
     CUSTOM,
 }
 
+enum class VodOrganizationMode {
+    DEFAULT,
+    CUSTOM,
+}
+
+enum class VodCustomGrouping {
+    GENRE,
+    YEAR,
+    CAST,
+}
+
 class Prefs @JvmOverloads constructor(
     context: Context?,
     private val secureStoreOverride: SharedPreferences? = null,
@@ -73,6 +84,8 @@ class Prefs @JvmOverloads constructor(
         val HomeCustomChannelIdsKey = stringPreferencesKey("home_custom_channel_ids")
         val MoviesLayoutStyleKey = stringPreferencesKey("movies_layout_style")
         val SeriesLayoutStyleKey = stringPreferencesKey("series_layout_style")
+        val VodOrganizationModeKey = stringPreferencesKey("vod_organization_mode")
+        val VodCustomGroupingKey = stringPreferencesKey("vod_custom_grouping")
         val LastSyncTime = longPreferencesKey("last_sync_time")
         val LastCatalogSyncTime = longPreferencesKey("last_catalog_sync_time")
         val LastChannelSyncTime = longPreferencesKey("last_channel_sync_time")
@@ -285,6 +298,24 @@ class Prefs @JvmOverloads constructor(
         }
         .distinctUntilChanged()
 
+    val vodOrganizationMode: Flow<VodOrganizationMode> = store.data
+        .map { it[Keys.VodOrganizationModeKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            runCatching { if (raw != null) VodOrganizationMode.valueOf(raw) else VodOrganizationMode.DEFAULT }
+                .getOrDefault(VodOrganizationMode.DEFAULT)
+        }
+        .distinctUntilChanged()
+
+    val vodCustomGrouping: Flow<VodCustomGrouping> = store.data
+        .map { it[Keys.VodCustomGroupingKey] }
+        .distinctUntilChanged()
+        .map { raw ->
+            runCatching { if (raw != null) VodCustomGrouping.valueOf(raw) else VodCustomGrouping.GENRE }
+                .getOrDefault(VodCustomGrouping.GENRE)
+        }
+        .distinctUntilChanged()
+
     val homeChannelsSource: Flow<HomeChannelsSource> = store.data
         .map { it[Keys.HomeChannelsSourceKey] }
         .distinctUntilChanged()
@@ -336,6 +367,14 @@ class Prefs @JvmOverloads constructor(
 
     suspend fun setSeriesLayoutStyle(style: VodLayoutStyle) {
         store.edit { it[Keys.SeriesLayoutStyleKey] = style.name }
+    }
+
+    suspend fun setVodOrganizationMode(mode: VodOrganizationMode) {
+        store.edit { it[Keys.VodOrganizationModeKey] = mode.name }
+    }
+
+    suspend fun setVodCustomGrouping(grouping: VodCustomGrouping) {
+        store.edit { it[Keys.VodCustomGroupingKey] = grouping.name }
     }
 
     suspend fun setHomeChannelsSource(source: HomeChannelsSource) {

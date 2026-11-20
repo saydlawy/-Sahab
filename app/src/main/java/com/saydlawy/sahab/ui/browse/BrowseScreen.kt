@@ -22,6 +22,28 @@ import com.saydlawy.sahab.data.PlayRequest
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.RecentItem
 import com.saydlawy.sahab.data.VodLayoutStyle
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.saydlawy.sahab.data.VodCustomGrouping
+import com.saydlawy.sahab.data.VodOrganizationMode
+import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalContainer
@@ -178,7 +200,15 @@ fun BrowseScreen(
                 enter = expandVertically(tween(180)) + fadeIn(tween(160)),
                 exit = shrinkVertically(tween(180)) + fadeOut(tween(140)),
             ) {
-                SahabTopBar(current = route, onBack = onBack)
+                Column {
+                    SahabTopBar(current = route, onBack = onBack)
+                    VodOrganizationQuickBar(
+                        mode = state.organizationMode,
+                        grouping = state.customGrouping,
+                        onSelectDefault = { vm.setOrganizationMode(VodOrganizationMode.DEFAULT) },
+                        onSelectGrouping = { grouping -> vm.setCustomGrouping(grouping) },
+                    )
+                }
             }
 
             when {
@@ -220,6 +250,75 @@ fun BrowseScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun VodOrganizationQuickBar(
+    mode: VodOrganizationMode,
+    grouping: VodCustomGrouping,
+    onSelectDefault: () -> Unit,
+    onSelectGrouping: (VodCustomGrouping) -> Unit,
+) {
+    val chips = listOf(
+        Triple("الافتراضي", mode == VodOrganizationMode.DEFAULT, onSelectDefault),
+        Triple(
+            "النوع",
+            mode == VodOrganizationMode.CUSTOM && grouping == VodCustomGrouping.GENRE,
+            { onSelectGrouping(VodCustomGrouping.GENRE) },
+        ),
+        Triple(
+            "السنة",
+            mode == VodOrganizationMode.CUSTOM && grouping == VodCustomGrouping.YEAR,
+            { onSelectGrouping(VodCustomGrouping.YEAR) },
+        ),
+        Triple(
+            "الممثل",
+            mode == VodOrganizationMode.CUSTOM && grouping == VodCustomGrouping.CAST,
+            { onSelectGrouping(VodCustomGrouping.CAST) },
+        ),
+    )
+
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "الترتيب:",
+            color = Palette.TextDim,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        chips.forEach { (label, active, onClick) ->
+            var focused by remember { mutableStateOf(false) }
+            Text(
+                text = label,
+                color = if (active || focused) Color.White else Palette.TextDim,
+                fontSize = 12.sp,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        when {
+                            active -> Palette.Royal
+                            focused -> Palette.Royal.copy(alpha = 0.35f)
+                            else -> Color.White.copy(alpha = 0.06f)
+                        },
+                    )
+                    .border(
+                        width = if (focused) 1.5.dp else 1.dp,
+                        color = if (focused) Color.White else if (active) Palette.Royal else Color.White.copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(10.dp),
+                    )
+                    .onFocusChanged { focused = it.isFocused }
+                    .focusable()
+                    .clickable(onClick = onClick)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
     }
 }

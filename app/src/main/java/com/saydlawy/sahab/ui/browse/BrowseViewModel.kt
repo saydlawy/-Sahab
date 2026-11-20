@@ -5,6 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Category
+import com.saydlawy.sahab.data.VodCustomGrouping
+import com.saydlawy.sahab.data.VodOrganizationMode
+import com.saydlawy.sahab.data.catalog.CatalogFacetRow
+import kotlinx.coroutines.flow.combine
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Poster
@@ -44,6 +48,8 @@ data class BrowseUiState(
     val top10Items: List<Poster> = emptyList(),
     val categoryGroups: List<CategoryPosterGroup> = emptyList(),
     val focusedDetails: FocusedPosterDetails? = null,
+    val organizationMode: VodOrganizationMode = VodOrganizationMode.DEFAULT,
+    val customGrouping: VodCustomGrouping = VodCustomGrouping.GENRE,
 ) {
     val visibleItems: List<Poster> get() = searchResults ?: items
     val busy: Boolean get() = loadingItems || searching
@@ -65,6 +71,109 @@ class BrowseViewModel(
     private var focusDetailJob: Job? = null
     private var searchPool: List<Poster>? = null
     private var indexedPool: List<Pair<Poster, String>>? = null
+    private var defaultCategories: List<Category> = emptyList()
+    private var defaultCounts: Map<String, Int> = emptyMap()
+    private var customItemsByCategory: Map<String, List<Poster>> = emptyMap()
+    private var cachedFacets: Map<String, CatalogFacetRow>? = null
+
+    init {
+        viewModelScope.launch {
+            combine(
+                container.prefs.vodOrganizationMode,
+                container.prefs.vodCustomGrouping,
+            ) { mode, grouping -> mode to grouping }
+                .collect { (mode, grouping) ->
+                    val prev = _state.value
+                    val changed = prev.organizationMode != mode || prev.customGrouping != grouping
+                    _state.update { it.copy(organizationMode = mode, customGrouping = grouping) }
+                    if (changed && !searchPool.isNullOrEmpty()) {
+                        applyOrganization(searchPool.orEmpty(), mode, grouping)
+                    }
+                }
+        }
+    }
+
+    fun setOrganizationMode(mode: VodOrganizationMode) {
+        viewModelScope.launch { container.prefs.setVodOrganizationMode(mode) }
+    }
+
+    fun setCustomGrouping(grouping: VodCustomGrouping) {
+        viewModelScope.launch { container.prefs.setVodCustomGrouping(grouping) }
+    }
+
+    private suspend fun getFacetsMap(): Map<String, CatalogFacetRow> {
+        cachedFacets?.let { return it }
+        val mediaType = if (series) "series" else "movie"
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                container.catalogDb.movieDao().getFacetMetadata(mediaType)
+                    .associateBy { it.novaStreamId }
+            }.getOrDefault(emptyMap())
+        }
+        cachedFacets = loaded
+        return loaded
+    }
+
+    private suspend fun applyOrganization(
+        allItems: List<Poster>,
+        mode: VodOrganizationMode = _state.value.organizationMode,
+        grouping: VodCustomGrouping = _state.value.customGrouping,
+        preferredCat: String? = null,
+    ) {
+        if (mode == VodOrganizationMode.DEFAULT) {
+            customItemsByCategory = emptyMap()
+            val (hero, top10, groups) = buildLayoutCollections(defaultCategories, allItems)
+            val currentSel = preferredCat ?: _state.value.selectedId
+            val targetCat = if (currentSel == null || currentSel.startsWith(CUSTOM_CAT_PREFIX)) ALL_CAT_ID else currentSel
+            val itemsForSel = when (targetCat) {
+                ALL_CAT_ID, FAV_CAT_ID, RECENTS_CAT_ID -> allItems
+                else -> withContext(Dispatchers.Default) {
+                    allItems.filter { it.categoryId == targetCat }.ifEmpty { allItems }
+                }
+            }
+            _state.update {
+                it.copy(
+                    categories = defaultCategories,
+                    selectedId = targetCat,
+                    items = itemsForSel,
+                    categoryCounts = defaultCounts,
+                    featuredHeroItems = hero,
+                    top10Items = top10,
+                    categoryGroups = groups,
+                )
+            }
+            return
+        }
+
+        val facets = getFacetsMap()
+        val organized = withContext(Dispatchers.Default) {
+            VodCustomOrganizer.organize(allItems, facets, grouping)
+        }
+        customItemsByCategory = organized.itemsByCategory
+        val groups = organized.categories.mapNotNull { cat ->
+            val list = organized.itemsByCategory[cat.id].orEmpty()
+            if (list.isEmpty()) null else CategoryPosterGroup(cat, list.take(20))
+        }.take(18)
+        val currentSel = preferredCat ?: _state.value.selectedId
+        val targetCat = when {
+            currentSel == ALL_CAT_ID || currentSel == FAV_CAT_ID || currentSel == RECENTS_CAT_ID -> currentSel
+            currentSel != null && organized.itemsByCategory.containsKey(currentSel) -> currentSel
+            else -> ALL_CAT_ID
+        }
+        val itemsForSel = when (targetCat) {
+            ALL_CAT_ID, FAV_CAT_ID, RECENTS_CAT_ID -> allItems
+            else -> organized.itemsByCategory[targetCat].orEmpty()
+        }
+        _state.update {
+            it.copy(
+                categories = organized.categories,
+                selectedId = targetCat,
+                items = itemsForSel,
+                categoryCounts = organized.counts,
+                categoryGroups = groups,
+            )
+        }
+    }
 
     private suspend fun buildLayoutCollections(
         categories: List<Category>,
