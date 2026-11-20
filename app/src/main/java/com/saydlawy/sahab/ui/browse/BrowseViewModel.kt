@@ -531,7 +531,8 @@ class BrowseViewModel(
 
     private fun cleanRating(raw: String): String {
         val v = raw.trim()
-        if (v.isBlank() || v == "0" || v == "0.0" || v == "0.00") return ""
+        val num = v.toDoubleOrNull() ?: return ""
+        if (num <= 0.0 || num >= 9.9) return ""
         return v
     }
 
