@@ -445,21 +445,55 @@ private fun PrimeTile(
                     .padding(horizontal = 5.dp, vertical = 2.dp),
             )
         }
+        val cleanRating = remember(poster.rating) {
+            poster.rating.trim().takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
+        }
+        if (cleanRating != null) {
+            Text(
+                text = "★ $cleanRating",
+                color = Color(0xFFFFD54F),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+            )
+        }
+        val metaLine = remember(poster.year, poster.genre) {
+            val primaryGenre = poster.genre.split(",", "،").firstOrNull()?.trim().orEmpty()
+            listOfNotNull(
+                poster.year.trim().takeIf { it.isNotBlank() },
+                primaryGenre.takeIf { it.isNotBlank() },
+            ).joinToString(" • ")
+        }
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))))
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            Text(
-                text = poster.name,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = poster.name,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (metaLine.isNotBlank()) {
+                    Text(
+                        text = metaLine,
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }
