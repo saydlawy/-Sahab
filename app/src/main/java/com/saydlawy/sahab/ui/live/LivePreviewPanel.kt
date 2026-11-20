@@ -166,6 +166,7 @@ internal fun PreviewPanel(
     var retryNonce by remember { mutableIntStateOf(0) }
     var previewError by remember { mutableStateOf<String?>(null) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
+    var activeLiveExt by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -196,6 +197,7 @@ internal fun PreviewPanel(
             override fun onRenderedFirstFrame() {
                 videoReady = true
                 previewError = null
+                activeLiveExt?.let { repo.reportWorkingLiveFormat(it) }
             }
 
             override fun onTracksChanged(newTracks: Tracks) {
@@ -254,6 +256,8 @@ internal fun PreviewPanel(
         if (formatAttempt == 0 && retryNonce == 0) {
             delay(280L)
         }
+        val exts = repo.liveExtensions()
+        activeLiveExt = exts[formatAttempt.coerceIn(0, exts.lastIndex)]
         val url = runCatching {
             repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url), formatAttempt)
         }.getOrNull()

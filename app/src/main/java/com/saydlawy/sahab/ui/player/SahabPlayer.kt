@@ -212,9 +212,9 @@ object SahabPlayer {
                 .setBufferDurationsMs(
                     /* minBufferMs = */ 10_000,
                     /* maxBufferMs = */ 30_000,
-                    // LIVE-01: fast start but with enough reorder headroom for 50/60fps HEVC/FHD/4K.
-                    /* bufferForPlaybackMs = */ 1_000,
-                    /* bufferForPlaybackAfterRebufferMs = */ 2_500,
+                    // LIVE-01: fast start with reorder headroom for 50/60fps HEVC/FHD/4K.
+                    /* bufferForPlaybackMs = */ 650,
+                    /* bufferForPlaybackAfterRebufferMs = */ 1_800,
                 )
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .setBackBuffer(0, false)
@@ -226,7 +226,8 @@ object SahabPlayer {
                     /* bufferForPlaybackMs = */ 800,
                     /* bufferForPlaybackAfterRebufferMs = */ 1_800,
                 )
-                .setPrioritizeTimeOverSizeThresholds(true)
+                .setTargetBufferBytes(64 * 1024 * 1024)
+                .setPrioritizeTimeOverSizeThresholds(false)
                 .build()
         }
 
@@ -236,7 +237,7 @@ object SahabPlayer {
             .setLoadControl(loadControl)
             .setAudioAttributes(AudioAttributes.DEFAULT, !isPreview)
             .setHandleAudioBecomingNoisy(!isPreview)
-            .setWakeMode(C.WAKE_MODE_NETWORK)
+            .setWakeMode(if (isPreview) C.WAKE_MODE_NONE else C.WAKE_MODE_NETWORK)
             .setSeekBackIncrementMs(SEEK_STEP_MS)
             .setSeekForwardIncrementMs(SEEK_STEP_MS)
             .build()

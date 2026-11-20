@@ -50,6 +50,9 @@ class Repository(
     var userInfo: UserInfo? = null
         private set
 
+    @Volatile
+    private var preferredLiveExt: String? = null
+
     private val _syncing = kotlinx.coroutines.flow.MutableStateFlow(false)
     val syncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _syncing
 
@@ -92,6 +95,7 @@ class Repository(
         account = value
         if (changed) {
             userInfo = null
+            preferredLiveExt = null
             clearCache(clearDisk = false)
         }
     }
@@ -241,10 +245,21 @@ class Repository(
     /** Legacy alias — always forces. Returns SyncResult for caller feedback. */
     suspend fun refreshSubscription(): SyncResult = syncCatalog(force = true)
 
+    fun reportWorkingLiveFormat(ext: String) {
+        if (ext.isNotBlank() && preferredLiveExt != ext) {
+            preferredLiveExt = ext
+        }
+    }
+
     fun liveExtensions(): List<String> {
         val allowed = userInfo?.formats.orEmpty()
-        val preferred = listOf("m3u8", "ts").filter { it in allowed }
-        return preferred.ifEmpty { listOf("m3u8", "ts") }
+        val base = listOf("m3u8", "ts").filter { it in allowed }.ifEmpty { listOf("m3u8", "ts") }
+        val pref = preferredLiveExt
+        return if (pref != null && pref in base) {
+            listOf(pref) + base.filterNot { it == pref }
+        } else {
+            base
+        }
     }
 
     fun streamUrl(item: PlayItem, formatAttempt: Int = 0): String {

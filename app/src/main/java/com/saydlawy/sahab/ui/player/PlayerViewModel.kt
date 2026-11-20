@@ -87,6 +87,7 @@ class PlayerViewModel(
     private var usedInitialPos: Boolean = false
     private var lastLoadedSeriesGroupId: String? = null
     private var retryJob: Job? = null
+    private var lastAttemptedLiveExt: String? = null
 
     fun saveProgress(positionMs: Long, durationMs: Long) {
         val current = _state.value.currentItem
@@ -251,6 +252,9 @@ class PlayerViewModel(
     }
 
     fun onBufferingReady(isBuffering: Boolean, isReady: Boolean) {
+        if (isReady && _state.value.isLive) {
+            lastAttemptedLiveExt?.let { repo.reportWorkingLiveFormat(it) }
+        }
         _state.update { s ->
             if (isReady) {
                 s.copy(
@@ -360,7 +364,15 @@ class PlayerViewModel(
         }
     }
 
-    fun streamUrl(item: PlayItem, formatAttempt: Int): String = repo.streamUrl(item, formatAttempt)
+    fun streamUrl(item: PlayItem, formatAttempt: Int): String {
+        if (item.kind == Kind.LIVE) {
+            val exts = repo.liveExtensions()
+            lastAttemptedLiveExt = exts[formatAttempt.coerceIn(0, exts.lastIndex)]
+        } else {
+            lastAttemptedLiveExt = null
+        }
+        return repo.streamUrl(item, formatAttempt)
+    }
 
     /**
      * LIVE-01: called by [LiveVideoStallWatchdog] after a repeated silent video-decoder stall.
