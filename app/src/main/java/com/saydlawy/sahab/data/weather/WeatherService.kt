@@ -42,11 +42,14 @@ class WeatherService(
     private val forecastBaseUrl: String = "https://api.open-meteo.com",
     private val ipGeoUrl: String = "https://ipwho.is/?lang=ar",
 ) {
-    private val prefs: SharedPreferences? = prefsOverride
-        ?: context?.applicationContext?.getSharedPreferences("sahab_weather_cache", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences? by lazy {
+        prefsOverride ?: context?.applicationContext?.getSharedPreferences("sahab_weather_cache", Context.MODE_PRIVATE)
+    }
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    private val _weather = MutableStateFlow(loadCachedWeather())
+    @Volatile
+    private var cacheHydrated: Boolean = prefsOverride != null
+    private val _weather = MutableStateFlow(if (prefsOverride != null) loadCachedWeather() else WeatherData())
     val weather: StateFlow<WeatherData> = _weather.asStateFlow()
 
     private var lastFetchMs: Long = 0L
@@ -96,6 +99,10 @@ class WeatherService(
         }
 
         withContext(Dispatchers.IO) {
+            if (!cacheHydrated) {
+                _weather.value = loadCachedWeather()
+                cacheHydrated = true
+            }
             try {
                 // 1. Manual city override first, else IP geolocation
                 val manualCity = prefs?.getString("manual_city", "").orEmpty()

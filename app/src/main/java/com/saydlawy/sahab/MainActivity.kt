@@ -12,11 +12,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.saydlawy.sahab.ui.AppRoot
 import com.saydlawy.sahab.ui.LocalContainer
@@ -54,7 +54,7 @@ class MainActivity : AppCompatActivity() {
         val tv = isTelevision(this)
 
         setContent {
-            val themeSettings by container.prefs.themePreferences.collectAsState(initial = ThemePreferences())
+            val themeSettings by container.prefs.themePreferences.collectAsStateWithLifecycle(initialValue = ThemePreferences())
             SahabTheme(settings = themeSettings) {
                 LaunchedEffect(Unit) {
                     delay(3000L)
@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+        if (BuildConfig.DEBUG && event.action == android.view.KeyEvent.ACTION_DOWN) {
             val keyName = android.view.KeyEvent.keyCodeToString(event.keyCode)
             val touchMode = window?.decorView?.isInTouchMode
             android.util.Log.d("SAHAB_FOCUS", "KEY code=$keyName touchMode=$touchMode")

@@ -83,8 +83,10 @@ import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
 import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.saydlawy.sahab.ui.components.SyncOverlay
 import com.saydlawy.sahab.data.Repository
 import androidx.compose.ui.platform.LocalContext
@@ -459,15 +461,23 @@ private fun NotificationPermissionPrompt(
     if (currentRoute != Routes.HOME || isTv) return
 
     val context = LocalContext.current
-    val fcmPrefs = remember(context) {
-        context.applicationContext.getSharedPreferences("sahab_fcm_prefs", Context.MODE_PRIVATE)
-    }
+    val scope = rememberCoroutineScope()
     var showPrompt by remember { mutableStateOf(false) }
+
+    val markPrompted: () -> Unit = {
+        scope.launch(Dispatchers.IO) {
+            context.applicationContext
+                .getSharedPreferences("sahab_fcm_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("prompted_notifications", true)
+                .apply()
+        }
+    }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { _ ->
-        fcmPrefs.edit().putBoolean("prompted_notifications", true).apply()
+        markPrompted()
         showPrompt = false
     }
 
@@ -476,16 +486,22 @@ private fun NotificationPermissionPrompt(
             context,
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
-        val alreadyPrompted = fcmPrefs.getBoolean("prompted_notifications", false)
-        if (!alreadyGranted && !alreadyPrompted) {
-            showPrompt = true
+        if (!alreadyGranted) {
+            val alreadyPrompted = withContext(Dispatchers.IO) {
+                context.applicationContext
+                    .getSharedPreferences("sahab_fcm_prefs", Context.MODE_PRIVATE)
+                    .getBoolean("prompted_notifications", false)
+            }
+            if (!alreadyPrompted) {
+                showPrompt = true
+            }
         }
     }
 
     if (showPrompt) {
         androidx.compose.ui.window.Dialog(
             onDismissRequest = {
-                fcmPrefs.edit().putBoolean("prompted_notifications", true).apply()
+                markPrompted()
                 showPrompt = false
             },
         ) {
@@ -516,7 +532,7 @@ private fun NotificationPermissionPrompt(
                         com.saydlawy.sahab.ui.components.GlassButton(
                             text = "لاحقاً",
                             onClick = {
-                                fcmPrefs.edit().putBoolean("prompted_notifications", true).apply()
+                                markPrompted()
                                 showPrompt = false
                             },
                         )
