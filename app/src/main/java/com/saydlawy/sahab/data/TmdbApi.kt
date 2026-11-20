@@ -28,6 +28,14 @@ class TmdbApi(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TmdbCacheEnvelope>?): Boolean =
             size > MAX_MEMORY_ENTRIES
     }
+    private val searchMemoryCache = object : LinkedHashMap<String, TmdbSearchCacheEnvelope>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TmdbSearchCacheEnvelope>?): Boolean =
+            size > MAX_MEMORY_ENTRIES
+    }
+    private val detailsMemoryCache = object : LinkedHashMap<String, TmdbCacheEnvelope>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TmdbCacheEnvelope>?): Boolean =
+            size > MAX_MEMORY_ENTRIES
+    }
 
     private fun getCachedMemory(key: String): TmdbCacheEnvelope? = synchronized(memoryCacheLock) {
         memoryCache[key]
@@ -36,6 +44,26 @@ class TmdbApi(
     private fun putCachedMemory(key: String, value: TmdbCacheEnvelope) {
         synchronized(memoryCacheLock) {
             memoryCache[key] = value
+        }
+    }
+
+    private fun getSearchMemory(key: String): TmdbSearchCacheEnvelope? = synchronized(memoryCacheLock) {
+        searchMemoryCache[key]
+    }
+
+    private fun putSearchMemory(key: String, value: TmdbSearchCacheEnvelope) {
+        synchronized(memoryCacheLock) {
+            searchMemoryCache[key] = value
+        }
+    }
+
+    private fun getDetailMemory(key: String): TmdbCacheEnvelope? = synchronized(memoryCacheLock) {
+        detailsMemoryCache[key]
+    }
+
+    private fun putDetailMemory(key: String, value: TmdbCacheEnvelope) {
+        synchronized(memoryCacheLock) {
+            detailsMemoryCache[key] = value
         }
     }
 
@@ -104,65 +132,180 @@ class TmdbApi(
     private val trimmedKey = apiKey.trim()
     private val isBearerV4Token = trimmedKey.startsWith("eyJ")
 
-    private suspend fun getMovieDetails(id: Int): TmdbMovie? {
-        val urlBuilder = "https://api.themoviedb.org/3/movie/$id".toHttpUrl().newBuilder()
-            .addQueryParameter("language", "ar")
-            .addQueryParameter("append_to_response", "credits,images,videos")
-            .addQueryParameter("include_image_language", "ar,en,null")
-            .addQueryParameter("include_video_language", "ar,en,null")
-        if (!isBearerV4Token) {
-            urlBuilder.addQueryParameter("api_key", trimmedKey)
+    private suspend fun cachedDetail(
+        kindTag: String,
+        id: Int,
+        includeExtras: Boolean,
+        fetch: suspend () -> TmdbMovie?,
+    ): TmdbMovie? {
+        val fullKey = "tmdb_detail_v1:$kindTag:$id:full"
+        val targetKey = "tmdb_detail_v1:$kindTag:$id:${if (includeExtras) "full" else "lite"}"
+
+        getDetailMemory(fullKey)?.movie?.let { return it }
+        if (!includeExtras) {
+            getDetailMemory(targetKey)?.movie?.let { return it }
         }
-        val text = execute(urlBuilder.build().toString()) ?: return null
-        return withContext(Dispatchers.Default) {
-            try {
-                val raw = json.decodeFromString<TmdbMovie>(text)
-                val posters = buildPosterUrls(raw.posterPath, raw.images)
-                val trailer = extractTrailerUrl(raw.videos)
-                raw.copy(posterUrls = posters, trailerUrl = trailer)
-            } catch (_: Exception) {
-                null
+
+        if (diskCache != null) {
+            diskCache.get(
+                key = fullKey,
+                serializer = TmdbCacheEnvelope.serializer(),
+                ttlMs = DiskCache.TTL_TMDB_MS,
+                permanentNamespace = true,
+            )?.let { cached ->
+                if (cached.movie != null) {
+                    putDetailMemory(fullKey, cached)
+                    return cached.movie
+                }
+            }
+            if (!includeExtras) {
+                diskCache.get(
+                    key = targetKey,
+                    serializer = TmdbCacheEnvelope.serializer(),
+                    ttlMs = DiskCache.TTL_TMDB_MS,
+                    permanentNamespace = true,
+                )?.let { cached ->
+                    if (cached.movie != null) {
+                        putDetailMemory(targetKey, cached)
+                        return cached.movie
+                    }
+                }
             }
         }
+
+        val fetched = fetch() ?: return null
+        val envelope = TmdbCacheEnvelope(found = true, savedAt = System.currentTimeMillis(), movie = fetched)
+        putDetailMemory(targetKey, envelope)
+        diskCache?.put(
+            key = targetKey,
+            serializer = TmdbCacheEnvelope.serializer(),
+            value = envelope,
+            permanentNamespace = true,
+        )
+        return fetched
     }
 
-    suspend fun getTvDetailsById(id: Int): TmdbMovie? {
-        val urlBuilder = "https://api.themoviedb.org/3/tv/$id".toHttpUrl().newBuilder()
-            .addQueryParameter("language", "ar")
-            .addQueryParameter("append_to_response", "credits,images,videos")
-            .addQueryParameter("include_image_language", "ar,en,null")
-            .addQueryParameter("include_video_language", "ar,en,null")
-        if (!isBearerV4Token) {
-            urlBuilder.addQueryParameter("api_key", trimmedKey)
+    private suspend fun cachedSearch(
+        kindTag: String,
+        query: String,
+        year: Int?,
+        lang: String,
+        fetch: suspend () -> SearchOutcome,
+    ): SearchOutcome {
+        if (apiKey.isBlank()) return SearchOutcome.MissingKey
+        if (query.isBlank()) return SearchOutcome.Ok(emptyList())
+        val normQuery = query.trim().lowercase(Locale.ROOT)
+        val cacheKey = "tmdb_search_v1:$kindTag:$normQuery:${year ?: ""}:$lang"
+
+        getSearchMemory(cacheKey)?.let { cached ->
+            val ageOk = cached.results.isNotEmpty() || (System.currentTimeMillis() - cached.savedAt) < DiskCache.TTL_TMDB_MISS_MS
+            if (ageOk) return SearchOutcome.Ok(cached.results)
         }
-        val text = execute(urlBuilder.build().toString()) ?: return null
-        return withContext(Dispatchers.Default) {
-            try {
-                val tv = json.decodeFromString<TmdbTvRaw>(text)
-                val posters = buildPosterUrls(tv.posterPath, tv.images)
-                val trailer = extractTrailerUrl(tv.videos)
-                TmdbMovie(
-                    id = tv.id,
-                    title = tv.name,
-                    overview = tv.overview,
-                    releaseDate = tv.firstAirDate,
-                    voteAverage = tv.voteAverage,
-                    voteCount = tv.voteCount,
-                    popularity = tv.popularity,
-                    adult = false,
-                    runtime = tv.episodeRunTime.firstOrNull(),
-                    genres = tv.genres,
-                    credits = tv.credits,
-                    posterPath = tv.posterPath,
-                    backdropPath = tv.backdropPath,
-                    posterUrls = posters,
-                    trailerUrl = trailer,
-                )
-            } catch (_: Exception) {
-                null
+
+        if (diskCache != null) {
+            val cached = diskCache.get(
+                key = cacheKey,
+                serializer = TmdbSearchCacheEnvelope.serializer(),
+                ttlMs = DiskCache.TTL_TMDB_MS,
+                permanentNamespace = true,
+            )
+            if (cached != null) {
+                val ageOk = cached.results.isNotEmpty() || (System.currentTimeMillis() - cached.savedAt) < DiskCache.TTL_TMDB_MISS_MS
+                if (ageOk) {
+                    putSearchMemory(cacheKey, cached)
+                    return SearchOutcome.Ok(cached.results)
+                }
             }
         }
+
+        val outcome = fetch()
+        if (outcome is SearchOutcome.Ok) {
+            val envelope = TmdbSearchCacheEnvelope(
+                savedAt = System.currentTimeMillis(),
+                results = outcome.results,
+            )
+            putSearchMemory(cacheKey, envelope)
+            diskCache?.put(
+                key = cacheKey,
+                serializer = TmdbSearchCacheEnvelope.serializer(),
+                value = envelope,
+                permanentNamespace = true,
+            )
+        }
+        return outcome
     }
+
+    private suspend fun getMovieDetails(id: Int, includeExtras: Boolean = true): TmdbMovie? =
+        cachedDetail("movie", id, includeExtras) {
+            val append = if (includeExtras) "credits,images,videos" else "videos"
+            val urlBuilder = "https://api.themoviedb.org/3/movie/$id".toHttpUrl().newBuilder()
+                .addQueryParameter("language", "ar")
+                .addQueryParameter("append_to_response", append)
+                .apply {
+                    if (includeExtras) {
+                        addQueryParameter("include_image_language", "ar,en,null")
+                    }
+                }
+                .addQueryParameter("include_video_language", "ar,en,null")
+            if (!isBearerV4Token) {
+                urlBuilder.addQueryParameter("api_key", trimmedKey)
+            }
+            val text = execute(urlBuilder.build().toString()) ?: return@cachedDetail null
+            withContext(Dispatchers.Default) {
+                try {
+                    val raw = json.decodeFromString<TmdbMovie>(text)
+                    val posters = buildPosterUrls(raw.posterPath, raw.images)
+                    val trailer = extractTrailerUrl(raw.videos)
+                    raw.copy(posterUrls = posters, trailerUrl = trailer)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+
+    suspend fun getTvDetailsById(id: Int, includeExtras: Boolean = true): TmdbMovie? =
+        cachedDetail("tv", id, includeExtras) {
+            val append = if (includeExtras) "credits,images,videos" else "videos"
+            val urlBuilder = "https://api.themoviedb.org/3/tv/$id".toHttpUrl().newBuilder()
+                .addQueryParameter("language", "ar")
+                .addQueryParameter("append_to_response", append)
+                .apply {
+                    if (includeExtras) {
+                        addQueryParameter("include_image_language", "ar,en,null")
+                    }
+                }
+                .addQueryParameter("include_video_language", "ar,en,null")
+            if (!isBearerV4Token) {
+                urlBuilder.addQueryParameter("api_key", trimmedKey)
+            }
+            val text = execute(urlBuilder.build().toString()) ?: return@cachedDetail null
+            withContext(Dispatchers.Default) {
+                try {
+                    val tv = json.decodeFromString<TmdbTvRaw>(text)
+                    val posters = buildPosterUrls(tv.posterPath, tv.images)
+                    val trailer = extractTrailerUrl(tv.videos)
+                    TmdbMovie(
+                        id = tv.id,
+                        title = tv.name,
+                        overview = tv.overview,
+                        releaseDate = tv.firstAirDate,
+                        voteAverage = tv.voteAverage,
+                        voteCount = tv.voteCount,
+                        popularity = tv.popularity,
+                        adult = false,
+                        runtime = tv.episodeRunTime.firstOrNull(),
+                        genres = tv.genres,
+                        credits = tv.credits,
+                        posterPath = tv.posterPath,
+                        backdropPath = tv.backdropPath,
+                        posterUrls = posters,
+                        trailerUrl = trailer,
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
 
     private fun buildPosterUrls(primaryPath: String?, images: TmdbImagesResponse?): List<String> {
         val paths = buildList {
@@ -228,24 +371,22 @@ class TmdbApi(
         query: String,
         year: Int?,
         lang: String = "en-US",
-    ): SearchOutcome {
-        if (apiKey.isBlank()) return SearchOutcome.MissingKey
-        if (query.isBlank()) return SearchOutcome.Ok(emptyList())
+    ): SearchOutcome = cachedSearch("movie", query, year, lang) {
         val urlBuilder = "https://api.themoviedb.org/3/search/movie".toHttpUrl().newBuilder()
             .addQueryParameter("query", query)
             .addQueryParameter("language", lang)
             .addQueryParameter("include_adult", "false")
         if (!isBearerV4Token) urlBuilder.addQueryParameter("api_key", trimmedKey)
         if (year != null) urlBuilder.addQueryParameter("primary_release_year", year.toString())
-        val text = execute(urlBuilder.build().toString()) ?: return SearchOutcome.NetworkError
+        val text = execute(urlBuilder.build().toString()) ?: return@cachedSearch SearchOutcome.NetworkError
         val list = withContext(Dispatchers.Default) {
             try {
                 json.decodeFromString<RawSearchResponse>(text).results
             } catch (_: Exception) {
                 null
             }
-        } ?: return SearchOutcome.NetworkError
-        return SearchOutcome.Ok(list)
+        } ?: return@cachedSearch SearchOutcome.NetworkError
+        SearchOutcome.Ok(list)
     }
 
     suspend fun searchMovieRaw(
@@ -261,16 +402,14 @@ class TmdbApi(
         query: String,
         year: Int?,
         lang: String = "en-US",
-    ): SearchOutcome {
-        if (apiKey.isBlank()) return SearchOutcome.MissingKey
-        if (query.isBlank()) return SearchOutcome.Ok(emptyList())
+    ): SearchOutcome = cachedSearch("tv", query, year, lang) {
         val urlBuilder = "https://api.themoviedb.org/3/search/tv".toHttpUrl().newBuilder()
             .addQueryParameter("query", query)
             .addQueryParameter("language", lang)
             .addQueryParameter("include_adult", "false")
         if (!isBearerV4Token) urlBuilder.addQueryParameter("api_key", trimmedKey)
         if (year != null) urlBuilder.addQueryParameter("first_air_date_year", year.toString())
-        val text = execute(urlBuilder.build().toString()) ?: return SearchOutcome.NetworkError
+        val text = execute(urlBuilder.build().toString()) ?: return@cachedSearch SearchOutcome.NetworkError
         val list = withContext(Dispatchers.Default) {
             try {
                 json.decodeFromString<TvSearchResponse>(text).results.map { item ->
@@ -290,12 +429,13 @@ class TmdbApi(
             } catch (_: Exception) {
                 null
             }
-        } ?: return SearchOutcome.NetworkError
-        return SearchOutcome.Ok(list)
+        } ?: return@cachedSearch SearchOutcome.NetworkError
+        SearchOutcome.Ok(list)
     }
 
     /** Public alias for getMovieDetails — used by TmdbMatcher. */
-    suspend fun getMovieDetailsById(id: Int): TmdbMovie? = getMovieDetails(id)
+    suspend fun getMovieDetailsById(id: Int, includeExtras: Boolean = true): TmdbMovie? =
+        getMovieDetails(id, includeExtras)
 
     private companion object {
         const val MAX_MEMORY_ENTRIES = 200
@@ -312,6 +452,12 @@ private data class TmdbCacheEnvelope(
     val found: Boolean = false,
     val savedAt: Long = 0L,
     val movie: TmdbMovie? = null,
+)
+
+@Serializable
+private data class TmdbSearchCacheEnvelope(
+    val savedAt: Long = 0L,
+    val results: List<TmdbSearchResult> = emptyList(),
 )
 
 @Serializable

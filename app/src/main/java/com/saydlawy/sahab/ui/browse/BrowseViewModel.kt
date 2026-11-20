@@ -639,6 +639,46 @@ class BrowseViewModel(
                         ),
                     )
                 }
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val dao = container.catalogDb.movieDao()
+                        val now = System.currentTimeMillis()
+                        if (cached != null) {
+                            dao.applyEnrichment(
+                                streamId = poster.id,
+                                tmdbId = cloudItem.tmdbId,
+                                titleEn = cloudItem.titleEn,
+                                year = cloudItem.year,
+                                plot = cloudItem.plot,
+                                cast = cloudItem.cast,
+                                director = cloudItem.director,
+                                genre = cloudItem.genre,
+                                runtime = cloudItem.runtime,
+                                rating = cloudItem.rating,
+                                backdropUrl = cloudItem.backdropUrl,
+                                voteCount = cloudItem.tmdbVoteCount,
+                                status = 0,
+                                now = now,
+                                mediaType = mediaType,
+                                postersJson = cloudItem.postersJson,
+                                trailerUrl = cloudItem.trailerUrl,
+                                castJson = cloudItem.castJson,
+                            )
+                        } else {
+                            dao.upsert(
+                                cloudItem.copy(
+                                    novaStreamId = poster.id,
+                                    categoryId = cloudItem.categoryId.ifBlank { poster.categoryId },
+                                    mediaType = mediaType,
+                                    posterUrl = cloudItem.posterUrl.ifBlank { poster.image },
+                                    needsEnrichment = 0,
+                                    lastEnriched = now,
+                                    lastSeen = now,
+                                ),
+                            )
+                        }
+                    }
+                }
                 return@launch
             }
 
@@ -733,31 +773,68 @@ class BrowseViewModel(
                             ),
                         )
                     }
-                    if (enriched.level == TmdbMatcher.Level.STRONG) {
-                        withContext(Dispatchers.IO) {
-                            runCatching {
-                                container.firebaseCatalog.saveCatalogItem(
-                                    CatalogMovieEntity(
-                                        sahabId = CatalogMovieEntity.idFromTmdb(tmdbItem.id),
-                                        novaStreamId = poster.id,
-                                        categoryId = poster.categoryId,
-                                        titleAr = poster.name,
-                                        titleEn = tmdbItem.title,
-                                        year = resolvedYear,
-                                        plot = tmdbItem.overview,
-                                        genre = resolvedGenre,
-                                        runtime = resolvedRuntime,
-                                        rating = resolvedRating,
-                                        posterUrl = poster.image,
-                                        backdropUrl = resolvedBackdrop,
-                                        tmdbId = tmdbItem.id,
-                                        tmdbVoteCount = tmdbItem.voteCount,
-                                        mediaType = mediaType,
-                                        postersJson = tmdbItem.posterUrls.joinToString("\n"),
-                                        trailerUrl = tmdbItem.trailerUrl,
-                                    ),
+                    val resolvedCast = tmdbItem.credits?.cast?.take(5)?.joinToString(", ") { it.name }.orEmpty()
+                    val resolvedDirector = tmdbItem.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty()
+                    val resolvedCastJson = com.saydlawy.sahab.data.catalog.encodeTmdbCastJson(tmdbItem.credits?.cast)
+                    val isStrong = enriched.level == TmdbMatcher.Level.STRONG
+                    val now = System.currentTimeMillis()
+                    val heroEntity = CatalogMovieEntity(
+                        sahabId = CatalogMovieEntity.idFromTmdb(tmdbItem.id),
+                        novaStreamId = poster.id,
+                        categoryId = poster.categoryId,
+                        titleAr = poster.name,
+                        titleEn = tmdbItem.title,
+                        year = resolvedYear,
+                        plot = tmdbItem.overview,
+                        cast = resolvedCast,
+                        castJson = resolvedCastJson,
+                        director = resolvedDirector,
+                        genre = resolvedGenre,
+                        runtime = resolvedRuntime,
+                        rating = resolvedRating,
+                        posterUrl = poster.image,
+                        backdropUrl = resolvedBackdrop,
+                        tmdbId = tmdbItem.id,
+                        tmdbVoteCount = tmdbItem.voteCount,
+                        mediaType = mediaType,
+                        postersJson = tmdbItem.posterUrls.joinToString("\n"),
+                        trailerUrl = tmdbItem.trailerUrl,
+                        needsEnrichment = if (isStrong) 0 else 1,
+                        lastEnriched = now,
+                        lastSeen = now,
+                    )
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            val dao = container.catalogDb.movieDao()
+                            if (cached != null) {
+                                dao.applyEnrichment(
+                                    streamId = poster.id,
+                                    tmdbId = heroEntity.tmdbId,
+                                    titleEn = heroEntity.titleEn,
+                                    year = heroEntity.year,
+                                    plot = heroEntity.plot,
+                                    cast = heroEntity.cast,
+                                    director = heroEntity.director,
+                                    genre = heroEntity.genre,
+                                    runtime = heroEntity.runtime,
+                                    rating = heroEntity.rating,
+                                    backdropUrl = heroEntity.backdropUrl,
+                                    voteCount = heroEntity.tmdbVoteCount,
+                                    status = heroEntity.needsEnrichment,
+                                    now = now,
+                                    mediaType = mediaType,
+                                    postersJson = heroEntity.postersJson,
+                                    trailerUrl = heroEntity.trailerUrl,
+                                    castJson = heroEntity.castJson,
                                 )
+                            } else {
+                                dao.upsert(heroEntity)
                             }
+                        }
+                    }
+                    if (isStrong) {
+                        withContext(Dispatchers.IO) {
+                            runCatching { container.firebaseCatalog.saveCatalogItem(heroEntity) }
                         }
                     }
                     return@launch
