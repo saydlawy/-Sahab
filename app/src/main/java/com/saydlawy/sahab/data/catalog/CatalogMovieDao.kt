@@ -132,7 +132,7 @@ interface CatalogMovieDao {
     suspend fun searchCatalog(query: String, mediaType: String = "movie", limit: Int = 100): List<CatalogMovieEntity>
 
     @Query(
-        "SELECT novaStreamId, year, genre, cast, rating, novaAdded FROM catalog_movies " +
+        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded FROM catalog_movies " +
             "WHERE deleted = 0 AND mediaType = :mediaType AND novaStreamId != ''"
     )
     suspend fun getFacetMetadata(mediaType: String): List<CatalogFacetRow>
