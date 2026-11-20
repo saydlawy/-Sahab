@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Precision
 import com.saydlawy.sahab.data.DEFAULT_VOD_EXT
 import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.data.HomeChannelsLayout
@@ -364,9 +366,17 @@ private fun OledHomeSpotlight(
     onClick: () -> Unit,
 ) {
     GlassCard(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(if (compact) 168.dp else 250.dp)) { focused ->
+        val context = LocalContext.current
+        val request = remember(context, imageUrl) {
+            ImageRequest.Builder(context)
+                .data(imageUrl)
+                .size(1280, 500)
+                .precision(Precision.INEXACT)
+                .build()
+        }
         Box(Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp))) {
             AsyncImage(
-                model = imageUrl,
+                model = request,
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,

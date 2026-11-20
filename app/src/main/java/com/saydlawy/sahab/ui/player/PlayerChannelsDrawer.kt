@@ -80,6 +80,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -506,9 +507,14 @@ internal fun EpisodeDrawerCard(
                     .clip(RoundedCornerShape(10.dp))
                     .background(OsdSurfaceLowest),
             ) {
+                val density = LocalDensity.current
+                val thumbWPx = remember(density) { with(density) { 114.dp.roundToPx() } }
+                val thumbHPx = remember(density) { with(density) { 70.dp.roundToPx() } }
                 RemoteImage(
                     url = imageUrl,
                     fallbackText = title,
+                    targetWidthPx = thumbWPx,
+                    targetHeightPx = thumbHPx,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )

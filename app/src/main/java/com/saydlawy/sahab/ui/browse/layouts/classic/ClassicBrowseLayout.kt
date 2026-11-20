@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -402,11 +403,15 @@ private fun ClassicRecentsStrip(
                 ) {
                     Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            val density = LocalDensity.current
+                            val iconPx = remember(density) { with(density) { 40.dp.roundToPx() } }
                             RemoteImage(
                                 url = item.icon,
                                 fallbackText = item.title,
                                 modifier = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp)),
                                 contentScale = ContentScale.Crop,
+                                targetWidthPx = iconPx,
+                                targetHeightPx = iconPx,
                             )
                             Spacer(Modifier.width(9.dp))
                             Column(Modifier.weight(1f)) {

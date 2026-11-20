@@ -80,6 +80,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -381,9 +382,13 @@ internal fun PhonePortraitPlayerScreen(
                     ChannelLogoResolver.resolvePrimaryUrl(item.icon, item.title)
                 }
                 if (primaryLogoUrl.isNotBlank()) {
+                    val density = LocalDensity.current
+                    val logoPx = remember(density) { with(density) { 46.dp.roundToPx() } }
                     RemoteImage(
                         url = primaryLogoUrl,
                         fallbackText = item.title,
+                        targetWidthPx = logoPx,
+                        targetHeightPx = logoPx,
                         modifier = Modifier
                             .size(46.dp)
                             .clip(RoundedCornerShape(10.dp))
@@ -541,9 +546,13 @@ internal fun PhonePortraitPlayerScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = if (active) OsdCyan else OsdOnSurfaceVariant,
                             )
+                            val chDensity = LocalDensity.current
+                            val chLogoPx = remember(chDensity) { with(chDensity) { 40.dp.roundToPx() } }
                             RemoteImage(
                                 url = ch.icon,
                                 fallbackText = ch.title,
+                                targetWidthPx = chLogoPx,
+                                targetHeightPx = chLogoPx,
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(RoundedCornerShape(10.dp))

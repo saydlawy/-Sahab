@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -373,9 +374,12 @@ internal fun PreviewPanel(
                             val fallbackPreviewLogo = remember(channel.name) {
                                 ChannelLogoResolver.resolveInternetLogoUrl(channel.name)
                             }
+                            val density = LocalDensity.current
+                            val logoSize = appDp(64)
+                            val logoPx = remember(density, logoSize) { with(density) { logoSize.roundToPx() } }
                             Box(
                                 modifier = Modifier
-                                    .size(appDp(64))
+                                    .size(logoSize)
                                     .clip(CircleShape)
                                     .background(Color.White)
                                     .border(appDp(2), Palette.FocusCyan, CircleShape)
@@ -386,6 +390,8 @@ internal fun PreviewPanel(
                                     url = primaryPreviewLogo,
                                     fallbackUrl = fallbackPreviewLogo,
                                     fallbackText = channel.name,
+                                    targetWidthPx = logoPx,
+                                    targetHeightPx = logoPx,
                                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                                     contentScale = ContentScale.Fit,
                                 )

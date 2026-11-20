@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +41,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -263,6 +265,9 @@ private fun PrimeContinueWatchingShelf(
 ) {
     val rowState = rememberRestorableLazyListState("${route}_prime_recents")
     val cardW = if (isPhone) 172.dp else 232.dp
+    val density = LocalDensity.current
+    val cardWPx = remember(density, cardW) { with(density) { cardW.roundToPx() } }
+    val cardHPx = remember(cardWPx) { (cardWPx * 9) / 16 }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = Ar.continueWatching,
@@ -304,6 +309,8 @@ private fun PrimeContinueWatchingShelf(
                     RemoteImage(
                         url = recent.icon,
                         fallbackText = recent.title,
+                        targetWidthPx = cardWPx,
+                        targetHeightPx = cardHPx,
                         modifier = Modifier.fillMaxSize(),
                     )
                     Column(
@@ -425,7 +432,7 @@ private fun PrimeTile(
         label = "primeTileScale",
     )
     val shape = RoundedCornerShape(8.dp)
-    Box(
+    BoxWithConstraints(
         modifier
             .aspectRatio(if (landscape) 16f / 9f else 2f / 3f)
             .graphicsLayer {
@@ -442,9 +449,14 @@ private fun PrimeTile(
             .combinedClickable(onClick = onOpen, onLongClick = onLongClick)
             .border(if (focused) 3.dp else 0.dp, Color.White, shape),
     ) {
+        val density = LocalDensity.current
+        val tileWPx = with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
+        val tileHPx = with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
         RemoteImage(
             url = poster.image,
             fallbackText = poster.name,
+            targetWidthPx = tileWPx,
+            targetHeightPx = tileHPx,
             modifier = Modifier.fillMaxSize(),
         )
         val quality = remember(poster.name) { qualityOf(poster.name) }

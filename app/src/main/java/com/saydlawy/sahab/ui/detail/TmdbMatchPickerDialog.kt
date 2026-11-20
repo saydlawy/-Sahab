@@ -37,12 +37,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Precision
 import com.saydlawy.sahab.data.TmdbSearchResult
 import com.saydlawy.sahab.ui.components.GlassTextField
 import com.saydlawy.sahab.ui.components.Ic
@@ -178,8 +182,19 @@ private fun TmdbCandidateRow(
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val context = LocalContext.current
+        val density = LocalDensity.current
+        val posterWPx = remember(density) { with(density) { 48.dp.roundToPx() } }
+        val posterHPx = remember(density) { with(density) { 72.dp.roundToPx() } }
+        val posterRequest = remember(context, posterUrl, posterWPx, posterHPx) {
+            ImageRequest.Builder(context)
+                .data(posterUrl)
+                .size(posterWPx, posterHPx)
+                .precision(Precision.INEXACT)
+                .build()
+        }
         AsyncImage(
-            model = posterUrl,
+            model = posterRequest,
             contentDescription = item.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier

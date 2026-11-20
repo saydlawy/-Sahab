@@ -82,6 +82,17 @@ class AppContainer(context: Context) {
         .addInterceptor(RetryInterceptor())
         .build()
 
+    fun newImageHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectionPool(client.connectionPool)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(18, TimeUnit.SECONDS)
+        .addInterceptor(CleartextGuardInterceptor())
+        .addInterceptor { chain ->
+            chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
+        }
+        .build()
+
     val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache)
     val repo = Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao(), okHttpClient = client)
 
@@ -403,25 +414,20 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.25)
+                    .maxSizePercent(context, 0.15)
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 CoilDiskCache.Builder()
                     .directory(File(cacheDir, "image_cache").toOkioPath())
-                    .maxSizeBytes(500L * 1024L * 1024L)
+                    .maxSizeBytes(150L * 1024L * 1024L)
                     .build()
             }
             .crossfade(false)
             .build()
 
     private val coilClient: OkHttpClient by lazy {
-        container.client.newBuilder()
-            .cache(null)
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(18, TimeUnit.SECONDS)
-            .build()
+        container.newImageHttpClient()
     }
 }

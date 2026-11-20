@@ -436,6 +436,8 @@ private fun SeriesHeroBackdrop(
                         fallbackText = title,
                         contentScale = ContentScale.Crop,
                         alignment = Alignment.TopCenter,
+                        targetWidthPx = 1280,
+                        targetHeightPx = 720,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -296,9 +297,12 @@ internal fun ChannelRow(
     }
     val logoPlacement = LocalThemeCustomization.current.componentPlacement["channel_logo"] ?: "start"
     val channelLogo: @Composable () -> Unit = {
+        val density = LocalDensity.current
+        val logoSize = appDp(44)
+        val logoPx = remember(density, logoSize) { with(density) { logoSize.roundToPx() } }
         Box(
             modifier = Modifier
-                .size(appDp(44))
+                .size(logoSize)
                 .clip(CircleShape)
                 .background(Color.White)
                 .border(
@@ -313,6 +317,8 @@ internal fun ChannelRow(
                 url = primaryLogoUrl,
                 fallbackUrl = internetFallbackLogoUrl,
                 fallbackText = badgeText,
+                targetWidthPx = logoPx,
+                targetHeightPx = logoPx,
                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                 contentScale = ContentScale.Fit,
             )

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -135,16 +137,21 @@ private fun TrendingMovieCard(
         shape = RoundedCornerShape(14.dp),
         focusScale = 1.05f,
     ) { focused ->
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(14.dp))
                 .background(Palette.CardSurface),
         ) {
+            val density = LocalDensity.current
+            val imgWPx = with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
+            val imgHPx = with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
             RemoteImage(
                 url = movie.posterUrl,
                 fallbackText = movie.titleAr,
                 contentScale = ContentScale.Crop,
+                targetWidthPx = imgWPx,
+                targetHeightPx = imgHPx,
                 modifier = Modifier.fillMaxSize(),
             )
 

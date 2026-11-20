@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,6 +59,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Precision
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.Category
@@ -393,8 +396,18 @@ internal fun CustomChannelPickerDialog(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     if (logoUrl.isNotBlank()) {
+                                        val logoContext = LocalContext.current
+                                        val density = LocalDensity.current
+                                        val logoPx = remember(density) { with(density) { 34.dp.roundToPx() } }
+                                        val logoRequest = remember(logoContext, logoUrl, logoPx) {
+                                            ImageRequest.Builder(logoContext)
+                                                .data(logoUrl)
+                                                .size(logoPx, logoPx)
+                                                .precision(Precision.INEXACT)
+                                                .build()
+                                        }
                                         AsyncImage(
-                                            model = logoUrl,
+                                            model = logoRequest,
                                             contentDescription = ch.name,
                                             contentScale = ContentScale.Fit,
                                             modifier = Modifier.fillMaxSize(),

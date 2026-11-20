@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -41,6 +42,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +69,8 @@ import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.ChannelLogoResolver
 import androidx.compose.foundation.shape.CircleShape
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Precision
 
 // ============================================================================
 // SECTION B — تابع المشاهدة (Continue Watching)
@@ -160,16 +165,21 @@ internal fun ContinueWatchingCard(
         shape = RoundedCornerShape(12.dp),
         focusScale = 1.04f,
     ) { focused ->
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(12.dp))
                 .background(Palette.CardSurface),
         ) {
+            val density = LocalDensity.current
+            val imgWPx = with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
+            val imgHPx = with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
             RemoteImage(
                 url = item.imageUrl,
                 fallbackText = item.title,
                 contentScale = ContentScale.Crop,
+                targetWidthPx = imgWPx,
+                targetHeightPx = imgHPx,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -487,8 +497,18 @@ internal fun LiveChannelReferenceCard(
             contentAlignment = Alignment.Center,
         ) {
             if (!logoFailed && activeLogoUrl.isNotBlank()) {
+                val context = LocalContext.current
+                val density = LocalDensity.current
+                val circlePx = remember(density, circleSize) { with(density) { circleSize.roundToPx() } }
+                val logoRequest = remember(context, activeLogoUrl, circlePx) {
+                    ImageRequest.Builder(context)
+                        .data(activeLogoUrl)
+                        .size(circlePx, circlePx)
+                        .precision(Precision.INEXACT)
+                        .build()
+                }
                 AsyncImage(
-                    model = activeLogoUrl,
+                    model = logoRequest,
                     contentDescription = channel.name,
                     contentScale = ContentScale.Fit,
                     onError = {

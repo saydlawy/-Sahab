@@ -28,12 +28,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Precision
 import com.saydlawy.sahab.data.CastMember
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.ui.theme.Palette
@@ -78,8 +82,18 @@ fun CastMembersRow(
                         contentAlignment = Alignment.Center,
                     ) {
                         if (member.photoUrl.isNotBlank()) {
+                            val context = LocalContext.current
+                            val density = LocalDensity.current
+                            val photoPx = remember(density) { with(density) { 64.dp.roundToPx() } }
+                            val photoRequest = remember(context, member.photoUrl, photoPx) {
+                                ImageRequest.Builder(context)
+                                    .data(member.photoUrl)
+                                    .size(photoPx, photoPx)
+                                    .precision(Precision.INEXACT)
+                                    .build()
+                            }
                             AsyncImage(
-                                model = member.photoUrl,
+                                model = photoRequest,
                                 contentDescription = member.name,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize(),
