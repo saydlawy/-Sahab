@@ -43,3 +43,14 @@ google-services-b64.txt
 *.log
 package.json
 preview.html
+
+# Internal docs, audits & local bundles
+AGENTS.md
+CHANGELOG-AUDIT.md
+EXECUTION_PHASES_LOG.md
+HANDOFF.md
+sahab_audit_remaining.txt
+sahab_project_code.txt
+_unread_bundle/
+docs/agent-2/
+engineering-audit/
