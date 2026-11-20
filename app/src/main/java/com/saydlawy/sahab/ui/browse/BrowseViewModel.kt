@@ -82,6 +82,7 @@ class BrowseViewModel(
     private var defaultCounts: Map<String, Int> = emptyMap()
     private var customItemsByCategory: Map<String, List<Poster>> = emptyMap()
     private var cachedFacets: Map<String, CatalogFacetRow>? = null
+    private var cachedFacetsByTitle: Map<String, CatalogFacetRow> = emptyMap()
 
     init {
         viewModelScope.launch {
@@ -102,12 +103,13 @@ class BrowseViewModel(
             val mediaType = if (series) "series" else "movie"
             container.catalogDb.movieDao().observeFacetMetadata(mediaType)
                 .debounce(1_000L)
-                .map { rows -> rows.associateBy { it.novaStreamId } }
+                .map { rows -> buildFacetMaps(rows) }
                 .distinctUntilChanged()
                 .flowOn(Dispatchers.Default)
-                .collectLatest { newMap ->
-                    if (newMap == cachedFacets) return@collectLatest
-                    cachedFacets = newMap
+                .collectLatest { (newStreamMap, newTitleMap) ->
+                    if (newStreamMap == cachedFacets && newTitleMap == cachedFacetsByTitle) return@collectLatest
+                    cachedFacets = newStreamMap
+                    cachedFacetsByTitle = newTitleMap
                     val currentPool = searchPool
                     if (!currentPool.isNullOrEmpty()) {
                         val refreshed = enrichWithTmdb(currentPool)
@@ -129,17 +131,55 @@ class BrowseViewModel(
         }
     }
 
+    private fun normalizeTitleKey(raw: String): String {
+        if (raw.isBlank()) return ""
+        return raw.lowercase(java.util.Locale.ROOT)
+            .replace(Regex("""\[.*?]|\(.*?\)"""), " ")
+            .replace(Regex("""\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|ar|en|sub|مدبلج|مترجم)\b"""), " ")
+            .replace(Regex("""[^\p{L}\p{N}]+"""), " ")
+            .trim()
+    }
+
+    private fun buildFacetMaps(rows: List<CatalogFacetRow>): Pair, Map<String, CatalogFacetRow>> {
+        val byStream = HashMap<String, CatalogFacetRow>(rows.size)
+        val byTitle = HashMap<String, CatalogFacetRow>(rows.size * 2)
+        for (row in rows) {
+            if (row.novaStreamId.isNotBlank()) {
+                byStream[row.novaStreamId] = row
+            }
+            val hasUsefulMeta = row.genre.isNotBlank() || row.year.isNotBlank() || row.rating.isNotBlank()
+            if (!hasUsefulMeta) continue
+            for (rawTitle in listOf(row.titleAr, row.titleEn, row.identifiedTitle)) {
+                val key = normalizeTitleKey(rawTitle)
+                if (key.length >= 2 && !byTitle.containsKey(key)) {
+                    byTitle[key] = row
+                }
+            }
+        }
+        return byStream to byTitle
+    }
+
+    private fun resolveFacet(
+        poster: Poster,
+        byStream: Map<String, CatalogFacetRow>,
+        byTitle: Map<String, CatalogFacetRow>,
+    ): CatalogFacetRow? {
+        byStream[poster.id]?.let { return it }
+        val key = normalizeTitleKey(poster.name)
+        return if (key.length >= 2) byTitle[key] else null
+    }
+
     private suspend fun getFacetsMap(): Map<String, CatalogFacetRow> {
         cachedFacets?.let { return it }
         val mediaType = if (series) "series" else "movie"
-        val loaded = withContext(Dispatchers.IO) {
+        val (byStream, byTitle) = withContext(Dispatchers.IO) {
             runCatching {
-                container.catalogDb.movieDao().getFacetMetadata(mediaType)
-                    .associateBy { it.novaStreamId }
-            }.getOrDefault(emptyMap())
+                buildFacetMaps(container.catalogDb.movieDao().getFacetMetadata(mediaType))
+            }.getOrDefault(emptyMap<String, CatalogFacetRow>() to emptyMap())
         }
-        cachedFacets = loaded
-        return loaded
+        cachedFacets = byStream
+        cachedFacetsByTitle = byTitle
+        return byStream
     }
 
     fun refreshFacets() {
@@ -147,6 +187,7 @@ class BrowseViewModel(
         if (currentPool.isEmpty()) return
         viewModelScope.launch {
             cachedFacets = null
+            cachedFacetsByTitle = emptyMap()
             val refreshed = enrichWithTmdb(currentPool)
             updateSearchPool(refreshed)
             applyOrganization(refreshed)
@@ -161,9 +202,10 @@ class BrowseViewModel(
     private suspend fun enrichWithTmdb(items: List<Poster>): List<Poster> {
         if (items.isEmpty()) return items
         val facets = getFacetsMap()
+        val byTitle = cachedFacetsByTitle
         return withContext(Dispatchers.Default) {
             items.map { p ->
-                val f = facets[p.id]
+                val f = resolveFacet(p, facets, byTitle)
                 val tmdbRating = RatingSanitizer.format(f?.rating, f?.tmdbVoteCount)
                 val finalRating = tmdbRating.ifBlank { RatingSanitizer.format(p.rating) }
                 val tmdbYear = VodCustomOrganizer.extractTmdbYear(f?.year)
@@ -209,8 +251,13 @@ class BrowseViewModel(
         }
 
         val facets = getFacetsMap()
+        val byTitle = cachedFacetsByTitle
         val organized = withContext(Dispatchers.Default) {
-            VodCustomOrganizer.organize(allItems, facets, grouping)
+            val resolvedFacets = HashMap<String, CatalogFacetRow>(allItems.size)
+            for (p in allItems) {
+                resolveFacet(p, facets, byTitle)?.let { resolvedFacets[p.id] = it }
+            }
+            VodCustomOrganizer.organize(allItems, resolvedFacets, grouping)
         }
         customItemsByCategory = organized.itemsByCategory
         val groups = organized.categories.mapNotNull { cat ->
