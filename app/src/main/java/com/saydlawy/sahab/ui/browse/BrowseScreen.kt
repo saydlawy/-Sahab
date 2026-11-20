@@ -315,7 +315,6 @@ private fun VodOrganizationQuickBar(
                         shape = RoundedCornerShape(10.dp),
                     )
                     .onFocusChanged { focused = it.isFocused }
-                    .focusable()
                     .clickable(onClick = onClick)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )

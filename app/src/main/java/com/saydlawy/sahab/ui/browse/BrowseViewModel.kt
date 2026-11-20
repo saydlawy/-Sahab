@@ -98,7 +98,10 @@ class BrowseViewModel(
     }
 
     fun setCustomGrouping(grouping: VodCustomGrouping) {
-        viewModelScope.launch { container.prefs.setVodCustomGrouping(grouping) }
+        viewModelScope.launch {
+            container.prefs.setVodCustomGrouping(grouping)
+            container.prefs.setVodOrganizationMode(VodOrganizationMode.CUSTOM)
+        }
     }
 
     private suspend fun getFacetsMap(): Map<String, CatalogFacetRow> {
