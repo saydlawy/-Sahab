@@ -2,6 +2,9 @@ package com.saydlawy.sahab.data
 
 import android.util.Log
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.data.catalog.TmdbMatcher
+import com.saydlawy.sahab.data.catalog.encodeTmdbCastJson
+import com.saydlawy.sahab.data.catalog.parseCastMembersJson
 import com.saydlawy.sahab.data.channel.ChannelDao
 import java.net.URLEncoder
 import kotlinx.coroutines.CancellationException
@@ -511,7 +514,23 @@ class Repository(
         cachedPersistent("vod_info:$id", MovieDetails.serializer(), DETAILS_TTL_MS) {
             val json = request("get_vod_info", mapOf("vod_id" to id))
             val base = parseMovieDetails(id, json)
-            val tmdbData = try { tmdb.enrichMovie(base.name, base.year) } catch (e: Exception) { null }
+            val tmdbData = try {
+                if (tmdb.hasApiKey()) {
+                    val res = TmdbMatcher.enrich(
+                        tmdb = tmdb,
+                        rawName = base.name,
+                        categoryName = base.genre,
+                        novaYear = base.year.toIntOrNull(),
+                        maxQueries = 3,
+                        mediaType = "movie",
+                    )
+                    if (res.level == TmdbMatcher.Level.STRONG) res.movie else null
+                } else {
+                    null
+                }
+            } catch (_: Exception) {
+                null
+            }
             if (tmdbData == null) base else base.copy(
                 image = base.image.ifBlank { tmdbData.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }.orEmpty() },
                 backdrop = base.backdrop.ifBlank { tmdbData.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }.orEmpty() },
@@ -522,6 +541,9 @@ class Repository(
                 genre = base.genre.ifBlank { tmdbData.genres.joinToString(", ") { it.name } },
                 director = base.director.ifBlank { tmdbData.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty() },
                 cast = base.cast.ifBlank { tmdbData.credits?.cast?.take(5)?.joinToString(", ") { it.name }.orEmpty() },
+                castMembers = base.castMembers.ifEmpty { parseCastMembersJson(encodeTmdbCastJson(tmdbData.credits?.cast)) },
+                posterUrls = base.posterUrls.ifEmpty { tmdbData.posterUrls },
+                trailerUrl = base.trailerUrl.ifBlank { tmdbData.trailerUrl },
             )
         }
 
