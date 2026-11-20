@@ -87,6 +87,15 @@ class MainActivity : AppCompatActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+            val keyName = android.view.KeyEvent.keyCodeToString(event.keyCode)
+            val touchMode = window?.decorView?.isInTouchMode
+            android.util.Log.d("SAHAB_FOCUS", "KEY code=$keyName touchMode=$touchMode")
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
