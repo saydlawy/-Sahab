@@ -390,11 +390,19 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
+    var hasPreparedFirst by remember(exo) { mutableStateOf(false) }
+
     LaunchedEffect(item.id, ui.retryKey, ui.formatAttempt, ui.autoReconnectCount) {
         val activeItem = item
         vm.onPrepareStarted()
+        if (hasPreparedFirst) {
+            exo.stop()
+            exo.clearMediaItems()
+        }
         if (ui.autoReconnectCount > 0) {
             delay(1_100)
+        } else if (isLive && hasPreparedFirst && ui.retryKey == 0) {
+            delay(280L)
         }
         val url = try {
             vm.streamUrl(activeItem, ui.formatAttempt)
@@ -414,6 +422,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             .setUri(url)
             .setMediaMetadata(metadata)
             .build()
+        hasPreparedFirst = true
         exo.setMediaItem(mediaItem, resume)
         exo.prepare()
         exo.playWhenReady = true

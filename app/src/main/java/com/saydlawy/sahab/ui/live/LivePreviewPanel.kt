@@ -248,6 +248,11 @@ internal fun PreviewPanel(
             return@LaunchedEffect
         }
         previewError = null
+        previewExo?.stop()
+        previewExo?.clearMediaItems()
+        if (formatAttempt == 0 && retryNonce == 0) {
+            delay(280L)
+        }
         val url = runCatching {
             repo.streamUrl(PlayItem(Kind.LIVE, ch.id, ch.name, icon = ch.icon, url = ch.url), formatAttempt)
         }.getOrNull()
