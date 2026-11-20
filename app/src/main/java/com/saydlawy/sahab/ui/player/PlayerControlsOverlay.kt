@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -153,6 +154,7 @@ internal fun UnifiedFullscreenPlayerOsd(
     playbackSpeed: Float,
     showDrawer: Boolean,
     activeBitrateText: String? = null,
+    focusTick: Int = 0,
     playFocus: FocusRequester,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -175,6 +177,14 @@ internal fun UnifiedFullscreenPlayerOsd(
     }
     val hasDrawer = if (isLive) playlistCount > 1 else (item.kind == Kind.EPISODE || playlistCount > 1)
     val speedDesc = String.format(Locale.US, "%.2fx", playbackSpeed).replace(".00x", "x").replace("50x", "5x")
+
+    LaunchedEffect(focusTick, showDrawer) {
+        if (!showDrawer) {
+            withFrameNanos { }
+            withFrameNanos { }
+            runCatching { playFocus.requestFocus() }
+        }
+    }
 
     Box(
         modifier = Modifier

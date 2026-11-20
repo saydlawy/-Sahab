@@ -102,6 +102,7 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
     val aiState by vm.aiState.collectAsStateWithLifecycle()
     val refreshingMetadata by vm.refreshingMetadata.collectAsStateWithLifecycle()
     val container = LocalContainer.current
+    val focusNav = LocalFocusNavigation.current
     val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
         initialValue = container.prefs.currentActiveAccountId(),
     )
@@ -149,7 +150,10 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                             initialQuery = details.name,
                             onSearch = { q -> vm.searchTmdbCandidates(q) },
                             onSelect = { tmdbId -> vm.applyManualTmdbMatch(tmdbId) },
-                            onDismiss = { showTmdbPicker.value = false },
+                            onDismiss = {
+                                showTmdbPicker.value = false
+                                focusNav.restoreAfterDialogDismiss("series/${details.id}")
+                            },
                         )
                     }
                 }

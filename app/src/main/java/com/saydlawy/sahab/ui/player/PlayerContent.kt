@@ -497,27 +497,11 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    LaunchedEffect(controlsVisible, requestPlayFocusTick, showEpisodesDrawer, showQuickChannelsDrawer) {
-        if (showEpisodesDrawer || (showQuickChannelsDrawer && isLive)) {
-            delay(60)
+    LaunchedEffect(controlsVisible, showEpisodesDrawer, showQuickChannelsDrawer) {
+        if (!controlsVisible && !showEpisodesDrawer && !showQuickChannelsDrawer) {
             withFrameNanos { }
-            runCatching { drawerFocus.requestFocus() }
-        } else if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) {
-            delay(50)
-            withFrameNanos { }
-            runCatching { playFocus.requestFocus() }
-        } else if (!controlsVisible && !showEpisodesDrawer && !showQuickChannelsDrawer) {
-            delay(60)
             withFrameNanos { }
             runCatching { rootFocus.requestFocus() }
-        }
-    }
-    LaunchedEffect(Unit) {
-        delay(80)
-        withFrameNanos { }
-        runCatching {
-            if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) playFocus.requestFocus()
-            else rootFocus.requestFocus()
         }
     }
 
@@ -824,6 +808,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                             playbackSpeed = playbackSpeed,
                             showDrawer = if (isLive) showQuickChannelsDrawer else showEpisodesDrawer,
                             activeBitrateText = activeBitrateText,
+                            focusTick = requestPlayFocusTick,
                             playFocus = playFocus,
                             onBack = exitPlayerNow,
                             onTogglePlay = togglePlay,

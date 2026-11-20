@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -180,6 +181,9 @@ internal fun LiveChannelsDrawer(
             if (currentIndex > 0) {
                 channelListState.scrollToItem((currentIndex - 1).coerceAtLeast(0))
             }
+            withFrameNanos { }
+            withFrameNanos { }
+            runCatching { drawerFocus.requestFocus() }
         }
 
         LazyColumn(
@@ -306,6 +310,9 @@ internal fun VodEpisodesDrawer(
         if (targetIndex > 0) {
             episodeListState.scrollToItem((targetIndex - 1).coerceAtLeast(0))
         }
+        withFrameNanos { }
+        withFrameNanos { }
+        runCatching { drawerFocus.requestFocus() }
     }
 
     Column(
