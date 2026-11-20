@@ -44,6 +44,7 @@ data class CatalogMovieEntity(
     val identifiedTitle: String = "",
     val mediaType: String = "movie",
     val cast: String = "",
+    val castJson: String = "",
     val director: String = "",
     val genre: String = "",
     val runtime: String = "",
@@ -76,4 +77,32 @@ data class CatalogMovieEntity(
             return "local:" + digest.take(8).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         }
     }
+}
+
+fun encodeTmdbCastJson(cast: List<com.saydlawy.sahab.data.Cast>?): String {
+    if (cast.isNullOrEmpty()) return ""
+    return cast
+        .filter { it.name.isNotBlank() }
+        .joinToString("\n") { member ->
+            val safeName = member.name.replace("|", " ").replace("\n", " ").trim()
+            val photo = member.profilePath?.takeIf { it.isNotBlank() }
+                ?.let { "https://image.tmdb.org/t/p/w185$it" }
+                .orEmpty()
+            "$safeName|$photo"
+        }
+}
+
+fun parseCastMembersJson(raw: String): List<com.saydlawy.sahab.data.CastMember> {
+    if (raw.isBlank()) return emptyList()
+    return raw.lineSequence()
+        .mapNotNull { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@mapNotNull null
+            val parts = trimmed.split('|', limit = 2)
+            val name = parts[0].trim()
+            if (name.isEmpty()) return@mapNotNull null
+            val photo = parts.getOrNull(1)?.trim().orEmpty()
+            com.saydlawy.sahab.data.CastMember(name = name, photoUrl = photo)
+        }
+        .toList()
 }

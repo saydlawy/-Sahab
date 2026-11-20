@@ -276,13 +276,15 @@ private fun MovieNetflixContent(
                             plotFontSizeSp = 13,
                             plotLineHeightSp = 21,
                         )
-                        if (details.director.isNotBlank() || details.cast.isNotBlank()) {
+                        if (details.director.isNotBlank() || details.castMembers.isNotEmpty() || details.cast.isNotBlank()) {
                             Spacer(Modifier.height(12.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 if (details.director.isNotBlank()) {
                                     MovieDetailRow(Ar.director, details.director)
                                 }
-                                if (details.cast.isNotBlank()) {
+                                if (details.castMembers.isNotEmpty()) {
+                                    CastMembersRow(members = details.castMembers)
+                                } else if (details.cast.isNotBlank()) {
                                     MovieDetailRow(Ar.cast, details.cast)
                                 }
                             }

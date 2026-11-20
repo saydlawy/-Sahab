@@ -76,6 +76,7 @@ data class MovieDetails(
     val backdrop: String = "",
     val plot: String = "",
     val cast: String = "",
+    val castMembers: List<CastMember> = emptyList(),
     val director: String = "",
     val genre: String = "",
     val year: String = "",
@@ -106,6 +107,7 @@ data class SeriesDetails(
     val backdrop: String = "",
     val plot: String = "",
     val cast: String = "",
+    val castMembers: List<CastMember> = emptyList(),
     val genre: String = "",
     val year: String = "",
     val rating: String = "",
@@ -188,3 +190,9 @@ fun List<RecentItem>.trimPerAccount(maxPerAccount: Int = 30): List<RecentItem> =
         .values
         .flatMap { group -> group.sortedByDescending { it.updatedAt }.take(maxPerAccount) }
         .sortedByDescending { it.updatedAt }
+
+@Serializable
+data class CastMember(
+    val name: String,
+    val photoUrl: String = "",
+)

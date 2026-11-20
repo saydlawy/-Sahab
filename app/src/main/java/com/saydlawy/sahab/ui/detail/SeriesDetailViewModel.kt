@@ -152,6 +152,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                                 year = resolvedYear,
                                 plot = tv.overview.ifBlank { details.plot },
                                 cast = resolvedCast,
+                                castJson = com.saydlawy.sahab.data.catalog.encodeTmdbCastJson(tv.credits?.cast),
                                 genre = resolvedGenre,
                                 rating = resolvedRating,
                                 posterUrl = details.cover.ifBlank { cachedPoster?.image.orEmpty() },
@@ -195,6 +196,8 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                         backdrop = details.backdrop.ifBlank { mergedMeta.backdropUrl },
                         plot = details.plot.ifBlank { mergedMeta.plot },
                         cast = details.cast.ifBlank { mergedMeta.cast },
+                        castMembers = com.saydlawy.sahab.data.catalog.parseCastMembersJson(mergedMeta.castJson)
+                            .ifEmpty { details.castMembers },
                         genre = details.genre.ifBlank { mergedMeta.genre },
                         year = details.year.ifBlank { mergedMeta.year },
                         rating = cleanRating(details.rating).ifBlank { cleanRating(mergedMeta.rating) },

@@ -281,6 +281,7 @@ class TmdbApi(
                         releaseDate = item.firstAirDate,
                         voteCount = item.voteCount,
                         popularity = item.popularity,
+                        originalLanguage = item.originalLanguage,
                         adult = false,
                     )
                 }
@@ -328,6 +329,7 @@ data class TmdbSearchResult(
     @SerialName("release_date") val releaseDate: String = "",
     @SerialName("vote_count") val voteCount: Int = 0,
     val popularity: Double = 0.0,
+    @SerialName("original_language") val originalLanguage: String = "",
     val adult: Boolean = false,
 )
 
@@ -386,7 +388,10 @@ data class Credits(
 )
 
 @Serializable
-data class Cast(val name: String = "")
+data class Cast(
+    val name: String = "",
+    @SerialName("profile_path") val profilePath: String? = null,
+)
 
 @Serializable
 data class Crew(val name: String = "", val job: String = "")
@@ -402,6 +407,7 @@ private data class TvSearchItem(
     @SerialName("first_air_date") val firstAirDate: String = "",
     @SerialName("vote_count") val voteCount: Int = 0,
     val popularity: Double = 0.0,
+    @SerialName("original_language") val originalLanguage: String = "",
 )
 
 @Serializable

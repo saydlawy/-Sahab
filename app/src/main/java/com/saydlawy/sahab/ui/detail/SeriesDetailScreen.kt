@@ -360,7 +360,10 @@ private fun SeriesNetflixContent(
                             plotFontSizeSp = 13,
                             plotLineHeightSp = 21,
                         )
-                        if (details.cast.isNotBlank()) {
+                        if (details.castMembers.isNotEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            CastMembersRow(members = details.castMembers)
+                        } else if (details.cast.isNotBlank()) {
                             Spacer(Modifier.height(10.dp))
                             Row(verticalAlignment = Alignment.Top) {
                                 Text(

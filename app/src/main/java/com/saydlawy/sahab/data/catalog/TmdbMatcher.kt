@@ -242,7 +242,16 @@ object TmdbMatcher {
     }
 
     // ─────────────────────────────── Score ───────────────────────────────
-    fun scoreMatch(variants: List<String>, novaYear: Int?, tmdb: TmdbSearchResult): Score {
+    private fun shouldPreferArabic(rawName: String, categoryName: String): Boolean {
+        val cat = categoryName.lowercase()
+        val arabicCatHints = listOf("عربي", "عربى", "مصري", "مصرى", "خليجي", "سوري", "لبناني", "شامي", "رمضان", "arabic", "egypt")
+        if (arabicCatHints.any { cat.contains(it) }) return true
+        val foreignCatHints = listOf("أجنبي", "اجنبي", "foreign", "english", "انجليزي", "هندي", "indian", "تركي", "turkish", "كوري", "korean", "فرنسي", "french", "اسباني", "إسباني", "spanish", "اسيوي", "آسيوي", "انمي", "أنمي", "anime", "مدبلج", "مترجم")
+        if (foreignCatHints.any { cat.contains(it) }) return false
+        return rawName.any { it in '\u0600'..'\u06FF' }
+    }
+
+    fun scoreMatch(variants: List<String>, novaYear: Int?, tmdb: TmdbSearchResult, preferArabic: Boolean = false): Score {
         val tt = normalizeArabic(tmdb.title)
         val to = normalizeArabic(tmdb.originalTitle)
         val tmdbYear = tmdb.releaseDate.take(4).toIntOrNull()
@@ -279,12 +288,22 @@ object TmdbMatcher {
             0.5 to (titleSim * 0.60 + vt * 0.35 + min(pop / 100, 1.0) * 0.05)
         }
 
+        val langAdjusted = if (preferArabic) {
+            if (tmdb.originalLanguage.equals("ar", ignoreCase = true)) {
+                (final + 0.25).coerceAtMost(1.0)
+            } else {
+                (final - 0.18).coerceAtLeast(0.0)
+            }
+        } else {
+            final
+        }
+
         return Score(
             titleSim = round3(titleSim),
             jw = round3(bestJw),
             jaccard = round3(bestJac),
             yearMatch = ym,
-            final = round3(final),
+            final = round3(langAdjusted),
             tmdbYear = tmdbYear,
             votes = votes,
         )
@@ -393,12 +412,15 @@ object TmdbMatcher {
             }
             if (results.isEmpty()) continue
 
+            val preferArabic = shouldPreferArabic(rawName, categoryName)
+            var bestStrong: Pair<TmdbSearchResult, Score>? = null
             for (c in results.take(5)) {
-                val s = scoreMatch(variants, novaYear, c)
+                val s = scoreMatch(variants, novaYear, c, preferArabic)
                 when (acceptLevel(s)) {
                     Level.STRONG -> {
-                        val details = if (isTv) tmdb.getTvDetailsById(c.id) else tmdb.getMovieDetailsById(c.id)
-                        return EnrichResult(c.id, details, s, Level.STRONG, q.q, tried)
+                        if (bestStrong == null || s.final > bestStrong!!.second.final) {
+                            bestStrong = c to s
+                        }
                     }
                     Level.WEAK -> {
                         if (bestWeak == null || s.final > bestWeak!!.second.final) {
@@ -407,6 +429,11 @@ object TmdbMatcher {
                     }
                     else -> Unit
                 }
+            }
+            if (bestStrong != null) {
+                val (c, s) = bestStrong!!
+                val details = if (isTv) tmdb.getTvDetailsById(c.id) else tmdb.getMovieDetailsById(c.id)
+                return EnrichResult(c.id, details, s, Level.STRONG, q.q, tried)
             }
         }
 

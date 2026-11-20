@@ -234,6 +234,7 @@ class CatalogSync(
                 mediaType = normalizedType,
                 postersJson = cloudData.postersJson,
                 trailerUrl = cloudData.trailerUrl,
+                castJson = cloudData.castJson,
             )
             return null // تم الإثراء من Firebase بنجاح دون استدعاء TMDB
         }
@@ -278,6 +279,7 @@ class CatalogSync(
                 mediaType = normalizedType,
                 postersJson = movie.posterUrls.joinToString("\n"),
                 trailerUrl = movie.trailerUrl,
+                castJson = encodeTmdbCastJson(movie.credits?.cast),
             )
             if (existing.sahabId.startsWith("pending:")) {
                 runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
@@ -307,6 +309,7 @@ class CatalogSync(
                 mediaType = normalizedType,
                 postersJson = movie.posterUrls.joinToString("\n"),
                 trailerUrl = movie.trailerUrl,
+                castJson = encodeTmdbCastJson(movie.credits?.cast),
             )
             runCatching {
                 dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->

@@ -76,7 +76,7 @@ interface CatalogMovieDao {
     @Query(
         "UPDATE catalog_movies SET " +
             "tmdbId = :tmdbId, titleEn = :titleEn, year = :year, " +
-            "plot = :plot, cast = :cast, director = :director, genre = :genre, " +
+            "plot = :plot, cast = :cast, castJson = :castJson, director = :director, genre = :genre, " +
             "runtime = :runtime, rating = :rating, backdropUrl = :backdropUrl, " +
             "postersJson = :postersJson, trailerUrl = :trailerUrl, " +
             "tmdbVoteCount = :voteCount, needsEnrichment = :status, lastEnriched = :now " +
@@ -100,6 +100,7 @@ interface CatalogMovieDao {
         mediaType: String = "movie",
         postersJson: String = "",
         trailerUrl: String = "",
+        castJson: String = "",
     )
 
     @Query("SELECT novaStreamId FROM catalog_movies WHERE mediaType = :mediaType")

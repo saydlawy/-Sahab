@@ -368,6 +368,7 @@ class FirebaseCatalogService {
             put("identifiedTitle", entity.identifiedTitle)
             put("mediaType", normalizedMediaType)
             put("cast", entity.cast)
+            put("castJson", entity.castJson)
             put("director", entity.director)
             put("genre", entity.genre)
             put("runtime", entity.runtime)
@@ -464,6 +465,7 @@ class FirebaseCatalogService {
             identifiedTitle = data["identifiedTitle"] as? String ?: "",
             mediaType = data["mediaType"] as? String ?: "movie",
             cast = data["cast"] as? String ?: "",
+            castJson = data["castJson"] as? String ?: "",
             director = data["director"] as? String ?: "",
             genre = data["genre"] as? String ?: "",
             runtime = data["runtime"] as? String ?: "",

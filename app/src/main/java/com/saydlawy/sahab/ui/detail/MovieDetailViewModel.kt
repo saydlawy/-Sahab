@@ -148,6 +148,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             backdrop = backdropUrl.ifBlank { posterUrl },
             plot = plot,
             cast = cast,
+            castMembers = com.saydlawy.sahab.data.catalog.parseCastMembersJson(castJson),
             director = director,
             genre = genre,
             year = year,
