@@ -133,31 +133,57 @@ fun SettingsScreen(
             SahabTopBar(current = Routes.SETTINGS, onBack = onBack)
         }
 
-        if (bgEnrichStatus.active && bgEnrichStatus.total > 0) {
+        if ((bgEnrichStatus.active && bgEnrichStatus.total > 0) || bgEnrichStatus.failed > 0) {
+            val hasOnlyErrors = !bgEnrichStatus.active && bgEnrichStatus.failed > 0
+            val borderColor = if (hasOnlyErrors) Color(0x66F87171) else Color(0x4438BDF8)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = if (isWide) 24.dp else 16.dp, vertical = 6.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF162033))
-                    .border(1.dp, Color(0x4438BDF8), RoundedCornerShape(12.dp))
+                    .border(1.dp, borderColor, RoundedCornerShape(12.dp))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = Color(0xFF38BDF8),
-                )
-                Text(
-                    text = "جارٍ إكمال بيانات المكتبة في الخلفية (${bgEnrichStatus.done} / ${bgEnrichStatus.total})",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (bgEnrichStatus.active) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = Color(0xFF38BDF8),
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = buildString {
+                            if (bgEnrichStatus.active) {
+                                append("جارٍ إكمال بيانات المكتبة (${bgEnrichStatus.done} / ${bgEnrichStatus.total})")
+                                if (bgEnrichStatus.failed > 0) append(" • فشل: ${bgEnrichStatus.failed}")
+                                if (bgEnrichStatus.currentTitle.isNotBlank()) {
+                                    append(" — ")
+                                    append(bgEnrichStatus.currentTitle)
+                                }
+                            } else {
+                                append("انتهى إكمال المكتبة مع أخطاء (فشل ${bgEnrichStatus.failed} من ${bgEnrichStatus.total})")
+                            }
+                        },
+                        color = if (hasOnlyErrors) Color(0xFFFCA5A5) else Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (bgEnrichStatus.lastError.isNotBlank()) {
+                        Text(
+                            text = "آخر خطأ: ${bgEnrichStatus.lastError}",
+                            color = Color(0xFFFCA5A5),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
 

@@ -327,18 +327,28 @@ class BrowseViewModel(
             .filter { it.id !in bgEnrichAttempted }
             .take(60)
             .toList()
+        if (bgEnrichJob?.isActive == true) return
         if (missing.isEmpty()) return
-        bgEnrichJob?.cancel()
         bgEnrichJob = viewModelScope.launch(Dispatchers.IO) {
             delay(2_500L)
             val mediaType = if (series) "series" else "movie"
             val dao = container.catalogDb.movieDao()
             val total = missing.size
             var done = 0
+            var failed = 0
+            var lastError = ""
             container.catalogSync.reportBackgroundEnrichProgress(0, total, active = true)
             try {
                 for (poster in missing) {
                     if (!bgEnrichAttempted.add(poster.id)) continue
+                    container.catalogSync.reportBackgroundEnrichProgress(
+                        done = done,
+                        total = total,
+                        active = true,
+                        currentTitle = poster.name,
+                        failed = failed,
+                        lastError = lastError,
+                    )
                     runCatching {
                         if (dao.findByStreamId(poster.id, mediaType) == null) {
                             dao.upsert(
@@ -361,13 +371,31 @@ class BrowseViewModel(
                             force = false,
                             mediaType = mediaType,
                         )
+                    }.onFailure { err ->
+                        if (err is kotlinx.coroutines.CancellationException) throw err
+                        failed += 1
+                        lastError = err.message?.take(120) ?: err::class.java.simpleName
+                        android.util.Log.w("SAHAB_ENRICH", "Failed [${poster.id}] ${poster.name}: $lastError", err)
                     }
                     done += 1
-                    container.catalogSync.reportBackgroundEnrichProgress(done, total, active = true)
+                    container.catalogSync.reportBackgroundEnrichProgress(
+                        done = done,
+                        total = total,
+                        active = true,
+                        currentTitle = poster.name,
+                        failed = failed,
+                        lastError = lastError,
+                    )
                     delay(350L)
                 }
             } finally {
-                container.catalogSync.reportBackgroundEnrichProgress(done, total, active = false)
+                container.catalogSync.reportBackgroundEnrichProgress(
+                    done = done,
+                    total = total,
+                    active = false,
+                    failed = failed,
+                    lastError = lastError,
+                )
             }
         }
     }

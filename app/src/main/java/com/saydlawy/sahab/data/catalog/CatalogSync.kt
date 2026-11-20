@@ -51,13 +51,30 @@ class CatalogSync(
         val active: Boolean = false,
         val done: Int = 0,
         val total: Int = 0,
+        val currentTitle: String = "",
+        val failed: Int = 0,
+        val lastError: String = "",
     )
 
     private val _bgEnrichStatus = MutableStateFlow(BackgroundEnrichStatus())
     val bgEnrichStatus: StateFlow<BackgroundEnrichStatus> = _bgEnrichStatus
 
-    fun reportBackgroundEnrichProgress(done: Int, total: Int, active: Boolean) {
-        _bgEnrichStatus.value = BackgroundEnrichStatus(active = active, done = done, total = total)
+    fun reportBackgroundEnrichProgress(
+        done: Int,
+        total: Int,
+        active: Boolean,
+        currentTitle: String = "",
+        failed: Int = 0,
+        lastError: String = "",
+    ) {
+        _bgEnrichStatus.value = BackgroundEnrichStatus(
+            active = active,
+            done = done,
+            total = total,
+            currentTitle = currentTitle,
+            failed = failed,
+            lastError = lastError,
+        )
         val ctx = appContext ?: return
         val isTv = ctx.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
         if (isTv) return
@@ -82,7 +99,10 @@ class CatalogSync(
         val notif = androidx.core.app.NotificationCompat.Builder(ctx, channelId)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("سحاب — إكمال بيانات المكتبة")
-            .setContentText("تم تحديث $done من $total عمل")
+            .setContentText(
+                if (currentTitle.isNotBlank()) "($done/$total) $currentTitle"
+                else "تم تحديث $done من $total عمل"
+            )
             .setProgress(total, done.coerceAtMost(total), false)
             .setOngoing(true)
             .setSilent(true)
