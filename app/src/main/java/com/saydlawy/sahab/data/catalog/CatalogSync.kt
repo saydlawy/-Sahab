@@ -211,10 +211,10 @@ class CatalogSync(
             return null
         }
 
-        // 1. البحث في السحابة (Firebase) أولاً لتفادي استدعاء TMDB إذا كانت البيانات موجودة سحابياً
+        // 1. البحث في السحابة (Firebase) أولاً (نتخطاه عند التحديث اليدوي force لإعادة المطابقة)
         val cloudLookupId = existing.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
             ?: existing.sahabId
-        val cloudData = firebaseCatalog.getCatalogItem(cloudLookupId)
+        val cloudData = if (!force) firebaseCatalog.getCatalogItem(cloudLookupId) else null
         if (cloudData != null && cloudData.plot.isNotBlank()) {
             dao.applyEnrichment(
                 streamId = streamId,
@@ -249,7 +249,21 @@ class CatalogSync(
             cats.firstOrNull { it.id == existing.categoryId }?.name ?: ""
         }.getOrElse { "" }
 
-        val novaYear = existing.year.toIntOrNull()
+        val serverYear = if (force || existing.year.isBlank()) {
+            runCatching {
+                val rawYear = if (normalizedType.equals("series", ignoreCase = true)) {
+                    repo.seriesDetails(streamId).year
+                } else {
+                    repo.movieDetails(streamId).year
+                }
+                Regex("(19|20)\\d{2}").find(rawYear)?.value?.toIntOrNull()
+            }.getOrNull()
+        } else {
+            null
+        }
+        val novaYear = serverYear
+            ?: com.saydlawy.sahab.data.catalog.TmdbMatcher.extractYear(existing.titleAr, catName)
+            ?: if (!force) existing.year.toIntOrNull() else null
         val result = com.saydlawy.sahab.data.catalog.TmdbMatcher.enrich(
             tmdb = tmdb,
             rawName = existing.titleAr,
