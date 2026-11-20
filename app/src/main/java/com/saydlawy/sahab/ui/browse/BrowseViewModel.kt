@@ -140,7 +140,7 @@ class BrowseViewModel(
             .trim()
     }
 
-    private fun buildFacetMaps(rows: List<CatalogFacetRow>): Pair, Map<String, CatalogFacetRow>> {
+    private fun buildFacetMaps(rows: List<CatalogFacetRow>): Pair<Map<String, CatalogFacetRow>, Map<String, CatalogFacetRow>> {
         val byStream = HashMap<String, CatalogFacetRow>(rows.size)
         val byTitle = HashMap<String, CatalogFacetRow>(rows.size * 2)
         for (row in rows) {
