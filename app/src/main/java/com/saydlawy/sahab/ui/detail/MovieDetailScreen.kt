@@ -2,51 +2,53 @@ package com.saydlawy.sahab.ui.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
-import com.saydlawy.sahab.AppContainer
-import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.MovieDetails
 import com.saydlawy.sahab.data.PlayItem
 import com.saydlawy.sahab.data.PlayRequest
+import com.saydlawy.sahab.data.ai.AiGenerationState
 import com.saydlawy.sahab.data.forAccount
 import com.saydlawy.sahab.data.isFav
 import com.saydlawy.sahab.ui.DisplayMode
@@ -55,35 +57,25 @@ import com.saydlawy.sahab.ui.LocalDisplayMode
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.appViewModel
 import com.saydlawy.sahab.ui.components.DotTitle
-import com.saydlawy.sahab.ui.components.GlassButton
-import com.saydlawy.sahab.ui.components.GlassIconButton
 import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.Ic
-import com.saydlawy.sahab.ui.components.TrailerAutoPlayBox
 import com.saydlawy.sahab.ui.components.LoadingBox
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.ProgressLine
 import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.Tag
+import com.saydlawy.sahab.ui.components.TrailerAutoPlayBox
 import com.saydlawy.sahab.ui.components.qualityOf
-import com.saydlawy.sahab.ui.focus.restorableFocus
-import androidx.compose.runtime.remember
-import com.saydlawy.sahab.ui.theme.Palette
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
+import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.formatDuration
-import com.saydlawy.sahab.util.userMessage
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
-import com.saydlawy.sahab.data.ai.AiGenerationState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+
+private val NetflixRed = Color(0xFFE50914)
+private val NetflixMatchGreen = Color(0xFF46D369)
 
 @Composable
 fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> Unit) {
@@ -96,172 +88,203 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
         initialValue = container.prefs.currentActiveAccountId(),
     )
     val favorites by container.prefs.favorites.collectAsStateWithLifecycle(initialValue = emptyList())
-    val recents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allRecents by container.prefs.recents.collectAsStateWithLifecycle(initialValue = emptyList())
+    val recents = remember(allRecents, activeAccountId) { allRecents.forAccount(activeAccountId) }
 
-    Box(Modifier.fillMaxSize()) {
-        val details = state.data
-        if (details != null) {
-            val backdrop = details.backdrop.ifBlank { details.image }
-            RemoteImage(backdrop, Modifier.fillMaxSize().alpha(0.22f))
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Palette.DeepBlue.copy(alpha = 0.55f),
-                                Palette.DeepBlue.copy(alpha = 0.88f),
-                                Palette.DeepBlue.copy(alpha = 0.98f),
-                            ),
-                        ),
-                    ),
-            )
+    val details = state.data
+    val displayMode = LocalDisplayMode.current
+    val feedState = rememberRestorableLazyListState("movie_detail_feed_$id")
+    val showTopBar by remember(displayMode, feedState) {
+        derivedStateOf {
+            displayMode == DisplayMode.TABLET_OR_TV ||
+                !feedState.canScrollBackward ||
+                (feedState.firstVisibleItemIndex == 0 && feedState.firstVisibleItemScrollOffset < 28)
         }
+    }
 
+    Box(Modifier.fillMaxSize().background(Palette.CinematicBg)) {
         Column(Modifier.fillMaxSize()) {
-            SahabTopBar(current = Routes.MOVIES, onBack = onBack)
+            if (showTopBar) {
+                SahabTopBar(current = Routes.MOVIES, onBack = onBack)
+            }
 
             when {
                 state.loading -> LoadingBox()
                 details == null -> MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
                 else -> {
                     val isFavorite = favorites.isFav(activeAccountId, Kind.MOVIE, details.id)
-                    val resume = recents.forAccount(activeAccountId).firstOrNull { it.kind == Kind.MOVIE && it.id == details.id }
+                    val resume = recents.firstOrNull { it.kind == Kind.MOVIE && it.id == details.id }
                     val resumeMs = resume?.positionMs ?: 0L
                     val durationMs = resume?.durationMs ?: 0L
-                    val item = PlayItem(Kind.MOVIE, details.id, details.name, icon = details.image, ext = details.ext)
 
-                    val displayMode = LocalDisplayMode.current
-                    val hPad = when (displayMode) {
-                        DisplayMode.TABLET_OR_TV -> 36.dp
-                        DisplayMode.PHONE_LANDSCAPE -> 20.dp
-                        DisplayMode.PHONE_PORTRAIT -> 16.dp
-                    }
-                    val posterList = remember(details.id, details.posterUrls, details.image) {
-                        (if (details.posterUrls.isNotEmpty()) details.posterUrls else listOf(details.image))
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() }
-                            .distinct()
-                    }
-                    var selectedPosterIndex by remember(details.id, posterList) { mutableStateOf(0) }
-                    val activePoster = posterList.getOrElse(selectedPosterIndex) { details.image }
+                    MovieNetflixContent(
+                        details = details,
+                        resumeMs = resumeMs,
+                        durationMs = durationMs,
+                        isFavorite = isFavorite,
+                        aiState = aiState,
+                        refreshingMetadata = refreshingMetadata,
+                        feedState = feedState,
+                        onGenerateStory = { vm.generateAiStory() },
+                        onToggleFavorite = { vm.toggleFavorite(details) },
+                        onRefresh = { vm.refreshMetadata() },
+                        onPlay = onPlay,
+                    )
+                }
+            }
+        }
+    }
+}
 
-                    Box(Modifier.fillMaxSize()) {
+@Composable
+private fun MovieNetflixContent(
+    details: MovieDetails,
+    resumeMs: Long,
+    durationMs: Long,
+    isFavorite: Boolean,
+    aiState: AiGenerationState,
+    refreshingMetadata: Boolean,
+    feedState: LazyListState,
+    onGenerateStory: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onRefresh: () -> Unit,
+    onPlay: (PlayRequest) -> Unit,
+) {
+    val screenKey = remember(details.id) { "movie/${details.id}" }
+    val displayMode = LocalDisplayMode.current
+    val isPortrait = displayMode == DisplayMode.PHONE_PORTRAIT
+    val hPad = when (displayMode) {
+        DisplayMode.TABLET_OR_TV -> 28.dp
+        DisplayMode.PHONE_LANDSCAPE -> 18.dp
+        DisplayMode.PHONE_PORTRAIT -> 14.dp
+    }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = hPad, vertical = 14.dp),
+    val posterList = remember(details.id, details.posterUrls, details.image) {
+        (if (details.posterUrls.isNotEmpty()) details.posterUrls else listOf(details.image))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+    var selectedPosterIndex by remember(details.id, posterList) { mutableIntStateOf(0) }
+    val activePoster = posterList.getOrElse(selectedPosterIndex) { details.image }
+    val item = remember(details, activePoster) {
+        PlayItem(Kind.MOVIE, details.id, details.name, icon = activePoster, ext = details.ext)
+    }
+
+    val backdropAlpha by remember(feedState) {
+        derivedStateOf {
+            if (feedState.firstVisibleItemIndex > 0) 0f
+            else (1f - (feedState.firstVisibleItemScrollOffset / 280f)).coerceIn(0f, 1f)
+        }
+    }
+
+    val heroMedia = details.backdrop.ifBlank { activePoster }
+
+    Box(Modifier.fillMaxSize()) {
+        MovieHeroBackdrop(
+            backdropUrl = heroMedia,
+            fallbackPoster = activePoster,
+            trailerUrl = details.trailerUrl,
+            title = details.name,
+            scrollAlpha = backdropAlpha,
+        )
+
+        LazyColumn(
+            state = feedState,
+            modifier = Modifier.fillMaxSize().focusRestorer(),
+            contentPadding = PaddingValues(start = hPad, end = hPad, top = 8.dp, bottom = 36.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // 1. بانر الفيلم والأزرار في أول الصفحة
+            item(key = "movie_hero_block") {
+                MovieHeroInfoBlock(
+                    screenKey = screenKey,
+                    details = details,
+                    resumeMs = resumeMs,
+                    durationMs = durationMs,
+                    isFavorite = isFavorite,
+                    refreshingMetadata = refreshingMetadata,
+                    item = item,
+                    onToggleFavorite = onToggleFavorite,
+                    onRefresh = onRefresh,
+                    onPlay = onPlay,
+                    modifier = Modifier
+                        .fillMaxWidth(if (isPortrait) 1f else 0.58f)
+                        .padding(top = if (isPortrait) 110.dp else 8.dp),
+                )
+            }
+
+            // 2. شريط البوسترات البديلة (إن وُجدت)
+            if (posterList.size > 1) {
+                item(key = "movie_alt_posters") {
+                    val density = LocalDensity.current
+                    val thumbWidth = 56.dp
+                    val thumbWpx = remember(density) { with(density) { thumbWidth.roundToPx() } }
+                    val thumbHpx = remember(thumbWpx) { (thumbWpx * 3) / 2 }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DotTitle("بوسترات الفيلم", NetflixRed, fontSize = 15.sp)
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp),
                         ) {
-                            when (displayMode) {
-                                DisplayMode.TABLET_OR_TV -> {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(36.dp),
-                                        verticalAlignment = Alignment.Top,
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.width(190.dp),
-                                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                                        ) {
-                                            MoviePosterFrame(activePoster, details.name, Modifier.fillMaxWidth())
-                                            if (posterList.size > 1) {
-                                                MoviePostersStrip(
-                                                    posters = posterList.take(8),
-                                                    selectedIndex = selectedPosterIndex,
-                                                    title = details.name,
-                                                    onSelect = { selectedPosterIndex = it },
-                                                )
-                                            }
-                                        }
-                                        MovieInfoPanel(
-                                            details = details,
-                                            activePoster = activePoster,
-                                            resumeMs = resumeMs,
-                                            durationMs = durationMs,
-                                            isFavorite = isFavorite,
-                                            onToggleFavorite = { vm.toggleFavorite(details) },
-                                            item = item,
-                                            onPlay = onPlay,
-                                            modifier = Modifier.weight(1f),
-                                            onGenerateStory = { vm.generateAiStory() },
-                                            aiState = aiState,
-                                            refreshingMetadata = refreshingMetadata,
-                                            onRefreshMetadata = { vm.refreshMetadata() },
+                            itemsIndexed(posterList.take(10), key = { idx, url -> "${url}_$idx" }) { idx, url ->
+                                val selected = idx == selectedPosterIndex
+                                val thumbShape = RoundedCornerShape(10.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .width(thumbWidth)
+                                        .aspectRatio(2f / 3f)
+                                        .clip(thumbShape)
+                                        .border(
+                                            width = if (selected) 2.dp else 1.dp,
+                                            color = if (selected) Color.White else Palette.GlassBorder,
+                                            shape = thumbShape,
                                         )
-                                    }
-                                }
-                                DisplayMode.PHONE_LANDSCAPE -> {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(20.dp),
-                                        verticalAlignment = Alignment.Top,
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.width(140.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            MoviePosterFrame(activePoster, details.name, Modifier.fillMaxWidth())
-                                            if (posterList.size > 1) {
-                                                MoviePostersStrip(
-                                                    posters = posterList.take(8),
-                                                    selectedIndex = selectedPosterIndex,
-                                                    title = details.name,
-                                                    onSelect = { selectedPosterIndex = it },
-                                                )
-                                            }
-                                        }
-                                        MovieInfoPanel(
-                                            details = details,
-                                            activePoster = activePoster,
-                                            resumeMs = resumeMs,
-                                            durationMs = durationMs,
-                                            isFavorite = isFavorite,
-                                            onToggleFavorite = { vm.toggleFavorite(details) },
-                                            item = item,
-                                            onPlay = onPlay,
-                                            modifier = Modifier.weight(1f),
-                                            onGenerateStory = { vm.generateAiStory() },
-                                            aiState = aiState,
-                                            refreshingMetadata = refreshingMetadata,
-                                            onRefreshMetadata = { vm.refreshMetadata() },
-                                        )
-                                    }
-                                }
-                                DisplayMode.PHONE_PORTRAIT -> {
-                                    MoviePosterFrame(
-                                        activePoster,
-                                        details.name,
-                                        Modifier.width(160.dp).align(Alignment.CenterHorizontally),
-                                    )
-                                    if (posterList.size > 1) {
-                                        Spacer(Modifier.height(10.dp))
-                                        MoviePostersStrip(
-                                            posters = posterList,
-                                            selectedIndex = selectedPosterIndex,
-                                            title = details.name,
-                                            onSelect = { selectedPosterIndex = it },
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
-                                    }
-                                    Spacer(Modifier.height(18.dp))
-                                    MovieInfoPanel(
-                                        details = details,
-                                        activePoster = activePoster,
-                                        resumeMs = resumeMs,
-                                        durationMs = durationMs,
-                                        isFavorite = isFavorite,
-                                        onToggleFavorite = { vm.toggleFavorite(details) },
-                                        item = item,
-                                        onPlay = onPlay,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onGenerateStory = { vm.generateAiStory() },
-                                        aiState = aiState,
-                                        refreshingMetadata = refreshingMetadata,
-                                        onRefreshMetadata = { vm.refreshMetadata() },
+                                        .clickable { selectedPosterIndex = idx },
+                                ) {
+                                    RemoteImage(
+                                        url = url,
+                                        fallbackText = details.name,
+                                        alignment = Alignment.TopCenter,
+                                        targetWidthPx = thumbWpx,
+                                        targetHeightPx = thumbHpx,
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
                             }
-                            Spacer(Modifier.height(48.dp))
+                        }
+                    }
+                }
+            }
+
+            // 3. بطاقة القصة الكاملة والمخرج وطاقم التمثيل وتوليد القصة بالذكاء الاصطناعي
+            item(key = "movie_story_and_cast") {
+                val themeCustomization = LocalThemeCustomization.current
+                if (themeCustomization.isVisible("details_metadata")) {
+                    GlassPanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        padding = 16.dp,
+                    ) {
+                        AiStoryPlotSection(
+                            plot = details.plot,
+                            emptyLabel = "لا توجد قصة متاحة لهذا الفيلم.",
+                            aiState = aiState,
+                            onGenerateStory = onGenerateStory,
+                            plotFontSizeSp = 13,
+                            plotLineHeightSp = 21,
+                        )
+                        if (details.director.isNotBlank() || details.cast.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (details.director.isNotBlank()) {
+                                    MovieDetailRow(Ar.director, details.director)
+                                }
+                                if (details.cast.isNotBlank()) {
+                                    MovieDetailRow(Ar.cast, details.cast)
+                                }
+                            }
                         }
                     }
                 }
@@ -271,244 +294,238 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
 }
 
 @Composable
-private fun MoviePosterFrame(url: String, title: String, modifier: Modifier) {
-    val shape = RoundedCornerShape(24.dp)
-    Box(
-        modifier
-            .aspectRatio(2f / 3f)
-            .shadow(20.dp, shape, ambientColor = Palette.Royal, spotColor = Palette.Glow)
-            .clip(shape)
-            .background(Palette.Glass)
-            .border(1.5.dp, Palette.Glow.copy(alpha = 0.45f), shape)
-            .padding(6.dp),
-    ) {
-        RemoteImage(
-            url = url,
-            fallbackText = title,
-            modifier = Modifier
+private fun MovieHeroBackdrop(
+    backdropUrl: String,
+    fallbackPoster: String,
+    trailerUrl: String,
+    title: String,
+    scrollAlpha: Float,
+) {
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val bg = Palette.CinematicBg
+    val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
+    val clampedAlpha = scrollAlpha.coerceIn(0f, 1f)
+
+    Box(Modifier.fillMaxSize()) {
+        if (clampedAlpha > 0.02f) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxWidth(if (compact) 1f else 0.68f)
+                    .fillMaxHeight(if (compact) 0.42f else 0.72f)
+                    .graphicsLayer { alpha = clampedAlpha },
+            ) {
+                val primaryImage = backdropUrl.ifBlank { fallbackPoster }
+                val isPortraitOnly = backdropUrl.isBlank() || backdropUrl == fallbackPoster
+                if (trailerUrl.isNotBlank() || !isPortraitOnly) {
+                    TrailerAutoPlayBox(
+                        trailerUrl = trailerUrl,
+                        posterUrl = primaryImage,
+                        title = title,
+                        autoPlayDelayMs = 250L,
+                        startMuted = true,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    RemoteImage(
+                        url = primaryImage,
+                        fallbackText = title,
+                        contentScale = ContentScale.Crop,
+                        alignment = Alignment.TopCenter,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+
+                val sideStops = if (rtl) {
+                    arrayOf(0.0f to bg.copy(alpha = 0.28f), 0.14f to Color.Transparent, 0.70f to bg.copy(alpha = 0.68f), 1.0f to bg)
+                } else {
+                    arrayOf(0.0f to bg, 0.30f to bg.copy(alpha = 0.68f), 0.86f to Color.Transparent, 1.0f to bg.copy(alpha = 0.28f))
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            if (compact) Brush.horizontalGradient(listOf(bg.copy(alpha = 0.25f), bg.copy(alpha = 0.25f)))
+                            else Brush.horizontalGradient(colorStops = sideStops),
+                        ),
+                )
+            }
+        }
+
+        Box(
+            Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(18.dp)),
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to bg.copy(alpha = 0.45f),
+                            0.24f to Color.Transparent,
+                            if (compact) 0.42f to bg else 0.65f to bg.copy(alpha = 0.94f),
+                            1.0f to bg,
+                        ),
+                    ),
+                ),
         )
     }
 }
 
 @Composable
-private fun MoviePostersStrip(
-    posters: List<String>,
-    selectedIndex: Int,
-    title: String,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    LazyRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        itemsIndexed(posters, key = { idx, url -> "${url}_$idx" }) { idx, url ->
-            val selected = idx == selectedIndex
-            val thumbShape = RoundedCornerShape(10.dp)
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .aspectRatio(2f / 3f)
-                    .clip(thumbShape)
-                    .border(
-                        width = if (selected) 2.dp else 1.dp,
-                        color = if (selected) Palette.Glow else Palette.GlassBorder,
-                        shape = thumbShape,
-                    )
-                    .clickable { onSelect(idx) },
-            ) {
-                RemoteImage(
-                    url = url,
-                    fallbackText = title,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MovieInfoPanel(
+private fun MovieHeroInfoBlock(
+    screenKey: String,
     details: MovieDetails,
-    activePoster: String,
     resumeMs: Long,
     durationMs: Long,
     isFavorite: Boolean,
-    onToggleFavorite: () -> Unit,
+    refreshingMetadata: Boolean,
     item: PlayItem,
+    onToggleFavorite: () -> Unit,
+    onRefresh: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
-    modifier: Modifier,
-    onGenerateStory: () -> Unit = {},
-    aiState: AiGenerationState = AiGenerationState.Idle,
-    refreshingMetadata: Boolean = false,
-    onRefreshMetadata: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
-    val themeCustomization = LocalThemeCustomization.current
-    val showMetadata = themeCustomization.isVisible("details_metadata")
-    val showActions = themeCustomization.isVisible("details_actions")
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        if (details.trailerUrl.isNotBlank()) {
-            TrailerAutoPlayBox(
-                trailerUrl = details.trailerUrl,
-                posterUrl = details.backdrop.ifBlank { activePoster },
-                title = details.name,
-                autoPlayDelayMs = 200L,
-                startMuted = false,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(210.dp)
-                    .clip(RoundedCornerShape(18.dp)),
-            )
-        }
-        if (showMetadata) {
-            Text(
-                details.name,
-                style = TextStyle(brush = Palette.BrandText, fontSize = 32.sp, fontWeight = FontWeight.Bold),
-            )
+    val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
+    val cleanRating = details.rating.trim().takeIf {
+        it.isNotBlank() && it != "0" && it != "0.0" && it != "0.00"
+    }.orEmpty()
 
-            // Metadata badges row
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(NetflixRed)
+                    .padding(horizontal = 6.dp, vertical = 1.5.dp),
             ) {
+                Text("N", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            }
+            Text(
+                text = "فيلم سينمائي",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
             qualityOf(details.name)?.let { q ->
-                Tag(q, if (q == "4K") Palette.Gold else Palette.Glow)
-            }
-            if (details.year.isNotBlank()) {
-                Tag(details.year, Palette.Royal)
-            }
-            if (details.duration.isNotBlank()) {
-                Text(details.duration, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Palette.TextDim)
-            }
-            if (details.rating.isNotBlank()) {
-                Row(
-                    Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(Palette.Gold.copy(alpha = 0.16f))
-                        .border(1.dp, Palette.Gold.copy(alpha = 0.4f), RoundedCornerShape(50))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Ic.Star, contentDescription = null, tint = Palette.Gold, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(details.rating, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Gold)
-                }
+                Tag(q, if (q == "4K") Palette.Gold else Palette.Glow, fontSize = 10.sp)
             }
             if (details.ext.isNotBlank()) {
-                Tag(details.ext.uppercase(), Palette.TextDim)
-            }
-            }
-
-            // Genre tags
-            if (details.genre.isNotBlank()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    details.genre.split(",", "،", "/").map { it.trim() }.filter { it.isNotBlank() }.take(4).forEach { g ->
-                        Tag(g, Palette.Glow, fontSize = 12.sp)
-                    }
-                }
-            }
-
-            if (resumeMs > 10_000 && durationMs > 0) {
-                ProgressLine((resumeMs.toFloat() / durationMs).coerceIn(0f, 1f), Modifier.fillMaxWidth(0.6f), height = 5.dp)
+                Tag(details.ext.uppercase(), Palette.TextDim, fontSize = 10.sp)
             }
         }
 
-        // Actions
-        val screenKey = remember(details.id) { "movie/${details.id}" }
-        if (showActions) Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Text(
+            text = details.name,
+            color = Color.White,
+            fontSize = if (compact) 21.sp else 25.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        val metaParts = buildList {
+            if (details.year.isNotBlank()) add(details.year)
+            val primaryGenre = details.genre.substringBefore(",").substringBefore("،").trim()
+            if (primaryGenre.isNotBlank()) add(primaryGenre)
+            if (details.duration.isNotBlank()) add(details.duration)
+        }
+        if (cleanRating.isNotBlank() || metaParts.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (cleanRating.isNotBlank()) {
+                    Text(
+                        text = "تقييم $cleanRating",
+                        color = NetflixMatchGreen,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+                if (metaParts.isNotEmpty()) {
+                    Text(
+                        text = metaParts.joinToString("  •  "),
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        if (details.plot.isNotBlank()) {
+            Text(
+                text = details.plot,
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (resumeMs > 10_000 && durationMs > 0) {
+            ProgressLine(
+                fraction = (resumeMs.toFloat() / durationMs).coerceIn(0f, 1f),
+                modifier = Modifier.fillMaxWidth(0.7f),
+                height = 4.dp,
+            )
+        }
+
+        Spacer(Modifier.height(2.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val canResume = resumeMs > 10_000
-            GlassButton(
+            DetailPillButton(
                 text = if (canResume) Ar.resumeFrom(formatDuration(resumeMs)) else Ar.play,
-                onClick = { onPlay(PlayRequest(listOf(item), 0, initialPositionMs = resumeMs)) },
                 icon = Ic.Play,
                 primary = true,
-                autoFocus = false,
-                modifier = Modifier.restorableFocus(
-                    screenKey = screenKey,
-                    itemKey = "movie_play_btn",
-                    isDefaultEntry = true,
-                ),
+                screenKey = screenKey,
+                focusKey = "movie_play_btn",
+                isDefaultEntry = true,
+                onClick = { onPlay(PlayRequest(listOf(item), 0, initialPositionMs = resumeMs)) },
             )
             if (canResume) {
-                GlassButton(
+                DetailPillButton(
                     text = Ar.fromStart,
+                    icon = Ic.Refresh,
+                    primary = false,
+                    screenKey = screenKey,
+                    focusKey = "movie_from_start_btn",
                     onClick = { onPlay(PlayRequest(listOf(item), 0, fromStart = true)) },
-                    modifier = Modifier.restorableFocus(
-                        screenKey = screenKey,
-                        itemKey = "movie_from_start_btn",
-                    ),
                 )
             }
-            GlassIconButton(
+            DetailPillButton(
+                text = if (isFavorite) "في قائمتي" else "+ قائمتي",
                 icon = if (isFavorite) Ic.Heart else Ic.HeartOutline,
-                description = Ar.favorites,
+                primary = false,
+                screenKey = screenKey,
+                focusKey = "movie_fav_btn",
                 onClick = onToggleFavorite,
-                size = 54.dp,
-                selected = isFavorite,
-                tint = if (isFavorite) Palette.Live else Palette.Glow,
-                modifier = Modifier.restorableFocus(
-                    screenKey = screenKey,
-                    itemKey = "movie_fav_btn",
-                ),
             )
-            GlassIconButton(
+            DetailCircleIconButton(
                 icon = Ic.Refresh,
-                description = "تحديث المعلومات",
-                onClick = onRefreshMetadata,
-                size = 54.dp,
-                selected = refreshingMetadata,
-                tint = if (refreshingMetadata) Palette.Gold else Palette.Glow,
-                modifier = Modifier.restorableFocus(
-                    screenKey = screenKey,
-                    itemKey = "movie_refresh_btn",
-                ),
+                description = Ar.refreshData,
+                active = refreshingMetadata,
+                screenKey = screenKey,
+                focusKey = "movie_refresh_btn",
+                onClick = onRefresh,
             )
-        }
-
-        // Plot & cast inside a glass panel
-        if (showMetadata) GlassPanel(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            padding = 20.dp,
-        ) {
-            AiStoryPlotSection(
-                plot = details.plot,
-                emptyLabel = "لا توجد قصة متاحة لهذا الفيلم.",
-                aiState = aiState,
-                onGenerateStory = onGenerateStory,
-            )
-            Spacer(Modifier.height(18.dp))
-
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (details.director.isNotBlank()) {
-                    DetailRow(Ar.director, details.director)
-                }
-                if (details.cast.isNotBlank()) {
-                    DetailRow(Ar.cast, details.cast)
-                }
-            }
         }
     }
 }
 
 @Composable
-private fun DetailRow(label: String, value: String) {
+private fun MovieDetailRow(label: String, value: String) {
     Row(verticalAlignment = Alignment.Top) {
         Text(
             text = label,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = Palette.Glow,
-            modifier = Modifier.width(96.dp),
+            modifier = Modifier.width(88.dp),
         )
         Text(
             text = value,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             color = Palette.Text,
             modifier = Modifier.weight(1f),
         )

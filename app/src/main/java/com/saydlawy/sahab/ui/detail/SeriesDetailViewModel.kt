@@ -6,6 +6,8 @@ import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.SeriesDetails
+import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.data.catalog.TmdbMatcher
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -14,108 +16,202 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class SeriesDetailViewModel(private val container: AppContainer, private val id: String) : ViewModel() {
 
     private val _state = MutableStateFlow(DetailUiState<SeriesDetails>())
     val state = _state.asStateFlow()
 
+    private val _refreshingMetadata = MutableStateFlow(false)
+    val refreshingMetadata = _refreshingMetadata.asStateFlow()
+
     init {
         load()
     }
 
     fun load() {
-        refreshMetadata()
+        fetchDetails(forceRefresh = false)
     }
 
     fun refreshMetadata() {
+        if (_refreshingMetadata.value) return
+        fetchDetails(forceRefresh = true)
+    }
+
+    private fun cleanRating(raw: String): String {
+        val v = raw.trim()
+        if (v.isBlank() || v == "0" || v == "0.0" || v == "0.00") return ""
+        return v
+    }
+
+    private fun fetchDetails(forceRefresh: Boolean) {
         viewModelScope.launch {
-            _state.update { DetailUiState(loading = true) }
+            if (forceRefresh) {
+                _refreshingMetadata.value = true
+            } else {
+                _state.update { DetailUiState(loading = true) }
+            }
             try {
                 var details = container.repo.seriesDetails(id)
-                val needsMeta = details.plot.isBlank() ||
+                details = details.copy(rating = cleanRating(details.rating))
+
+                val needsMeta = forceRefresh ||
+                    details.plot.isBlank() ||
                     details.genre.isBlank() ||
                     details.year.isBlank() ||
                     details.rating.isBlank() ||
                     details.cast.isBlank() ||
                     details.backdrop.isBlank()
 
-                if (needsMeta) {
-                    val mergedMeta = withContext(Dispatchers.IO) {
-                        var candidate = runCatching {
-                            container.catalogDb.movieDao().findByStreamIdAndType(id, "series")
-                        }.getOrNull()
+                var mergedMeta: CatalogMovieEntity? = withContext(Dispatchers.IO) {
+                    runCatching {
+                        container.catalogDb.movieDao().findByStreamIdAndType(id, "series")
+                    }.getOrNull()
+                }
 
-                        if (candidate == null || candidate.plot.isBlank()) {
-                            val remote = runCatching {
-                                container.firebaseCatalog.getCatalogItem("series_pending:$id")
-                            }.getOrNull()
-                            if (remote != null && (remote.plot.isNotBlank() || remote.genre.isNotBlank() || remote.year.isNotBlank())) {
-                                val normalized = remote.copy(novaStreamId = id, mediaType = "series")
-                                runCatching { container.catalogDb.movieDao().upsert(normalized) }
-                                candidate = normalized
+                if (needsMeta) {
+                    // 1. البحث في Firebase السحابي بجميع صيغ المعرّفات (مطابقة مع بانر الهيرو)
+                    if (forceRefresh || mergedMeta == null || mergedMeta.plot.isBlank() || mergedMeta.backdropUrl.isBlank()) {
+                        val cloudCandidate = withContext(Dispatchers.IO) {
+                            val lookupIds = buildList {
+                                mergedMeta?.tmdbId?.takeIf { it > 0 }?.let { add(CatalogMovieEntity.idFromTmdb(it)) }
+                                mergedMeta?.sahabId?.takeIf { it.isNotBlank() }?.let { add(it) }
+                                add(CatalogMovieEntity.idPending(id))
+                                add("series_pending:$id")
+                            }.distinct()
+
+                            var found: CatalogMovieEntity? = null
+                            for (lid in lookupIds) {
+                                val remote = runCatching { container.firebaseCatalog.getCatalogItem(lid) }.getOrNull()
+                                if (remote != null && (remote.plot.isNotBlank() || remote.backdropUrl.isNotBlank() || remote.genre.isNotBlank())) {
+                                    found = remote.copy(novaStreamId = id, mediaType = "series")
+                                    break
+                                }
+                            }
+                            if (found != null) {
+                                runCatching { container.catalogDb.movieDao().upsert(found) }
+                            }
+                            found
+                        }
+                        if (cloudCandidate != null) {
+                            mergedMeta = cloudCandidate
+                        }
+                    }
+
+                    // 2. إثراء مباشر من TMDB عند نقص القصة أو الخلفية أو التحديث الإجباري
+                    if (container.tmdb.hasApiKey() &&
+                        (forceRefresh || mergedMeta == null || mergedMeta.plot.isBlank() || mergedMeta.backdropUrl.isBlank())
+                    ) {
+                        val cachedPoster = withContext(Dispatchers.IO) {
+                            runCatching { container.repo.peekAllSeries()?.firstOrNull { it.id == id } }.getOrNull()
+                        }
+                        val catName = withContext(Dispatchers.IO) {
+                            val cid = cachedPoster?.categoryId.orEmpty()
+                            if (cid.isBlank()) "" else {
+                                runCatching { container.repo.seriesCategories().firstOrNull { it.id == cid }?.name.orEmpty() }.getOrDefault("")
                             }
                         }
+                        val rawTitle = details.name.ifBlank { cachedPoster?.name.orEmpty() }
+                        val novaYear = details.year.ifBlank { cachedPoster?.year.orEmpty() }.toIntOrNull()
 
-                        if (candidate == null || candidate.plot.isBlank()) {
+                        val enriched = withContext(Dispatchers.IO) {
                             runCatching {
-                                container.catalogSync.enrichOne(
-                                    repo = container.repo,
+                                TmdbMatcher.enrich(
                                     tmdb = container.tmdb,
-                                    streamId = id,
+                                    rawName = rawTitle,
+                                    categoryName = catName,
+                                    novaYear = novaYear,
                                     mediaType = "series",
                                 )
-                                container.catalogDb.movieDao().findByStreamIdAndType(id, "series")
-                            }.getOrNull()?.let { enriched ->
-                                candidate = enriched
-                            }
+                            }.getOrNull()
                         }
-                        candidate
-                    }
+                        val tv = enriched?.movie
+                        if (tv != null && (enriched.level == TmdbMatcher.Level.STRONG || enriched.level == TmdbMatcher.Level.WEAK)) {
+                            val now = System.currentTimeMillis()
+                            val resolvedRating = if (tv.voteAverage > 0) {
+                                String.format(Locale.US, "%.1f", tv.voteAverage)
+                            } else {
+                                details.rating
+                            }
+                            val resolvedBackdrop = tv.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }
+                                ?.ifBlank { details.backdrop.ifBlank { details.cover } }
+                                ?: details.backdrop.ifBlank { details.cover }
+                            val resolvedGenre = tv.genres.joinToString(", ") { it.name }.ifBlank { details.genre }
+                            val resolvedYear = tv.releaseDate.take(4).ifBlank { details.year }
+                            val resolvedCast = tv.credits?.cast?.take(6)?.joinToString(", ") { it.name }
+                                ?.ifBlank { details.cast } ?: details.cast
 
-                    if (mergedMeta != null) {
-                        details = details.copy(
-                            backdrop = details.backdrop.ifBlank { mergedMeta.backdropUrl },
-                            plot = details.plot.ifBlank { mergedMeta.plot },
-                            cast = details.cast.ifBlank { mergedMeta.cast },
-                            genre = details.genre.ifBlank { mergedMeta.genre },
-                            year = details.year.ifBlank { mergedMeta.year },
-                            rating = details.rating.ifBlank { mergedMeta.rating },
-                        )
+                            val entity = CatalogMovieEntity(
+                                sahabId = CatalogMovieEntity.idFromTmdb(tv.id),
+                                novaStreamId = id,
+                                categoryId = cachedPoster?.categoryId.orEmpty(),
+                                mediaType = "series",
+                                titleAr = rawTitle,
+                                titleEn = tv.title,
+                                year = resolvedYear,
+                                plot = tv.overview.ifBlank { details.plot },
+                                cast = resolvedCast,
+                                genre = resolvedGenre,
+                                rating = resolvedRating,
+                                posterUrl = details.cover.ifBlank { cachedPoster?.image.orEmpty() },
+                                backdropUrl = resolvedBackdrop,
+                                tmdbId = tv.id,
+                                tmdbVoteCount = tv.voteCount,
+                                postersJson = tv.posterUrls.joinToString("\n"),
+                                trailerUrl = tv.trailerUrl.ifBlank { details.trailerUrl },
+                                needsEnrichment = 0,
+                                lastEnriched = now,
+                                lastSeen = now,
+                            )
+                            withContext(Dispatchers.IO) {
+                                runCatching { container.catalogDb.movieDao().upsert(entity) }
+                            }
+                            container.appScope.launch(Dispatchers.IO) {
+                                runCatching { container.firebaseCatalog.saveCatalogItem(entity) }
+                            }
+                            mergedMeta = entity
+                        }
                     }
                 }
-                val catalogRecord = withContext(Dispatchers.IO) {
-                    runCatching { container.catalogDb.movieDao().findByStreamIdAndType(id, "series") }.getOrNull()
-                }
-                if (catalogRecord != null) {
-                    val posters = catalogRecord.postersJson
+
+                if (mergedMeta != null) {
+                    val posters = mergedMeta.postersJson
                         .lineSequence()
-                        .map { line -> line.trim() }
-                        .filter { line -> line.isNotEmpty() }
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
                         .toList()
-                    val resolvedTrailer = if (catalogRecord.trailerUrl.isNotBlank()) {
-                        catalogRecord.trailerUrl
-                    } else {
-                        val tid = catalogRecord.tmdbId
+                    val resolvedTrailer = mergedMeta.trailerUrl.ifBlank {
+                        val tid = mergedMeta.tmdbId
                         if (tid != null && container.tmdb.hasApiKey()) {
                             withContext(Dispatchers.IO) {
                                 runCatching { container.tmdb.getTvDetailsById(tid)?.trailerUrl }.getOrNull().orEmpty()
                             }
                         } else {
-                            ""
+                            details.trailerUrl
                         }
                     }
                     details = details.copy(
-                        backdrop = details.backdrop.ifBlank { catalogRecord.backdropUrl },
-                        posterUrls = posters,
-                        trailerUrl = resolvedTrailer,
+                        backdrop = details.backdrop.ifBlank { mergedMeta.backdropUrl },
+                        plot = details.plot.ifBlank { mergedMeta.plot },
+                        cast = details.cast.ifBlank { mergedMeta.cast },
+                        genre = details.genre.ifBlank { mergedMeta.genre },
+                        year = details.year.ifBlank { mergedMeta.year },
+                        rating = cleanRating(details.rating).ifBlank { cleanRating(mergedMeta.rating) },
+                        posterUrls = if (posters.isNotEmpty()) posters else details.posterUrls,
+                        trailerUrl = resolvedTrailer.ifBlank { details.trailerUrl },
                     )
                 }
+
                 _state.update { DetailUiState(loading = false, data = details) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.update { DetailUiState(loading = false, error = e.userMessage()) }
+                if (!forceRefresh) {
+                    _state.update { DetailUiState(loading = false, error = e.userMessage()) }
+                }
+            } finally {
+                _refreshingMetadata.value = false
             }
         }
     }
@@ -133,7 +229,6 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
     )
     val aiState = _aiState.asStateFlow()
 
-    /** O-02: Generate series story using Gemini key rotation and persist to global_catalog. */
     fun generateAiStory() {
         viewModelScope.launch {
             _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Loading
@@ -157,30 +252,34 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
             when (result) {
                 is com.saydlawy.sahab.data.ai.GeminiResult.Success -> {
                     val now = System.currentTimeMillis()
-                    val entity = com.saydlawy.sahab.data.catalog.CatalogMovieEntity(
-                        sahabId = "series_pending:$id",
+                    val existing = withContext(Dispatchers.IO) {
+                        runCatching { container.catalogDb.movieDao().findByStreamIdAndType(id, "series") }.getOrNull()
+                    }
+                    val entity = (existing ?: CatalogMovieEntity(
+                        sahabId = CatalogMovieEntity.idPending(id),
                         novaStreamId = id,
                         mediaType = "series",
                         titleAr = details.name,
                         year = details.year,
-                        plot = result.story,
-                        plotSource = "gemini_user_key",
-                        plotConfidence = result.confidence,
-                        identifiedTitle = result.identifiedTitle,
                         posterUrl = details.cover,
                         backdropUrl = details.backdrop,
                         cast = details.cast,
                         genre = details.genre,
                         rating = details.rating,
+                    )).copy(
+                        plot = result.story,
+                        plotSource = "gemini_user_key",
+                        plotConfidence = result.confidence,
+                        identifiedTitle = result.identifiedTitle,
                         needsEnrichment = 0,
                         lastEnriched = now,
                         lastSeen = now,
                     )
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    withContext(Dispatchers.IO) {
                         runCatching { container.catalogDb.movieDao().upsert(entity) }
                     }
-                    container.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        container.firebaseCatalog.saveCatalogItem(entity)
+                    container.appScope.launch(Dispatchers.IO) {
+                        runCatching { container.firebaseCatalog.saveCatalogItem(entity) }
                     }
                     _state.update { st ->
                         val d = st.data

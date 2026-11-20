@@ -1,10 +1,10 @@
 package com.saydlawy.sahab.ui.components
 
+import android.view.Surface
 import androidx.annotation.OptIn
+import androidx.compose.foundation.AndroidEmbeddedExternalSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -25,12 +25,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.player.SahabPlayer
 import com.saydlawy.sahab.ui.theme.Palette
@@ -57,11 +57,13 @@ fun TrailerAutoPlayBox(
     val hasMediaSource = playableUrl != null || youtubeVideoId != null
 
     var shouldPlay by remember(cleanUrl) { mutableStateOf(false) }
+    var videoReady by remember(cleanUrl) { mutableStateOf(false) }
     var muted by remember(cleanUrl) { mutableStateOf(startMuted) }
     var player by remember(cleanUrl) { mutableStateOf<ExoPlayer?>(null) }
 
     LaunchedEffect(cleanUrl) {
         shouldPlay = false
+        videoReady = false
         if (!hasMediaSource) return@LaunchedEffect
         delay(autoPlayDelayMs)
         shouldPlay = true
@@ -85,6 +87,11 @@ fun TrailerAutoPlayBox(
             ).apply {
                 repeatMode = Player.REPEAT_MODE_ONE
                 volume = if (muted) 0f else 1f
+                addListener(object : Player.Listener {
+                    override fun onRenderedFirstFrame() {
+                        videoReady = true
+                    }
+                })
                 setMediaItem(MediaItem.fromUri(playableUrl))
                 prepare()
                 playWhenReady = true
@@ -99,6 +106,7 @@ fun TrailerAutoPlayBox(
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         shouldPlay = false
+        videoReady = false
         val existing = player
         player = null
         SahabPlayer.releasePlayer(existing)
@@ -119,36 +127,38 @@ fun TrailerAutoPlayBox(
                 shouldPlay = true
             },
     ) {
-        RemoteImage(
-            url = posterUrl,
-            fallbackUrl = posterUrl,
-            fallbackText = title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-
         val activePlayer = player
         if (shouldPlay && activePlayer != null && playableUrl != null) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    }
-                },
-                update = { view ->
-                    if (view.player !== activePlayer) {
-                        view.player = activePlayer
-                    }
-                },
+            AndroidEmbeddedExternalSurface(
                 modifier = Modifier.fillMaxSize(),
-            )
+            ) {
+                onSurface { surface: Surface, _, _ ->
+                    activePlayer.setVideoSurface(surface)
+                    surface.onDestroyed {
+                        if (player === activePlayer) {
+                            activePlayer.clearVideoSurface(surface)
+                        }
+                    }
+                }
+            }
         } else if (shouldPlay && youtubeVideoId != null) {
             YouTubeEmbedPlayer(
                 videoId = youtubeVideoId,
                 muted = muted,
                 loop = true,
                 showControls = false,
+                onPlaying = { videoReady = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        if (!videoReady) {
+            RemoteImage(
+                url = posterUrl,
+                fallbackUrl = posterUrl,
+                fallbackText = title,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
                 modifier = Modifier.fillMaxSize(),
             )
         }

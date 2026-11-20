@@ -1,70 +1,57 @@
 package com.saydlawy.sahab.ui.components
 
 import android.annotation.SuppressLint
+import android.graphics.Color
 import android.os.Build
-import androidx.annotation.RequiresApi
-import android.content.Intent
-import android.graphics.Color as AndroidColor
-import android.net.Uri
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.background
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 
-private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[A-Za-z0-9_-]{11}$")
-private const val APP_ORIGIN_BASE_URL = "https://com.saydlawy.sahab"
+private val YOUTUBE_ID_REGEX = Regex("^[A-Za-z0-9_-]{11}$")
 
-fun extractYouTubeVideoId(rawUrl: String): String? {
-    val trimmed = rawUrl.trim()
-    if (trimmed.isEmpty()) return null
-    val uri = runCatching { Uri.parse(trimmed) }.getOrNull() ?: return null
-    val host = uri.host?.lowercase()?.trimEnd('.') ?: return null
-
-    val candidate: String? = when {
-        host == "youtu.be" || host == "www.youtu.be" -> {
-            uri.pathSegments.firstOrNull { it.isNotBlank() }
-        }
-        host == "youtube.com" || host.endsWith(".youtube.com") -> {
-            uri.getQueryParameter("v")?.takeIf { it.isNotBlank() } ?: run {
-                val segs = uri.pathSegments
-                val markerIdx = segs.indexOfFirst {
-                    it == "embed" || it == "shorts" || it == "live" || it == "v"
-                }
-                if (markerIdx >= 0 && markerIdx + 1 < segs.size) segs[markerIdx + 1] else null
-            }
-        }
-        else -> null
-    }?.trim()
-
-    return candidate?.takeIf { YOUTUBE_VIDEO_ID_REGEX.matches(it) }
+/** Extracts a valid 11-character YouTube video ID from standard watch, embed, shorts, or youtu.be URLs. */
+fun extractYouTubeVideoId(url: String?): String? {
+    val raw = url?.trim().orEmpty()
+    if (raw.isEmpty()) return null
+    if (YOUTUBE_ID_REGEX.matches(raw)) return raw
+    val patterns = listOf(
+        Regex("""(?:youtube\.com/watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})"""),
+        Regex("""(?:youtu\.be/)([A-Za-z0-9_-]{11})"""),
+        Regex("""(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})"""),
+        Regex("""(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})"""),
+        Regex("""(?:youtube\.com/live/)([A-Za-z0-9_-]{11})"""),
+    )
+    for (p in patterns) {
+        val id = p.find(raw)?.groupValues?.getOrNull(1)
+        if (id != null && YOUTUBE_ID_REGEX.matches(id)) return id
+    }
+    return null
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun YouTubeEmbedPlayer(
     videoId: String,
@@ -72,153 +59,200 @@ fun YouTubeEmbedPlayer(
     muted: Boolean = true,
     loop: Boolean = true,
     showControls: Boolean = false,
+    onPlaying: () -> Unit = {},
 ) {
-    val cleanId = videoId.trim().takeIf { YOUTUBE_VIDEO_ID_REGEX.matches(it) } ?: return
+    val cleanId = remember(videoId) { extractYouTubeVideoId(videoId).orEmpty() }
+    if (cleanId.isEmpty()) return
 
-    val context = LocalContext.current
-    var webViewRef by remember(cleanId) { mutableStateOf<WebView?>(null) }
-    var embedFailed by remember(cleanId) { mutableStateOf(false) }
-    var sessionKey by remember(cleanId) { mutableIntStateOf(0) }
+    val currentOnPlaying by rememberUpdatedState(onPlaying)
+    var renderEpoch by remember(cleanId) { mutableIntStateOf(0) }
+    var webViewRef by remember(cleanId, renderEpoch) { mutableStateOf<WebView?>(null) }
+    var pageLoaded by remember(cleanId, renderEpoch) { mutableStateOf(false) }
 
-    fun releaseWebView() {
-        val wv = webViewRef
-        webViewRef = null
-        wv?.let { view ->
-            runCatching {
-                view.stopLoading()
-                view.loadUrl("about:blank")
-                view.destroy()
-            }
-        }
+    val embedHtml = remember(cleanId, loop, showControls) {
+        buildYouTubeEmbedHtml(
+            videoId = cleanId,
+            muted = muted,
+            loop = loop,
+            showControls = showControls,
+        )
     }
 
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        webViewRef?.let { view ->
-            runCatching {
-                view.onPause()
-                view.pauseTimers()
-            }
+    LaunchedEffect(muted, pageLoaded, webViewRef) {
+        val wv = webViewRef ?: return@LaunchedEffect
+        if (!pageLoaded) return@LaunchedEffect
+        val js = if (muted) {
+            "if(window.ytPlayer&&ytPlayer.mute){ytPlayer.mute();}"
+        } else {
+            "if(window.ytPlayer&&ytPlayer.unMute){ytPlayer.unMute();ytPlayer.setVolume(100);}"
         }
+        wv.evaluateJavascript(js, null)
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        webViewRef?.onPause()
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        if (!embedFailed) {
-            webViewRef?.let { view ->
-                runCatching {
-                    view.resumeTimers()
-                    view.onResume()
-                }
-            }
-        }
+        webViewRef?.onResume()
     }
 
-    DisposableEffect(cleanId) {
+    DisposableEffect(cleanId, renderEpoch) {
         onDispose {
-            releaseWebView()
+            webViewRef?.let { wv ->
+                runCatching {
+                    wv.removeJavascriptInterface("SahabYtBridge")
+                    wv.stopLoading()
+                    wv.loadUrl("about:blank")
+                    wv.clearHistory()
+                    wv.removeAllViews()
+                    wv.destroy()
+                }
+            }
+            webViewRef = null
         }
     }
 
     Box(modifier = modifier) {
-        if (!embedFailed) {
-            key("$cleanId-$sessionKey") {
-                AndroidView(
-                    factory = { ctx ->
+        androidx.compose.runtime.key(cleanId, renderEpoch) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
                     WebView(ctx).apply {
-                        setBackgroundColor(AndroidColor.TRANSPARENT)
-                        webChromeClient = WebChromeClient()
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                        setBackgroundColor(Color.TRANSPARENT)
+                        isFocusable = false
+                        isFocusableInTouchMode = false
+                        isVerticalScrollBarEnabled = false
+                        isHorizontalScrollBarEnabled = false
+                        overScrollMode = View.OVER_SCROLL_NEVER
+
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            mediaPlaybackRequiresUserGesture = false
+                            useWideViewPort = true
+                            loadWithOverviewMode = true
+                            cacheMode = WebSettings.LOAD_DEFAULT
+                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                safeBrowsingEnabled = false
+                            }
+                            userAgentString =
+                                "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                        }
+
+                        addJavascriptInterface(
+                            object {
+                                @JavascriptInterface
+                                fun onStatePlaying() {
+                                    post { currentOnPlaying() }
+                                }
+                            },
+                            "SahabYtBridge",
+                        )
+
+                        webChromeClient = object : WebChromeClient() {}
                         webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                pageLoaded = true
+                            }
                             override fun onReceivedError(
                                 view: WebView?,
                                 request: WebResourceRequest?,
                                 error: WebResourceError?,
                             ) {
-                                if (request?.isForMainFrame == true) {
-                                    embedFailed = true
-                                }
+                                // Ignore non-fatal subresource errors
                             }
-
                             override fun onRenderProcessGone(
                                 view: WebView?,
                                 detail: RenderProcessGoneDetail?,
                             ): Boolean {
-                                releaseWebView()
-                                @RequiresApi(Build.VERSION_CODES.O)
-                                fun isCrash(): Boolean = detail?.didCrash() == true
-
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isCrash()) {
-                                    sessionKey += 1
-                                } else {
-                                    embedFailed = true
-                                }
+                                webViewRef = null
+                                renderEpoch++
                                 return true
                             }
                         }
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.mediaPlaybackRequiresUserGesture = false
 
-                        val muteParam = if (muted) 1 else 0
-                        val loopParam = if (loop) "1&playlist=$cleanId" else "0"
-                        val controlsParam = if (showControls) 1 else 0
-                        val embedSrc =
-                            "https://www.youtube.com/embed/$cleanId?autoplay=1&mute=$muteParam&playsinline=1&controls=$controlsParam&rel=0&loop=$loopParam&modestbranding=1&origin=$APP_ORIGIN_BASE_URL"
-                        val html = """
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                              <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                              <style>
-                                html, body, iframe {
-                                  margin: 0; padding: 0; width: 100%; height: 100%;
-                                  background: transparent; border: 0; overflow: hidden;
-                                }
-                              </style>
-                            </head>
-                            <body>
-                              <iframe
-                                src="$embedSrc"
-                                allow="autoplay; encrypted-media; picture-in-picture"
-                                referrerpolicy="strict-origin-when-cross-origin"
-                                allowfullscreen>
-                              </iframe>
-                            </body>
-                            </html>
-                        """.trimIndent()
+                        webViewRef = this
                         loadDataWithBaseURL(
-                            APP_ORIGIN_BASE_URL,
-                            html,
+                            "https://com.saydlawy.sahab",
+                            embedHtml,
                             "text/html",
-                            "utf-8",
+                            "UTF-8",
                             null,
                         )
-                        webViewRef = this
                     }
                 },
-                    modifier = Modifier.matchParentSize(),
-                )
-            }
-        } else {
-            TextButton(
-                onClick = {
-                    runCatching {
-                        val intent = Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://www.youtube.com/watch?v=$cleanId"),
-                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                        context.startActivity(intent)
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 8.dp),
-            ) {
-                Text(
-                    text = "▶ تشغيل التريلر على YouTube",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                )
-            }
+            )
         }
     }
+}
+
+private fun buildYouTubeEmbedHtml(
+    videoId: String,
+    muted: Boolean,
+    loop: Boolean,
+    showControls: Boolean,
+): String {
+    val muteVal = if (muted) 1 else 0
+    val loopVal = if (loop) 1 else 0
+    val controlsVal = if (showControls) 1 else 0
+    val playlistParam = if (loop) "playlist: '$videoId'," else ""
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: transparent; overflow: hidden;
+  }
+  #player, iframe {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%; border: 0;
+  }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+  var ytPlayer;
+  function onYouTubeIframeAPIReady() {
+    ytPlayer = new YT.Player('player', {
+      videoId: '$videoId',
+      playerVars: {
+        autoplay: 1,
+        mute: $muteVal,
+        controls: $controlsVal,
+        rel: 0,
+        modestbranding: 1,
+        playsinline: 1,
+        loop: $loopVal,
+        $playlistParam
+        origin: 'https://com.saydlawy.sahab'
+      },
+      events: {
+        onReady: function(e) {
+          if ($muteVal === 1) { e.target.mute(); }
+          e.target.playVideo();
+        },
+        onStateChange: function(e) {
+          if (e.data === 1 && window.SahabYtBridge) {
+            SahabYtBridge.onStatePlaying();
+          }
+        }
+      }
+    });
+  }
+</script>
+</body>
+</html>
+""".trimIndent()
 }
