@@ -202,7 +202,7 @@ internal object VodCustomOrganizer {
         if (raw.isNullOrBlank()) return ""
         val first = raw.split(',', '،', '/', '|', '&').firstOrNull()?.trim().orEmpty()
         if (first.isEmpty()) return ""
-        return normalizeGenre(first)
+        return normalizeGenre(first).orEmpty()
     }
 
     fun extractTmdbYear(facetYear: String?): String {

@@ -124,7 +124,7 @@ class BrowseViewModel(
         return withContext(Dispatchers.Default) {
             items.map { p ->
                 val f = facets[p.id]
-                val tmdbRating = f?.rating?.takeIf { it > 0.0 }?.let {
+                val tmdbRating = f?.rating?.toDoubleOrNull()?.takeIf { it > 0.0 }?.let {
                     String.format(java.util.Locale.US, "%.1f", it)
                 }.orEmpty()
                 val tmdbYear = VodCustomOrganizer.extractTmdbYear(f?.year)
