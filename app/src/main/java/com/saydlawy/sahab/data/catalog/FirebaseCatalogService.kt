@@ -60,7 +60,8 @@ class FirebaseCatalogService {
 
             val entities = docs.mapNotNull { doc ->
                 val data = doc.data ?: return@mapNotNull null
-                if (resolveRedirectId(data) != null) return@mapNotNull null
+                val redirectTo = data["redirectTo"] as? String
+                if (resolveRedirectId(doc.id, redirectTo) != doc.id) return@mapNotNull null
                 runCatching { mapToEntity(doc.id, data) }.getOrNull()
             }
             total += entities.size
