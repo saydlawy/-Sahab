@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.data.catalog
 
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -26,6 +28,50 @@ class FirebaseCatalogService {
     private var cachedRecommendedMovies: List<CatalogMovieEntity> = emptyList()
 
     fun peekCachedRecommendedMovies(): List<CatalogMovieEntity> = cachedRecommendedMovies
+
+    /**
+     * يسحب جميع مستندات كتالوج Firebase (`global_catalog`) على دفعات مرتبة بمعرّف المستند
+     * ويمرر كل دفعة إلى [onBatch] لحفظها مباشرة في Room دون استهلاك مفرط للذاكرة.
+     */
+    suspend fun fetchAllCatalogBatched(
+        batchSize: Long = 400L,
+        perBatchTimeoutMs: Long = 15_000L,
+        onBatch: suspend (items: List<CatalogMovieEntity>, totalFetched: Int) -> Unit,
+    ): Int {
+        var lastDoc: DocumentSnapshot? = null
+        var total = 0
+        while (true) {
+            val snapshot = withTimeoutOrNull(perBatchTimeoutMs) {
+                suspendCancellableCoroutine<com.google.firebase.firestore.QuerySnapshot?> { cont ->
+                    var query = collection
+                        .orderBy(FieldPath.documentId())
+                        .limit(batchSize)
+                    if (lastDoc != null) {
+                        query = query.startAfter(lastDoc!!)
+                    }
+                    query.get()
+                        .addOnSuccessListener { snap -> if (cont.isActive) cont.resume(snap) }
+                        .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+                }
+            } ?: break
+
+            val docs = snapshot.documents
+            if (docs.isEmpty()) break
+
+            val entities = docs.mapNotNull { doc ->
+                val data = doc.data ?: return@mapNotNull null
+                if (resolveRedirectId(data) != null) return@mapNotNull null
+                runCatching { mapToEntity(doc.id, data) }.getOrNull()
+            }
+            total += entities.size
+            if (entities.isNotEmpty()) {
+                onBatch(entities, total)
+            }
+            lastDoc = docs.last()
+            if (docs.size < batchSize) break
+        }
+        return total
+    }
 
     suspend fun getCatalogItem(sahabId: String): CatalogMovieEntity? {
         val direct = fetchDocById(sahabId)

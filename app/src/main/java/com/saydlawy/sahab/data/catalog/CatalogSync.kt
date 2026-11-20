@@ -40,6 +40,34 @@ class CatalogSync(
     private val _syncing = MutableStateFlow(false)
     val syncing: StateFlow<Boolean> = _syncing
 
+    private val _firebaseSyncing = MutableStateFlow(false)
+    val firebaseSyncing: StateFlow<Boolean> = _firebaseSyncing
+
+    private val _firebaseSyncMessage = MutableStateFlow<String?>(null)
+    val firebaseSyncMessage: StateFlow<String?> = _firebaseSyncMessage
+
+    /**
+     * يسحب جميع بيانات كتالوج Firebase (`global_catalog`) إلى Room على دفعات
+     * مع تحديث [firebaseSyncing] و[firebaseSyncMessage] ليظهر شعار دائم للمستخدم لحين الانتهاء.
+     */
+    suspend fun syncAllFromFirebaseToRoom(force: Boolean = false): Int = withContext(Dispatchers.IO) {
+        if (!force && dao.countEnriched() >= 200) return@withContext 0
+        if (!_firebaseSyncing.compareAndSet(expect = false, update = true)) return@withContext 0
+        _firebaseSyncMessage.value = "جارٍ تحميل مكتبة سحاب..."
+        try {
+            firebaseCatalog.fetchAllCatalogBatched(batchSize = 400L) { batch, totalFetched ->
+                dao.upsertAll(batch)
+                _firebaseSyncMessage.value = "جارٍ مزامنة مكتبة سحاب... ($totalFetched عنصر)"
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SahabFirebaseSync", "syncAllFromFirebaseToRoom failed: ${e.message}")
+            0
+        } finally {
+            _firebaseSyncing.value = false
+            _firebaseSyncMessage.value = null
+        }
+    }
+
     suspend fun syncMovies(repo: Repository): Stats = withContext(Dispatchers.IO) {
         if (!_syncing.compareAndSet(expect = false, update = true)) return@withContext Stats()
         val start = System.currentTimeMillis()

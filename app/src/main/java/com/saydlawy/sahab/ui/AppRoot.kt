@@ -239,10 +239,12 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
 
                     val repoSyncing by container.repo.syncing.collectAsStateWithLifecycle()
                     val catalogSyncing by container.catalogSync.syncing.collectAsStateWithLifecycle()
+                    val firebaseSyncing by container.catalogSync.firebaseSyncing.collectAsStateWithLifecycle()
+                    val firebaseSyncMessage by container.catalogSync.firebaseSyncMessage.collectAsStateWithLifecycle()
                     val channelSyncing by container.channelSync.syncing.collectAsStateWithLifecycle()
                     val epgSyncing by container.epgSync.syncing.collectAsStateWithLifecycle()
                     val switchingAccount by container.switchingAccount.collectAsStateWithLifecycle()
-                    val syncing = repoSyncing || catalogSyncing || channelSyncing || epgSyncing || switchingAccount
+                    val syncing = repoSyncing || catalogSyncing || firebaseSyncing || channelSyncing || epgSyncing || switchingAccount
                     if (switchingAccount && !onPlayer) {
                         Box(
                             modifier = Modifier
@@ -271,6 +273,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                     ) {
                         SyncOverlay(
                             visible = syncing && !switchingAccount && !onPlayer,
+                            message = firebaseSyncMessage ?: "جارٍ تحديث البيانات...",
                             modifier = Modifier.padding(bottom = 24.dp),
                         )
                     }

@@ -73,7 +73,7 @@ class AppContainer(context: Context) {
     val weather by lazy { com.saydlawy.sahab.data.weather.WeatherService(client, context.applicationContext) }
 
     val client: OkHttpClient = OkHttpClient.Builder()
-        .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 50L * 1024L * 1024L))
+        .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 100L * 1024L * 1024L))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .addInterceptor(CleartextGuardInterceptor())
@@ -94,8 +94,8 @@ class AppContainer(context: Context) {
         }
         .build()
 
-    val tmdb = TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache)
-    val repo = Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao(), okHttpClient = client)
+    val tmdb by lazy { TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache) }
+    val repo by lazy { Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao(), okHttpClient = client) }
 
     /** Outlives screens, so progress can still be saved while the player is closing. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -440,7 +440,7 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
             .diskCache {
                 CoilDiskCache.Builder()
                     .directory(File(cacheDir, "image_cache").toOkioPath())
-                    .maxSizeBytes(150L * 1024L * 1024L)
+                    .maxSizeBytes(300L * 1024L * 1024L)
                     .build()
             }
             .crossfade(false)

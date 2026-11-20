@@ -30,7 +30,7 @@ import com.saydlawy.sahab.ui.theme.Palette
  * Hidden automatically on the player screen to avoid distracting during playback.
  */
 @Composable
-fun SyncOverlay(visible: Boolean, modifier: Modifier = Modifier) {
+fun SyncOverlay(visible: Boolean, message: String = "جارٍ تحديث البيانات...", modifier: Modifier = Modifier) {
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn() + slideInVertically { it / 2 },
@@ -52,7 +52,7 @@ fun SyncOverlay(visible: Boolean, modifier: Modifier = Modifier) {
                 color = Palette.Royal,
             )
             Text(
-                "جارٍ تحديث البيانات...",
+                message,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.White,

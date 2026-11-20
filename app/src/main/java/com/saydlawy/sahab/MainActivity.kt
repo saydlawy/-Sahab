@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
             val themeSettings by container.prefs.themePreferences.collectAsStateWithLifecycle(initialValue = ThemePreferences())
             SahabTheme(settings = themeSettings) {
                 LaunchedEffect(Unit) {
-                    delay(3000L)
+                    delay(15_000L)
                     checkForUpdates()
                 }
                 CompositionLocalProvider(

@@ -253,6 +253,7 @@ class SyncCoordinator(private val container: AppContainer) {
             syncMutex.withLock {
                 val msg = runCatching {
                     container.repo.syncCatalog(force = true)
+                    container.catalogSync.syncAllFromFirebaseToRoom(force = true)
                     container.catalogSync.syncMovies(container.repo)
                     val chStats = container.channelSync.sync(container.repo, forceFullRefresh = true)
                     if (chStats.isSuccess) container.prefs.setLastChannelSyncTime(System.currentTimeMillis())
@@ -320,6 +321,11 @@ class SyncCoordinator(private val container: AppContainer) {
         val sync = runCatching { container.repo.syncCatalog(force = forceCatalog) }
             .getOrElse { Repository.SyncResult.Failure(it.message ?: "unknown") }
         Log.d("SahabSync", "[$reason] step 2/5 result: $sync")
+
+        Log.d("SahabSync", "[$reason] step 2.5/5: catalogSync.syncAllFromFirebaseToRoom (force=$forceCatalog)")
+        runCatching { container.catalogSync.syncAllFromFirebaseToRoom(force = forceCatalog) }
+            .onSuccess { count -> Log.d("SahabSync", "[$reason] firebase->room synced=$count") }
+            .onFailure { Log.w("SahabSync", "[$reason] firebase->room failed: ${it.message}") }
 
         val hasLocalCatalog = runCatching { container.catalogDb.movieDao().count() > 0 }.getOrDefault(false)
         if (sync is Repository.SyncResult.Success || (sync is Repository.SyncResult.Skipped && hasLocalCatalog)) {
