@@ -333,32 +333,41 @@ class BrowseViewModel(
             delay(2_500L)
             val mediaType = if (series) "series" else "movie"
             val dao = container.catalogDb.movieDao()
-            for (poster in missing) {
-                if (!bgEnrichAttempted.add(poster.id)) continue
-                runCatching {
-                    if (dao.findByStreamId(poster.id, mediaType) == null) {
-                        dao.upsert(
-                            CatalogMovieEntity(
-                                sahabId = CatalogMovieEntity.idPending(poster.id),
-                                novaStreamId = poster.id,
-                                titleAr = poster.name,
-                                titleEn = poster.name,
-                                mediaType = mediaType,
-                                categoryId = poster.categoryId,
-                                posterUrl = poster.image,
-                                needsEnrichment = 1,
+            val total = missing.size
+            var done = 0
+            container.catalogSync.reportBackgroundEnrichProgress(0, total, active = true)
+            try {
+                for (poster in missing) {
+                    if (!bgEnrichAttempted.add(poster.id)) continue
+                    runCatching {
+                        if (dao.findByStreamId(poster.id, mediaType) == null) {
+                            dao.upsert(
+                                CatalogMovieEntity(
+                                    sahabId = CatalogMovieEntity.idPending(poster.id),
+                                    novaStreamId = poster.id,
+                                    titleAr = poster.name,
+                                    titleEn = poster.name,
+                                    mediaType = mediaType,
+                                    categoryId = poster.categoryId,
+                                    posterUrl = poster.image,
+                                    needsEnrichment = 1,
+                                )
                             )
+                        }
+                        container.catalogSync.enrichOne(
+                            repo = repo,
+                            tmdb = container.tmdb,
+                            streamId = poster.id,
+                            force = false,
+                            mediaType = mediaType,
                         )
                     }
-                    container.catalogSync.enrichOne(
-                        repo = repo,
-                        tmdb = container.tmdb,
-                        streamId = poster.id,
-                        force = false,
-                        mediaType = mediaType,
-                    )
+                    done += 1
+                    container.catalogSync.reportBackgroundEnrichProgress(done, total, active = true)
+                    delay(350L)
                 }
-                delay(350L)
+            } finally {
+                container.catalogSync.reportBackgroundEnrichProgress(done, total, active = false)
             }
         }
     }

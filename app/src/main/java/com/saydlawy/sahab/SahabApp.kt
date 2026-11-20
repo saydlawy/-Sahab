@@ -61,7 +61,7 @@ class AppContainer(context: Context) {
     val gemini by lazy { com.saydlawy.sahab.data.ai.GeminiStoryService(client) }
     val aiKeys by lazy { com.saydlawy.sahab.data.ai.ApiKeyManager(context.applicationContext) }
     val catalogDb by lazy { CatalogDatabase.getInstance(context.applicationContext) }
-    val catalogSync by lazy { CatalogSync(catalogDb.movieDao(), firebaseCatalog) }
+    val catalogSync by lazy { CatalogSync(catalogDb.movieDao(), firebaseCatalog, context.applicationContext) }
     val channelDb by lazy { ChannelDatabase.getInstance(context.applicationContext) }
     val channelSync by lazy { ChannelSync(channelDb.channelDao()) }
     val epgSync by lazy { EpgSync(channelDb.channelDao()) }

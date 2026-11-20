@@ -28,6 +28,7 @@ import java.util.zip.GZIPInputStream
 class CatalogSync(
     private val dao: CatalogMovieDao,
     private val firebaseCatalog: FirebaseCatalogService,
+    private val appContext: Context? = null,
 ) {
     data class Stats(
         val total: Int = 0,
@@ -45,6 +46,50 @@ class CatalogSync(
 
     private val _firebaseSyncMessage = MutableStateFlow<String?>(null)
     val firebaseSyncMessage: StateFlow<String?> = _firebaseSyncMessage
+
+    data class BackgroundEnrichStatus(
+        val active: Boolean = false,
+        val done: Int = 0,
+        val total: Int = 0,
+    )
+
+    private val _bgEnrichStatus = MutableStateFlow(BackgroundEnrichStatus())
+    val bgEnrichStatus: StateFlow<BackgroundEnrichStatus> = _bgEnrichStatus
+
+    fun reportBackgroundEnrichProgress(done: Int, total: Int, active: Boolean) {
+        _bgEnrichStatus.value = BackgroundEnrichStatus(active = active, done = done, total = total)
+        val ctx = appContext ?: return
+        val isTv = ctx.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+        if (isTv) return
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+        val notifId = 4092
+        if (!active || total <= 0) {
+            nm.cancel(notifId)
+            return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        val channelId = "sahab_bg_enrich"
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val ch = android.app.NotificationChannel(
+                channelId,
+                "تحديث بيانات المكتبة",
+                android.app.NotificationManager.IMPORTANCE_LOW,
+            ).apply { setShowBadge(false) }
+            nm.createNotificationChannel(ch)
+        }
+        val notif = androidx.core.app.NotificationCompat.Builder(ctx, channelId)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle("سحاب — إكمال بيانات المكتبة")
+            .setContentText("تم تحديث $done من $total عمل")
+            .setProgress(total, done.coerceAtMost(total), false)
+            .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        runCatching { nm.notify(notifId, notif) }
+    }
 
     /**
      * يسحب جميع بيانات كتالوج Firebase (`global_catalog`) إلى Room على دفعات

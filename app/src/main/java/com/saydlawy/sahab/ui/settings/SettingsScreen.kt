@@ -99,6 +99,7 @@ fun SettingsScreen(
     val displayMode = LocalDisplayMode.current
     val focusNav = LocalFocusNavigation.current
     val isWide = displayMode == DisplayMode.TABLET_OR_TV
+    val bgEnrichStatus by container.catalogSync.bgEnrichStatus.collectAsStateWithLifecycle()
 
     val savedCategory = focusNav.getSelectedCategory(Routes.SETTINGS)
     var selectedCategory by remember(isWide) {
@@ -130,6 +131,34 @@ fun SettingsScreen(
     Column(Modifier.fillMaxSize()) {
         if (isWide || selectedCategory == null) {
             SahabTopBar(current = Routes.SETTINGS, onBack = onBack)
+        }
+
+        if (bgEnrichStatus.active && bgEnrichStatus.total > 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (isWide) 24.dp else 16.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF162033))
+                    .border(1.dp, Color(0x4438BDF8), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = Color(0xFF38BDF8),
+                )
+                Text(
+                    text = "جارٍ إكمال بيانات المكتبة في الخلفية (${bgEnrichStatus.done} / ${bgEnrichStatus.total})",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
         if (isWide) {
