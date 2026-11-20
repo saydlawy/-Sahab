@@ -102,7 +102,7 @@ fun BrowseScreen(
         focusNav.setSearchQuery(route, state.query)
     }
     LaunchedEffect(Unit) {
-        vm.refreshFacets()
+        vm.refreshFacetsIfNeeded()
     }
 
     val playRecent: (RecentItem) -> Unit = { recent ->

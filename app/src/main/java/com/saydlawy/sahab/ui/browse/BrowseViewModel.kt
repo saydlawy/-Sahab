@@ -20,10 +20,15 @@ import com.saydlawy.sahab.util.normalizeForSearch
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,6 +61,7 @@ data class BrowseUiState(
     val busy: Boolean get() = loadingItems || searching
 }
 
+@OptIn(FlowPreview::class)
 class BrowseViewModel(
     private val container: AppContainer,
     private val series: Boolean,
@@ -95,9 +101,11 @@ class BrowseViewModel(
         viewModelScope.launch {
             val mediaType = if (series) "series" else "movie"
             container.catalogDb.movieDao().observeFacetMetadata(mediaType)
-                .collectLatest { rows ->
-                    delay(350)
-                    val newMap = rows.associateBy { it.novaStreamId }
+                .debounce(1_000L)
+                .map { rows -> rows.associateBy { it.novaStreamId } }
+                .distinctUntilChanged()
+                .flowOn(Dispatchers.Default)
+                .collectLatest { newMap ->
                     if (newMap == cachedFacets) return@collectLatest
                     cachedFacets = newMap
                     val currentPool = searchPool
@@ -143,6 +151,11 @@ class BrowseViewModel(
             updateSearchPool(refreshed)
             applyOrganization(refreshed)
         }
+    }
+
+    fun refreshFacetsIfNeeded() {
+        if (cachedFacets != null) return
+        refreshFacets()
     }
 
     private suspend fun enrichWithTmdb(items: List<Poster>): List<Poster> {
