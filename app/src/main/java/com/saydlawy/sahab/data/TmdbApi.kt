@@ -237,16 +237,16 @@ class TmdbApi(
 
     private suspend fun getMovieDetails(id: Int, includeExtras: Boolean = true): TmdbMovie? =
         cachedDetail("movie", id, includeExtras) {
-            val append = if (includeExtras) "credits,images,videos" else "videos"
+            val append = if (includeExtras) "credits,images,videos,translations" else "translations"
             val urlBuilder = "https://api.themoviedb.org/3/movie/$id".toHttpUrl().newBuilder()
                 .addQueryParameter("language", "ar")
                 .addQueryParameter("append_to_response", append)
                 .apply {
                     if (includeExtras) {
                         addQueryParameter("include_image_language", "ar,en,null")
+                        addQueryParameter("include_video_language", "ar,en,null")
                     }
                 }
-                .addQueryParameter("include_video_language", "ar,en,null")
             if (!isBearerV4Token) {
                 urlBuilder.addQueryParameter("api_key", trimmedKey)
             }
@@ -254,9 +254,10 @@ class TmdbApi(
             withContext(Dispatchers.Default) {
                 try {
                     val raw = json.decodeFromString<TmdbMovie>(text)
-                    val posters = buildPosterUrls(raw.posterPath, raw.images)
-                    val trailer = extractTrailerUrl(raw.videos)
-                    raw.copy(posterUrls = posters, trailerUrl = trailer)
+                    val posters = if (includeExtras) buildPosterUrls(raw.posterPath, raw.images) else buildPosterUrls(raw.posterPath, null)
+                    val trailer = if (includeExtras) extractTrailerUrl(raw.videos) else ""
+                    val resolvedOverview = resolveOverview(raw.overview, raw.translations)
+                    raw.copy(overview = resolvedOverview, posterUrls = posters, trailerUrl = trailer)
                 } catch (_: Exception) {
                     null
                 }
@@ -265,16 +266,16 @@ class TmdbApi(
 
     suspend fun getTvDetailsById(id: Int, includeExtras: Boolean = true): TmdbMovie? =
         cachedDetail("tv", id, includeExtras) {
-            val append = if (includeExtras) "credits,images,videos" else "videos"
+            val append = if (includeExtras) "credits,images,videos,translations" else "translations"
             val urlBuilder = "https://api.themoviedb.org/3/tv/$id".toHttpUrl().newBuilder()
                 .addQueryParameter("language", "ar")
                 .addQueryParameter("append_to_response", append)
                 .apply {
                     if (includeExtras) {
                         addQueryParameter("include_image_language", "ar,en,null")
+                        addQueryParameter("include_video_language", "ar,en,null")
                     }
                 }
-                .addQueryParameter("include_video_language", "ar,en,null")
             if (!isBearerV4Token) {
                 urlBuilder.addQueryParameter("api_key", trimmedKey)
             }
@@ -282,12 +283,13 @@ class TmdbApi(
             withContext(Dispatchers.Default) {
                 try {
                     val tv = json.decodeFromString<TmdbTvRaw>(text)
-                    val posters = buildPosterUrls(tv.posterPath, tv.images)
-                    val trailer = extractTrailerUrl(tv.videos)
+                    val posters = if (includeExtras) buildPosterUrls(tv.posterPath, tv.images) else buildPosterUrls(tv.posterPath, null)
+                    val trailer = if (includeExtras) extractTrailerUrl(tv.videos) else ""
+                    val resolvedOverview = resolveOverview(tv.overview, tv.translations)
                     TmdbMovie(
                         id = tv.id,
                         title = tv.name,
-                        overview = tv.overview,
+                        overview = resolvedOverview,
                         releaseDate = tv.firstAirDate,
                         voteAverage = tv.voteAverage,
                         voteCount = tv.voteCount,
@@ -306,6 +308,18 @@ class TmdbApi(
                 }
             }
         }
+
+    private fun resolveOverview(primary: String, translations: TmdbTranslationsResponse?): String {
+        if (primary.isNotBlank()) return primary
+        val items = translations?.translations.orEmpty()
+        return items.firstOrNull {
+            it.iso6391.equals("ar", ignoreCase = true) && !it.data?.overview.isNullOrBlank()
+        }?.data?.overview
+            ?: items.firstOrNull {
+                it.iso6391.equals("en", ignoreCase = true) && !it.data?.overview.isNullOrBlank()
+            }?.data?.overview
+            ?: ""
+    }
 
     private fun buildPosterUrls(primaryPath: String?, images: TmdbImagesResponse?): List<String> {
         val paths = buildList {
@@ -498,6 +512,7 @@ data class TmdbMovie(
     val credits: Credits? = null,
     val images: TmdbImagesResponse? = null,
     val videos: TmdbVideosResponse? = null,
+    val translations: TmdbTranslationsResponse? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
     val posterUrls: List<String> = emptyList(),
@@ -576,6 +591,23 @@ private data class TmdbTvRaw(
     val credits: Credits? = null,
     val images: TmdbImagesResponse? = null,
     val videos: TmdbVideosResponse? = null,
+    val translations: TmdbTranslationsResponse? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
+)
+
+@Serializable
+data class TmdbTranslationsResponse(
+    val translations: List<TmdbTranslationItem> = emptyList(),
+)
+
+@Serializable
+data class TmdbTranslationItem(
+    @SerialName("iso_639_1") val iso6391: String = "",
+    val data: TmdbTranslationData? = null,
+)
+
+@Serializable
+data class TmdbTranslationData(
+    val overview: String = "",
 )

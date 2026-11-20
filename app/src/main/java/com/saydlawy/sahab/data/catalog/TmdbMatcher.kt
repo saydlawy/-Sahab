@@ -382,6 +382,7 @@ object TmdbMatcher {
         novaYear: Int?,
         maxQueries: Int = 4,
         mediaType: String = "movie",
+        includeExtras: Boolean = true,
     ): EnrichResult {
         val isTv = mediaType.equals("series", ignoreCase = true) || mediaType.equals("tv", ignoreCase = true)
         val (queries, variants) = generateQueries(rawName, categoryName, novaYear)
@@ -432,14 +433,14 @@ object TmdbMatcher {
             }
             if (bestStrong != null) {
                 val (c, s) = bestStrong!!
-                val details = if (isTv) tmdb.getTvDetailsById(c.id) else tmdb.getMovieDetailsById(c.id)
+                val details = if (isTv) tmdb.getTvDetailsById(c.id, includeExtras) else tmdb.getMovieDetailsById(c.id, includeExtras)
                 return EnrichResult(c.id, details, s, Level.STRONG, q.q, tried)
             }
         }
 
         if (bestWeak != null) {
             val (c, s) = bestWeak!!
-            val details = if (isTv) tmdb.getTvDetailsById(c.id) else tmdb.getMovieDetailsById(c.id)
+            val details = if (isTv) tmdb.getTvDetailsById(c.id, includeExtras) else tmdb.getMovieDetailsById(c.id, includeExtras)
             return EnrichResult(c.id, details, s, Level.WEAK, "", tried)
         }
         val finalLevel = if (sawNetworkError) Level.NETWORK_ERROR else Level.REJECT

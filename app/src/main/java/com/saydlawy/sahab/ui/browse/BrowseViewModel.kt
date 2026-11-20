@@ -611,21 +611,7 @@ class BrowseViewModel(
                     .map { line -> line.trim() }
                     .filter { line -> line.isNotEmpty() }
                     .toList()
-                val resolvedTrailer = if (cached.trailerUrl.isNotBlank()) {
-                    cached.trailerUrl
-                } else {
-                    val tid = cached.tmdbId
-                    if (tid != null && container.tmdb.hasApiKey()) {
-                        withContext(Dispatchers.IO) {
-                            runCatching {
-                                if (series) container.tmdb.getTvDetailsById(tid)?.trailerUrl
-                                else container.tmdb.getMovieDetailsById(tid)?.trailerUrl
-                            }.getOrNull().orEmpty()
-                        }
-                    } else {
-                        ""
-                    }
-                }
+                val resolvedTrailer = cached.trailerUrl
                 _state.update {
                     it.copy(
                         focusedDetails = FocusedPosterDetails(
@@ -777,6 +763,7 @@ class BrowseViewModel(
                             categoryName = catName,
                             novaYear = xtreamYear.toIntOrNull(),
                             mediaType = mediaType,
+                            includeExtras = false,
                         )
                     }.getOrNull()
                 }
@@ -832,7 +819,7 @@ class BrowseViewModel(
                         mediaType = mediaType,
                         postersJson = tmdbItem.posterUrls.joinToString("\n"),
                         trailerUrl = tmdbItem.trailerUrl,
-                        needsEnrichment = if (isStrong) 0 else 1,
+                        needsEnrichment = if (isStrong && resolvedCast.isNotBlank()) 0 else 1,
                         lastEnriched = now,
                         lastSeen = now,
                     )
