@@ -138,6 +138,12 @@ interface CatalogMovieDao {
     )
     suspend fun getFacetMetadata(mediaType: String): List<CatalogFacetRow>
 
+    @Query(
+        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND novaStreamId != ''"
+    )
+    fun observeFacetMetadata(mediaType: String): Flow<List<CatalogFacetRow>>
+
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()
 }

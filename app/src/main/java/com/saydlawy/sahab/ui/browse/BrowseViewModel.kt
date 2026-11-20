@@ -9,6 +9,7 @@ import com.saydlawy.sahab.data.VodCustomGrouping
 import com.saydlawy.sahab.data.VodOrganizationMode
 import com.saydlawy.sahab.data.catalog.CatalogFacetRow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Poster
@@ -91,6 +92,22 @@ class BrowseViewModel(
                     }
                 }
         }
+        viewModelScope.launch {
+            val mediaType = if (series) "series" else "movie"
+            container.catalogDb.movieDao().observeFacetMetadata(mediaType)
+                .collectLatest { rows ->
+                    delay(350)
+                    val newMap = rows.associateBy { it.novaStreamId }
+                    if (newMap == cachedFacets) return@collectLatest
+                    cachedFacets = newMap
+                    val currentPool = searchPool
+                    if (!currentPool.isNullOrEmpty()) {
+                        val refreshed = enrichWithTmdb(currentPool)
+                        updateSearchPool(refreshed)
+                        applyOrganization(refreshed)
+                    }
+                }
+        }
     }
 
     fun setOrganizationMode(mode: VodOrganizationMode) {
@@ -117,6 +134,17 @@ class BrowseViewModel(
         return loaded
     }
 
+    fun refreshFacets() {
+        val currentPool = searchPool ?: return
+        if (currentPool.isEmpty()) return
+        viewModelScope.launch {
+            cachedFacets = null
+            val refreshed = enrichWithTmdb(currentPool)
+            updateSearchPool(refreshed)
+            applyOrganization(refreshed)
+        }
+    }
+
     private suspend fun enrichWithTmdb(items: List<Poster>): List<Poster> {
         if (items.isEmpty()) return items
         val facets = getFacetsMap()
@@ -130,9 +158,9 @@ class BrowseViewModel(
                 val tmdbYear = VodCustomOrganizer.extractTmdbYear(f?.year)
                 val tmdbGenre = VodCustomOrganizer.primaryGenre(f?.genre)
                 p.copy(
-                    rating = tmdbRating,
-                    year = tmdbYear,
-                    genre = tmdbGenre,
+                    rating = tmdbRating.ifBlank { p.rating },
+                    year = tmdbYear.ifBlank { p.year },
+                    genre = tmdbGenre.ifBlank { p.genre },
                 )
             }
         }

@@ -101,6 +101,9 @@ fun BrowseScreen(
     LaunchedEffect(state.query) {
         focusNav.setSearchQuery(route, state.query)
     }
+    LaunchedEffect(Unit) {
+        vm.refreshFacets()
+    }
 
     val playRecent: (RecentItem) -> Unit = { recent ->
         focusNav.markNavigateFrom(route, "nf_cw_${recent.kind}_${recent.id}")

@@ -60,6 +60,7 @@ import com.saydlawy.sahab.ui.browse.layouts.TvPivotScrollContainer
 import com.saydlawy.sahab.ui.browse.layouts.rememberDebouncedHero
 import com.saydlawy.sahab.ui.components.MessageBox
 import com.saydlawy.sahab.ui.components.RemoteImage
+import com.saydlawy.sahab.ui.components.PosterCard
 import com.saydlawy.sahab.ui.components.SkeletonGrid
 import com.saydlawy.sahab.ui.components.qualityOf
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
@@ -401,6 +402,21 @@ private fun PrimeTile(
     onFocused: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (!landscape) {
+        PosterCard(
+            title = poster.name,
+            imageUrl = poster.image,
+            badge = poster.rating,
+            quality = qualityOf(poster.name),
+            subtitle = poster.year,
+            genre = poster.genre,
+            onClick = onOpen,
+            onLongClick = onLongClick,
+            onFocused = onFocused,
+            modifier = modifier.restorableFocus(route, focusKey, isDefault),
+        )
+        return
+    }
     var focused by remember { mutableStateOf(false) }
     val isTv = LocalIsTv.current
     val scale by animateFloatAsState(

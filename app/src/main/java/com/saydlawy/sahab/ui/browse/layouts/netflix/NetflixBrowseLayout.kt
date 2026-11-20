@@ -324,7 +324,6 @@ internal fun NetflixBrowseLayout(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun NetflixPosterTile(
     poster: Poster,
@@ -338,103 +337,16 @@ internal fun NetflixPosterTile(
     onFocused: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val isTv = LocalIsTv.current
-    val scale by animateFloatAsState(
-        targetValue = if (focused && isTv) 1.04f else 1f,
-        animationSpec = tween(130),
-        label = "nfTileScale",
+    PosterCard(
+        title = poster.name,
+        imageUrl = poster.image,
+        badge = poster.rating,
+        quality = qualityOf(poster.name),
+        subtitle = poster.year,
+        genre = poster.genre,
+        onClick = onOpen,
+        onLongClick = onLongClick,
+        onFocused = onFocused,
+        modifier = modifier.restorableFocus(route, focusKey, isDefault),
     )
-    val shape = RoundedCornerShape(8.dp)
-    val borderModifier = if (focused) Modifier.border(2.5.dp, Color.White, shape) else Modifier
-    Box(
-        modifier
-            .aspectRatio(2f / 3f)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .restorableFocus(route, focusKey, isDefault)
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .clip(shape)
-            .background(Palette.CardSurface)
-            .then(borderModifier)
-            .combinedClickable(onClick = onOpen, onLongClick = onLongClick),
-    ) {
-        RemoteImage(
-            url = poster.image,
-            fallbackText = poster.name,
-            alignment = Alignment.TopCenter,
-            targetWidthPx = targetWidthPx,
-            targetHeightPx = targetHeightPx,
-            modifier = Modifier.fillMaxSize(),
-        )
-        val quality = remember(poster.name) { qualityOf(poster.name) }
-        if (!quality.isNullOrBlank()) {
-            Text(
-                text = quality,
-                color = Color.White,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(5.dp)
-                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-            )
-        }
-        val cleanRating = remember(poster.rating) {
-            poster.rating.trim().takeIf { it.isNotBlank() && it != "0" && it != "0.0" }
-        }
-        if (cleanRating != null) {
-            Text(
-                text = "★ $cleanRating",
-                color = Color(0xFFFFD54F),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(5.dp)
-                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-            )
-        }
-        val metaLine = remember(poster.year, poster.genre) {
-            val primaryGenre = poster.genre.split(",", "،").firstOrNull()?.trim().orEmpty()
-            listOfNotNull(
-                poster.year.trim().takeIf { it.isNotBlank() },
-                primaryGenre.takeIf { it.isNotBlank() },
-            ).joinToString(" • ")
-        }
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.90f))))
-                .padding(horizontal = 6.dp, vertical = 5.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = poster.name,
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (metaLine.isNotBlank()) {
-                    Text(
-                        text = metaLine,
-                        color = Color.White.copy(alpha = 0.78f),
-                        fontSize = 9.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
 }

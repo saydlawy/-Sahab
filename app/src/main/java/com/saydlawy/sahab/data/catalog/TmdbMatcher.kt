@@ -310,6 +310,7 @@ object TmdbMatcher {
     }
 
     fun acceptLevel(m: Score): Level {
+        if (m.yearMatch == 0.0) return Level.REJECT
         if (m.titleSim >= 0.98 && m.yearMatch == 1.0) return Level.STRONG
         if (m.titleSim >= 0.98 && m.yearMatch == 0.5 && m.votes >= 20) return Level.STRONG
         if (m.titleSim >= 0.90 && m.yearMatch >= 0.85 && m.votes >= 10) return Level.STRONG
