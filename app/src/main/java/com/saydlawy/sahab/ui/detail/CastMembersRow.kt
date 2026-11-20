@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.saydlawy.sahab.data.CastMember
-import com.saydlawy.sahab.ui.theme.Ar
+import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.ui.theme.Palette
 
 @Composable
