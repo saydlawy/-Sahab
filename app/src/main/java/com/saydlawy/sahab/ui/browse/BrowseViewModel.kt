@@ -231,12 +231,14 @@ class BrowseViewModel(
             _state.update { it.copy(loadingCategories = true, error = null) }
             try {
                 val categories = fetchCategories()
+                defaultCategories = categories
                 val cachedAll = peekAllItems()
                 val preferredCat = initialCategoryId ?: _state.value.selectedId
 
                 if (!cachedAll.isNullOrEmpty()) {
                     updateSearchPool(cachedAll)
                     val counts = computeCounts(cachedAll)
+                    defaultCounts = counts
                     val (hero, top10, groups) = buildLayoutCollections(categories, cachedAll)
                     val targetCat = preferredCat ?: ALL_CAT_ID
                     val initialItems = if (targetCat == ALL_CAT_ID || targetCat == FAV_CAT_ID || targetCat == RECENTS_CAT_ID) {
@@ -263,6 +265,9 @@ class BrowseViewModel(
                             },
                         )
                     }
+                    if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
+                        applyOrganization(cachedAll, preferredCat = preferredCat)
+                    }
                     hero.firstOrNull()?.let { fetchDetailsForHero(it) }
                     if (initialQuery.isNotBlank()) {
                         onQuery(initialQuery)
@@ -285,6 +290,7 @@ class BrowseViewModel(
                     if (allItems.isNotEmpty()) {
                         updateSearchPool(allItems)
                         val counts = computeCounts(allItems)
+                        defaultCounts = counts
                         val (hero, top10, groups) = buildLayoutCollections(categories, allItems)
                         val hadDetails = _state.value.focusedDetails != null
                         _state.update { current ->
@@ -300,6 +306,9 @@ class BrowseViewModel(
                                     FocusedPosterDetails(poster = p, year = p.year, rating = cleanRating(p.rating), backdropUrl = p.image)
                                 },
                             )
+                        }
+                        if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
+                            applyOrganization(allItems)
                         }
                         if (!hadDetails) {
                             hero.firstOrNull()?.let { fetchDetailsForHero(it) }
