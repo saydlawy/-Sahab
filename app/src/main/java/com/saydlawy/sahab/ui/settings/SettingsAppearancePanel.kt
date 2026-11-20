@@ -88,11 +88,19 @@ internal fun SettingsAppearancePanel(container: AppContainer) {
     val customization = saved.customization(activeThemeId)
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        SettingsCard(
-            title = "ترتيب الأفلام والمسلسلات",
-            subtitle = "اختر بين باقات السيرفر الافتراضية أو التصنيف المخصص الموحد (النوع، السنة، الممثل)",
+        GlassPanel(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            strong = true,
+            padding = 20.dp,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                DotTitle("ترتيب الأفلام والمسلسلات", Palette.FocusCyan, fontSize = 18.sp)
+                Text(
+                    text = "اختر بين باقات السيرفر الافتراضية أو التصنيف المخصص الموحد (النوع، السنة، الممثل)",
+                    color = Palette.TextDim,
+                    fontSize = 12.sp,
+                )
                 AppearanceChoiceRow(
                     title = "وضع الترتيب",
                     options = listOf(
