@@ -163,6 +163,7 @@ internal fun PhonePortraitPlayerScreen(
     seriesDetails: SeriesDetails?,
     controlsVisible: Boolean,
     resizeMode: Int,
+    isPlayerReleased: Boolean = false,
     onToggleControls: () -> Unit,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -180,24 +181,6 @@ internal fun PhonePortraitPlayerScreen(
     onRetry: () -> Unit,
 ) {
     val isInPipMode by SahabMediaSessionBridge.inPipMode.collectAsStateWithLifecycle()
-    if (isInPipMode) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-                    player = exo
-                }
-            },
-            update = { it.resizeMode = resizeMode },
-            modifier = Modifier.fillMaxSize().background(Color.Black),
-        )
-        return
-    }
 
     val videoBadge = remember(tracks, item.title) {
         SahabPlayer.videoBadge(tracks, qualityOf(item.title) ?: "FHD")
@@ -220,13 +203,11 @@ internal fun PhonePortraitPlayerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(OsdSurfaceLowest),
+            .background(if (isInPipMode) Color.Black else OsdSurfaceLowest),
     ) {
-        // 1. Top 16:9 Video Viewport
+        // 1. Top 16:9 Video Viewport (expands full screen in PiP without recreating PlayerView)
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
+            modifier = (if (isInPipMode) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                 .background(Color.Black),
         ) {
             AndroidView(
@@ -241,28 +222,34 @@ internal fun PhonePortraitPlayerScreen(
                         player = exo
                     }
                 },
-                update = { it.resizeMode = resizeMode },
+                update = {
+                    it.resizeMode = resizeMode
+                    if (isPlayerReleased && it.player != null) {
+                        it.player = null
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
 
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { onToggleControls() })
-                    },
-            )
-
-            if ((buffering || reconnecting) && error == null) {
-                CircularProgressIndicator(
-                    color = OsdCyan,
-                    trackColor = Color.White.copy(alpha = 0.15f),
-                    modifier = Modifier.align(Alignment.Center),
+            if (!isInPipMode) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { onToggleControls() })
+                        },
                 )
-            }
 
-            // Touch Overlay inside 16:9 Video
-            if (controlsVisible && error == null) {
+                if ((buffering || reconnecting) && error == null) {
+                    CircularProgressIndicator(
+                        color = OsdCyan,
+                        trackColor = Color.White.copy(alpha = 0.15f),
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
+
+                // Touch Overlay inside 16:9 Video
+                if (controlsVisible && error == null) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -351,20 +338,22 @@ internal fun PhonePortraitPlayerScreen(
                 }
             }
 
-            error?.let { message ->
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(message, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Spacer(Modifier.height(8.dp))
-                    GlassButton(Ar.retry, onRetry, primary = true)
+                    error?.let { message ->
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(message, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Spacer(Modifier.height(8.dp))
+                            GlassButton(Ar.retry, onRetry, primary = true)
+                        }
+                    }
                 }
-            }
         }
 
+        if (!isInPipMode) {
         // 2. Channel / Title Metadata & Quick Action Toolbar (Below Video)
         Column(
             modifier = Modifier
@@ -668,6 +657,7 @@ internal fun PhonePortraitPlayerScreen(
                     }
                 }
             }
+        }
         }
     }
 }

@@ -387,6 +387,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
             }
         }
         exo.addListener(listener)
+        SahabPlayer.bindOnRelease(exo) { isPlayerReleased = true }
         SahabMediaSessionBridge.attach(context, exo, allowBackgroundService = false)
         onDispose {
             SahabMediaSessionBridge.detach(context, exo)
@@ -707,6 +708,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     seriesDetails = seriesDetails,
                     controlsVisible = controlsVisible,
                     resizeMode = ResizeModes[resizeIndex % ResizeModes.size],
+                    isPlayerReleased = isPlayerReleased,
                     onToggleControls = {
                         controlsVisible = !controlsVisible
                         interactions++

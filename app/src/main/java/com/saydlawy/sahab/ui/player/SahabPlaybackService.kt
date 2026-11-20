@@ -106,6 +106,8 @@ class SahabPlaybackService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
         if (player == null || !player.playWhenReady) {
+            mediaSession?.release()
+            mediaSession = null
             stopSelf()
         }
     }
