@@ -117,6 +117,7 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                     val resumeMs = resume?.positionMs ?: 0L
                     val durationMs = resume?.durationMs ?: 0L
 
+                    val showTmdbPicker = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                     MovieNetflixContent(
                         details = details,
                         resumeMs = resumeMs,
@@ -127,9 +128,17 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                         feedState = feedState,
                         onGenerateStory = { vm.generateAiStory() },
                         onToggleFavorite = { vm.toggleFavorite(details) },
-                        onRefresh = { vm.refreshMetadata() },
+                        onRefresh = { showTmdbPicker.value = true },
                         onPlay = onPlay,
                     )
+                    if (showTmdbPicker.value) {
+                        TmdbMatchPickerDialog(
+                            initialQuery = details.name,
+                            onSearch = { q -> vm.searchTmdbCandidates(q) },
+                            onSelect = { tmdbId -> vm.applyManualTmdbMatch(tmdbId) },
+                            onDismiss = { showTmdbPicker.value = false },
+                        )
+                    }
                 }
             }
         }

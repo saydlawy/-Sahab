@@ -130,6 +130,7 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                 details == null -> MessageBox(state.error ?: Ar.errUnknown, actionLabel = Ar.retry, onAction = vm::load)
                 else -> {
                     val isFavorite = favorites.isFav(activeAccountId, Kind.SERIES, details.id)
+                    val showTmdbPicker = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                     SeriesNetflixContent(
                         details = details,
                         recents = recents,
@@ -139,9 +140,17 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                         feedState = feedState,
                         onGenerateStory = { vm.generateAiStory() },
                         onToggleFavorite = { vm.toggleFavorite(details) },
-                        onRefresh = { vm.refreshMetadata() },
+                        onRefresh = { showTmdbPicker.value = true },
                         onPlay = onPlay,
                     )
+                    if (showTmdbPicker.value) {
+                        TmdbMatchPickerDialog(
+                            initialQuery = details.name,
+                            onSearch = { q -> vm.searchTmdbCandidates(q) },
+                            onSelect = { tmdbId -> vm.applyManualTmdbMatch(tmdbId) },
+                            onDismiss = { showTmdbPicker.value = false },
+                        )
+                    }
                 }
             }
         }

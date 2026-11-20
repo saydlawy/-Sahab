@@ -259,4 +259,39 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             }
         }
     }
+
+    suspend fun searchTmdbCandidates(query: String): List<com.saydlawy.sahab.data.TmdbSearchResult> {
+        val q = query.trim()
+        if (q.isBlank() || !container.tmdb.hasApiKey()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            val ar = (container.tmdb.searchMovieOutcome(q, null, "ar-SA") as? com.saydlawy.sahab.data.TmdbApi.SearchOutcome.Ok)?.results.orEmpty()
+            val en = (container.tmdb.searchMovieOutcome(q, null, "en-US") as? com.saydlawy.sahab.data.TmdbApi.SearchOutcome.Ok)?.results.orEmpty()
+            (ar + en).distinctBy { it.id }.take(15)
+        }
+    }
+
+    fun applyManualTmdbMatch(tmdbId: Int) {
+        if (_refreshingMetadata.value) return
+        viewModelScope.launch {
+            _refreshingMetadata.value = true
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    container.catalogSync.applyManualTmdbMatch(container.tmdb, id, tmdbId, "movie")
+                }
+                if (ok) {
+                    val updated = withContext(Dispatchers.IO) {
+                        runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                    }
+                    if (updated != null) {
+                        _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            } finally {
+                _refreshingMetadata.value = false
+            }
+        }
+    }
 }

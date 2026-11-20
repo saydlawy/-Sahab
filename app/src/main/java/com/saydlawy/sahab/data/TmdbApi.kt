@@ -283,6 +283,8 @@ class TmdbApi(
                         popularity = item.popularity,
                         originalLanguage = item.originalLanguage,
                         adult = false,
+                        posterPath = item.posterPath,
+                        voteAverage = item.voteAverage,
                     )
                 }
             } catch (_: Exception) {
@@ -331,6 +333,8 @@ data class TmdbSearchResult(
     val popularity: Double = 0.0,
     @SerialName("original_language") val originalLanguage: String = "",
     val adult: Boolean = false,
+    @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("vote_average") val voteAverage: Double = 0.0,
 )
 
 @Serializable
@@ -408,6 +412,8 @@ private data class TvSearchItem(
     @SerialName("vote_count") val voteCount: Int = 0,
     val popularity: Double = 0.0,
     @SerialName("original_language") val originalLanguage: String = "",
+    @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("vote_average") val voteAverage: Double = 0.0,
 )
 
 @Serializable
