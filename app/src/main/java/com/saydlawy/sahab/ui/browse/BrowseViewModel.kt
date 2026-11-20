@@ -76,6 +76,8 @@ class BrowseViewModel(
     private var itemsJob: Job? = null
     private var searchJob: Job? = null
     private var focusDetailJob: Job? = null
+    private var bgEnrichJob: Job? = null
+    private val bgEnrichAttempted = HashSet<String>()
     private var searchPool: List<Poster>? = null
     private var indexedPool: List<Pair<Poster, String>>? = null
     private var defaultCategories: List<Category> = emptyList()
@@ -134,8 +136,12 @@ class BrowseViewModel(
     private fun normalizeTitleKey(raw: String): String {
         if (raw.isBlank()) return ""
         return raw.lowercase(java.util.Locale.ROOT)
+            .replace(Regex("""^[^|]{1,20}\|\s*"""), "")
             .replace(Regex("""\[.*?]|\(.*?\)"""), " ")
-            .replace(Regex("""\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|ar|en|sub|مدبلج|مترجم)\b"""), " ")
+            .replace(Regex("""[\u064B-\u065F\u0670\u0640]"""), "")
+            .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
+            .replace('ة', 'ه').replace('ى', 'ي')
+            .replace(Regex("""\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|hdtv|vod|ar|en|sub|dub|s\d{1,2}|season\s*\d{1,2}|فيلم|مسلسل|انمي|كرتون|كارتون|الموسم|موسم|مدبلج|مترجم)\b"""), " ")
             .replace(Regex("""[^\p{L}\p{N}]+"""), " ")
             .trim()
     }
@@ -311,6 +317,49 @@ class BrowseViewModel(
         searchPool = list
         indexedPool = withContext(Dispatchers.Default) {
             list.map { it to it.name.normalizeForSearch() }
+        }
+        scheduleBackgroundEnrichment(list)
+    }
+
+    private fun scheduleBackgroundEnrichment(items: List<Poster>) {
+        val missing = items.asSequence()
+            .filter { it.id.isNotBlank() && (it.genre.isBlank() || it.year.isBlank() || it.rating.isBlank()) }
+            .filter { it.id !in bgEnrichAttempted }
+            .take(60)
+            .toList()
+        if (missing.isEmpty()) return
+        bgEnrichJob?.cancel()
+        bgEnrichJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(2_500L)
+            val mediaType = if (series) "series" else "movie"
+            val dao = container.catalogDb.movieDao()
+            for (poster in missing) {
+                if (!bgEnrichAttempted.add(poster.id)) continue
+                runCatching {
+                    if (dao.findByStreamId(poster.id, mediaType) == null) {
+                        dao.upsert(
+                            CatalogMovieEntity(
+                                sahabId = CatalogMovieEntity.idPending(poster.id),
+                                novaStreamId = poster.id,
+                                titleAr = poster.name,
+                                titleEn = poster.name,
+                                mediaType = mediaType,
+                                categoryId = poster.categoryId,
+                                posterUrl = poster.image,
+                                needsEnrichment = 1,
+                            )
+                        )
+                    }
+                    container.catalogSync.enrichOne(
+                        repo = repo,
+                        tmdb = container.tmdb,
+                        streamId = poster.id,
+                        force = false,
+                        mediaType = mediaType,
+                    )
+                }
+                delay(350L)
+            }
         }
     }
 
