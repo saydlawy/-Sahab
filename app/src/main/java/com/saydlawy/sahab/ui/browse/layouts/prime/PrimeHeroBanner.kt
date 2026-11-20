@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.ui.DisplayMode
 import com.saydlawy.sahab.ui.LocalDisplayMode
+import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.components.RemoteImage
@@ -47,18 +49,29 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val bg = Palette.CinematicBg
     val compact = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
+    val isTv = LocalIsTv.current
+    val lightMode = LocalLightEffects.current
     val hasWideBackdrop = details != null &&
         details.backdropUrl.isNotBlank() &&
         details.backdropUrl != details.poster.image
     Box(modifier.fillMaxSize()) {
         if (details != null) {
             val primaryImageUrl = if (hasWideBackdrop) details.backdropUrl else details.poster.image
-            TrailerAutoPlayBox(
-                trailerUrl = details.trailerUrl,
-                posterUrl = primaryImageUrl,
-                title = details.poster.name,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (!isTv && !lightMode && details.trailerUrl.isNotBlank()) {
+                TrailerAutoPlayBox(
+                    trailerUrl = details.trailerUrl,
+                    posterUrl = primaryImageUrl,
+                    title = details.poster.name,
+                    autoPlayDelayMs = 2_000L,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                RemoteImage(
+                    url = primaryImageUrl,
+                    fallbackText = details.poster.name,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         val sideStops = if (rtl) {
             arrayOf(

@@ -32,6 +32,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.saydlawy.sahab.ui.LocalContainer
+import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.player.SahabPlayer
 import com.saydlawy.sahab.ui.theme.Palette
 import kotlinx.coroutines.delay
@@ -48,6 +49,7 @@ fun TrailerAutoPlayBox(
 ) {
     val context = LocalContext.current
     val container = LocalContainer.current
+    val isTv = LocalIsTv.current
     val cleanUrl = trailerUrl.trim()
     val youtubeVideoId = remember(cleanUrl) { extractYouTubeVideoId(cleanUrl) }
     val playableUrl = cleanUrl.takeIf { url ->
@@ -61,11 +63,12 @@ fun TrailerAutoPlayBox(
     var muted by remember(cleanUrl) { mutableStateOf(startMuted) }
     var player by remember(cleanUrl) { mutableStateOf<ExoPlayer?>(null) }
 
-    LaunchedEffect(cleanUrl) {
+    LaunchedEffect(cleanUrl, isTv) {
         shouldPlay = false
         videoReady = false
         if (!hasMediaSource) return@LaunchedEffect
-        delay(autoPlayDelayMs)
+        val effectiveDelayMs = if (isTv) maxOf(autoPlayDelayMs, 2_000L) else autoPlayDelayMs
+        delay(effectiveDelayMs)
         shouldPlay = true
     }
 
@@ -123,9 +126,13 @@ fun TrailerAutoPlayBox(
     Box(
         modifier = modifier
             .background(Palette.CinematicBg)
-            .clickable(enabled = hasMediaSource && !shouldPlay) {
-                shouldPlay = true
-            },
+            .then(
+                if (!isTv && hasMediaSource && !shouldPlay) {
+                    Modifier.clickable { shouldPlay = true }
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         val activePlayer = player
         if (shouldPlay && activePlayer != null && playableUrl != null) {
