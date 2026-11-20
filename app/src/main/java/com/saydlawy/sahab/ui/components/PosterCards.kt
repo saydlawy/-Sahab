@@ -19,6 +19,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -44,10 +45,7 @@ import com.saydlawy.sahab.ui.components.SahabIcon as Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,9 +60,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -154,22 +151,27 @@ fun PosterCard(
             LaunchedEffect(Unit) { onFocused() }
         }
         val isTv = LocalIsTv.current
-        var posterSize by remember { mutableStateOf(IntSize.Zero) }
-        Box(
+        BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Palette.CardSurface)
-                .onSizeChanged { posterSize = it },
+                .background(Palette.CardSurface),
         ) {
+            val density = LocalDensity.current
+            val targetWidthPx = remember(density, maxWidth) {
+                with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
+            }
+            val targetHeightPx = remember(density, maxHeight) {
+                with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
+            }
             RemoteImage(
                 url = imageUrl,
                 fallbackText = title,
                 modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
                 contentScale = contentScale,
-                targetWidthPx = posterSize.width.takeIf { it > 0 },
-                targetHeightPx = posterSize.height.takeIf { it > 0 },
+                targetWidthPx = targetWidthPx,
+                targetHeightPx = targetHeightPx,
             )
             // Deep bottom gradient matching reference movie cards (simplified on TV for fast D-pad scroll)
             Box(
