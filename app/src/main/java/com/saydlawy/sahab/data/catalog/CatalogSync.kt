@@ -493,7 +493,7 @@ class CatalogSync(
         mediaType: String = "movie",
     ): Boolean {
         val normalizedType = mediaType.ifBlank { "movie" }
-        val existing = dao.findByStreamId(streamId, normalizedType) ?: return false
+        val existing = dao.findByStreamId(streamId, normalizedType)
         val movie = if (normalizedType.equals("series", ignoreCase = true)) {
             tmdb.getTvDetailsById(tmdbId)
         } else {
@@ -502,28 +502,66 @@ class CatalogSync(
 
         val now = System.currentTimeMillis()
         val newId = CatalogMovieEntity.idFromTmdb(movie.id)
-        dao.applyEnrichment(
-            streamId = streamId,
-            tmdbId = movie.id,
-            titleEn = movie.title,
-            year = movie.releaseDate.take(4),
-            plot = movie.overview,
-            cast = movie.credits?.cast?.take(5)?.joinToString(", ") { it.name } ?: "",
-            director = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: "",
-            genre = movie.genres.joinToString(", ") { it.name },
-            runtime = movie.runtime?.let { "${it}m" } ?: "",
-            rating = RatingSanitizer.format(movie.voteAverage, movie.voteCount),
-            backdropUrl = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: "",
-            voteCount = movie.voteCount,
-            status = 0,
-            now = now,
-            mediaType = normalizedType,
-            postersJson = movie.posterUrls.joinToString("\n"),
-            trailerUrl = movie.trailerUrl,
-            castJson = encodeTmdbCastJson(movie.credits?.cast),
-        )
-        if (existing.sahabId.startsWith("pending:")) {
-            runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
+        val castStr = movie.credits?.cast?.take(5)?.joinToString(", ") { it.name } ?: ""
+        val directorStr = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: ""
+        val genreStr = movie.genres.joinToString(", ") { it.name }
+        val runtimeStr = movie.runtime?.let { "${it}m" } ?: ""
+        val ratingStr = RatingSanitizer.format(movie.voteAverage, movie.voteCount)
+        val backdropStr = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: ""
+        val postersStr = movie.posterUrls.joinToString("\n")
+        val castJsonStr = encodeTmdbCastJson(movie.credits?.cast)
+
+        if (existing != null) {
+            dao.applyEnrichment(
+                streamId = streamId,
+                tmdbId = movie.id,
+                titleEn = movie.title,
+                year = movie.releaseDate.take(4),
+                plot = movie.overview,
+                cast = castStr,
+                director = directorStr,
+                genre = genreStr,
+                runtime = runtimeStr,
+                rating = ratingStr,
+                backdropUrl = backdropStr,
+                voteCount = movie.voteCount,
+                status = 0,
+                now = now,
+                mediaType = normalizedType,
+                postersJson = postersStr,
+                trailerUrl = movie.trailerUrl,
+                castJson = castJsonStr,
+            )
+            if (existing.sahabId.startsWith("pending:")) {
+                runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
+            }
+        } else {
+            dao.upsert(
+                CatalogMovieEntity(
+                    sahabId = newId,
+                    novaStreamId = streamId,
+                    mediaType = normalizedType,
+                    titleAr = movie.title,
+                    titleEn = movie.title,
+                    year = movie.releaseDate.take(4),
+                    plot = movie.overview,
+                    cast = castStr,
+                    castJson = castJsonStr,
+                    director = directorStr,
+                    genre = genreStr,
+                    runtime = runtimeStr,
+                    rating = ratingStr,
+                    posterUrl = movie.posterUrls.firstOrNull().orEmpty(),
+                    backdropUrl = backdropStr,
+                    tmdbId = movie.id,
+                    tmdbVoteCount = movie.voteCount,
+                    postersJson = postersStr,
+                    trailerUrl = movie.trailerUrl,
+                    needsEnrichment = 0,
+                    lastEnriched = now,
+                    lastSeen = now,
+                )
+            )
         }
         runCatching {
             dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
