@@ -117,6 +117,32 @@ class SahabCentralArchitectureTest {
         assertEquals("The Matrix", loaded?.titleEn)
         assertEquals(1, catalogAdapter.countItems("movie"))
         assertEquals(1, catalogAdapter.searchPaged("Matrix", "movie", 20, 0).size)
+
+        val autoMapped = LocalThresholdContentMatcher.evaluateMatch("acc-1", "101", "movie", 603, 99)
+        assertEquals(CentralMatchTier.AUTO_MATCH, autoMapped.tier)
+        assertEquals("tmdb:603", autoMapped.globalContentId?.canonical)
+
+        val reviewMapped = LocalThresholdContentMatcher.evaluateMatch("acc-1", "102", "series", 1396, 90)
+        assertEquals(CentralMatchTier.ADMIN_REVIEW, reviewMapped.tier)
+        assertEquals("tmdb:1396", reviewMapped.globalContentId?.canonical)
+
+        val unmatched = LocalThresholdContentMatcher.evaluateMatch("acc-1", "103", "movie", 550, 72)
+        assertEquals(CentralMatchTier.UNMATCHED, unmatched.tier)
+        assertEquals("pending:103", unmatched.globalContentId?.canonical)
+
+        val connector = LocalOfflineProviderConnector(dao = fakeDao)
+        val conn = CentralConnectionDescriptor(
+            connectionId = "acc-1",
+            providerType = "xtream",
+            providerIdentifier = "tv.example",
+            credentialsRef = "keystore:acc-1",
+            version = CentralCatalogVersion(schemaVersion = 1, generationId = 5L),
+        )
+        val version = connector.fetchCatalogVersion(conn)
+        assertEquals(2, version.itemCount)
+        val delta = connector.fetchDelta(conn, sinceGenerationId = 3L)
+        assertEquals(5L, delta.nextGenerationId)
+        assertTrue(delta.completedCleanly)
     }
 
     private class InMemoryPrefs : SharedPreferences {

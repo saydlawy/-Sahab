@@ -118,3 +118,63 @@ object NoOpZeroCostTelemetrySink : CentralTelemetrySink {
     override fun recordEvent(name: String, attributes: Map<String, String>) = Unit
     override fun totalEstimatedCostUsd(): Double = 0.0
 }
+
+/** Deterministic offline matcher classifying match confidence per Sahab Central rules. */
+object LocalThresholdContentMatcher : CentralContentMatcher {
+    override fun evaluateMatch(
+        connectionId: String,
+        privateStreamId: String,
+        mediaType: String,
+        candidateTmdbId: Int?,
+        confidencePercent: Int,
+        reviewedByAdmin: Boolean,
+    ): CentralContentMapping {
+        val bounded = confidencePercent.coerceIn(0, 100)
+        val tier = when {
+            candidateTmdbId == null -> CentralMatchTier.UNMATCHED
+            bounded >= 98 || reviewedByAdmin -> CentralMatchTier.AUTO_MATCH
+            bounded >= 85 -> CentralMatchTier.ADMIN_REVIEW
+            else -> CentralMatchTier.UNMATCHED
+        }
+        val globalId = if (candidateTmdbId != null && tier != CentralMatchTier.UNMATCHED) {
+            CentralContentId.fromTmdb(candidateTmdbId, mediaType)
+        } else {
+            CentralContentId.fromStream(privateStreamId, mediaType)
+        }
+        return CentralContentMapping(
+            connectionId = connectionId,
+            privateStreamId = privateStreamId,
+            mediaType = mediaType,
+            globalContentId = globalId,
+            confidencePercent = bounded,
+            tier = tier,
+            reviewedByAdmin = reviewedByAdmin,
+        )
+    }
+}
+
+/** Local Room-backed provider connector stub for zero-cost integration and unit testing. */
+class LocalOfflineProviderConnector(
+    override val providerType: String = "xtream-local",
+    private val dao: CatalogMovieDao,
+) : ProviderConnector {
+    override suspend fun fetchCatalogVersion(connection: CentralConnectionDescriptor): CentralCatalogVersion =
+        withContext(Dispatchers.IO) {
+            val count = dao.countByType("movie") + dao.countByType("series")
+            connection.version.copy(
+                itemCount = count,
+                updatedAtMs = connection.version.updatedAtMs.coerceAtLeast(1L),
+            )
+        }
+
+    override suspend fun fetchDelta(
+        connection: CentralConnectionDescriptor,
+        sinceGenerationId: Long,
+    ): CentralDeltaBatchDto = CentralDeltaBatchDto(
+        baseGenerationId = sinceGenerationId,
+        nextGenerationId = connection.version.generationId.coerceAtLeast(sinceGenerationId),
+        upserts = emptyList(),
+        deletedContentIds = emptyList(),
+        completedCleanly = true,
+    )
+}

@@ -28,3 +28,25 @@ interface CentralTelemetrySink {
     fun recordEvent(name: String, attributes: Map<String, String> = emptyMap())
     fun totalEstimatedCostUsd(): Double = 0.0
 }
+
+/** Connector boundary abstracting Xtream / M3U / future provider APIs per isolated user connection. */
+interface ProviderConnector {
+    val providerType: String
+    suspend fun fetchCatalogVersion(connection: CentralConnectionDescriptor): CentralCatalogVersion
+    suspend fun fetchDelta(
+        connection: CentralConnectionDescriptor,
+        sinceGenerationId: Long,
+    ): CentralDeltaBatchDto
+}
+
+/** Combined TMDB matching contract enforcing 98% Auto / 85-98% Review / <85% Unmatched thresholds. */
+interface CentralContentMatcher {
+    fun evaluateMatch(
+        connectionId: String,
+        privateStreamId: String,
+        mediaType: String,
+        candidateTmdbId: Int?,
+        confidencePercent: Int,
+        reviewedByAdmin: Boolean = false,
+    ): CentralContentMapping
+}

@@ -91,3 +91,60 @@ data class CentralFeatureFlags(
     val zeroCostMode: Boolean = true,
     val paidTierBillingAllowed: Boolean = false,
 )
+
+/** Matching confidence tiers specified by Sahab Central Platform (Section 10.6). */
+@Serializable
+enum class CentralMatchTier {
+    AUTO_MATCH,      // >= 98%
+    ADMIN_REVIEW,    // 85% .. < 98%
+    UNMATCHED,       // < 85%
+}
+
+/** Explicit catalog version & checksum tracking per private connection or global snapshot. */
+@Serializable
+data class CentralCatalogVersion(
+    val schemaVersion: Int = 1,
+    val generationId: Long = 0L,
+    val catalogHash: String = "",
+    val itemCount: Int = 0,
+    val updatedAtMs: Long = 0L,
+)
+
+/** Private IPTV connection metadata scoped per user without exposing credentials in global metadata. */
+@Serializable
+data class CentralConnectionDescriptor(
+    val connectionId: String,
+    val providerType: String,
+    val providerIdentifier: String,
+    val credentialsRef: String,
+    val syncStatus: String = "idle",
+    val version: CentralCatalogVersion = CentralCatalogVersion(),
+)
+
+/** Explicit mapping between a user's private provider stream ID and a global TMDB content entity. */
+@Serializable
+data class CentralContentMapping(
+    val connectionId: String,
+    val privateStreamId: String,
+    val mediaType: String,
+    val globalContentId: CentralContentId? = null,
+    val confidencePercent: Int = 0,
+    val tier: CentralMatchTier = CentralMatchTier.UNMATCHED,
+    val reviewedByAdmin: Boolean = false,
+)
+
+/** Wire-neutral snapshot & delta API DTOs for future Cloud Storage / HTTP synchronization. */
+@Serializable
+data class CentralCatalogSnapshotDto(
+    val version: CentralCatalogVersion,
+    val items: List<CentralCatalogItem>,
+)
+
+@Serializable
+data class CentralDeltaBatchDto(
+    val baseGenerationId: Long,
+    val nextGenerationId: Long,
+    val upserts: List<CentralCatalogItem>,
+    val deletedContentIds: List<String> = emptyList(),
+    val completedCleanly: Boolean = true,
+)
