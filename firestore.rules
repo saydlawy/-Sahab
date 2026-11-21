@@ -34,7 +34,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && request.auth.uid == 'YttqqChnJwPvb6v5MD2wDA32Xcd2';
+      return isAuthenticated() && request.auth.uid == 'YttqqChnJwPvb6v5MD2wDA32Xcd2'; // gitleaks:allow
     }
 
     function hasOnlyAllowedFields(fields) {
@@ -157,40 +157,6 @@ service cloud.firestore {
              isValidOptionalString('redirectTo', 1, 64);
     }
 
-    function immutableIfPopulated(field) {
-      return !(field in resource.data) ||
-             resource.data[field] == null ||
-             resource.data[field] == '' ||
-             request.resource.data[field] == resource.data[field];
-    }
-
-    function originalEnrichmentUnchanged() {
-      return immutableIfPopulated('tmdbId') &&
-             immutableIfPopulated('imdbId') &&
-             immutableIfPopulated('tmdbVoteCount') &&
-             immutableIfPopulated('titleEn') &&
-             immutableIfPopulated('titleAr') &&
-             immutableIfPopulated('novaStreamId') &&
-             immutableIfPopulated('year') &&
-             immutableIfPopulated('plot') &&
-             immutableIfPopulated('plotSource') &&
-             immutableIfPopulated('plotConfidence') &&
-             immutableIfPopulated('identifiedTitle') &&
-             immutableIfPopulated('redirectTo') &&
-             immutableIfPopulated('posterUrl') &&
-             immutableIfPopulated('backdropUrl') &&
-             immutableIfPopulated('cast') &&
-             immutableIfPopulated('director') &&
-             immutableIfPopulated('genre') &&
-             immutableIfPopulated('runtime') &&
-             immutableIfPopulated('rating') &&
-             immutableIfPopulated('mediaType') &&
-             (!('aliases' in resource.data) ||
-              resource.data.aliases == null ||
-              (('aliases' in request.resource.data) &&
-               request.resource.data.aliases is list &&
-               request.resource.data.aliases.hasAll(resource.data.aliases)));
-    }
 
     function isValidGlobalCatalogRedirect(data) {
       return !('redirectTo' in data) ||
