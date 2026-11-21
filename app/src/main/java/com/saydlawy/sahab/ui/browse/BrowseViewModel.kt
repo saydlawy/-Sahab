@@ -332,6 +332,7 @@ class BrowseViewModel(
             val queryCat = targetCat.takeIf { it != ALL_CAT_ID && it != FAV_CAT_ID && it != RECENTS_CAT_ID }
             val page = runCatching { loadCatalogPage(queryCat, limit = 120, offset = 0) }.getOrDefault(emptyList())
             val (hero, top10) = buildHeroAndTop10(page)
+            val groups = buildRoomCategoryGroups(defaultCategories, isCustom = false)
             _state.update {
                 it.copy(
                     categories = defaultCategories,
@@ -340,6 +341,7 @@ class BrowseViewModel(
                     categoryCounts = defaultCounts,
                     featuredHeroItems = hero,
                     top10Items = top10,
+                    categoryGroups = groups,
                     loadingItems = false,
                 )
             }
@@ -395,12 +397,14 @@ class BrowseViewModel(
         } else {
             loadCustomRoomPage(firstCat, limit = 120, offset = 0)
         }
+        val customGroups = buildRoomCategoryGroups(customCats, isCustom = true)
         _state.update {
             it.copy(
                 categories = customCats,
                 selectedId = firstCat,
                 items = initialItems,
                 categoryCounts = countsMap,
+                categoryGroups = customGroups,
                 loadingItems = false,
             )
         }
@@ -419,6 +423,27 @@ class BrowseViewModel(
             }
             entities.map { it.toPoster() }
         }
+
+    private suspend fun buildRoomCategoryGroups(
+        cats: List<Category>,
+        isCustom: Boolean,
+        maxGroups: Int = 12,
+        itemsPerGroup: Int = 15,
+    ): List<CategoryPosterGroup> = withContext(Dispatchers.IO) {
+        val result = ArrayList<CategoryPosterGroup>(maxGroups)
+        for (cat in cats) {
+            if (result.size >= maxGroups) break
+            val list = if (isCustom) {
+                runCatching { loadCustomRoomPage(cat.id, limit = itemsPerGroup, offset = 0) }.getOrDefault(emptyList())
+            } else {
+                runCatching { loadCatalogPage(cat.id, limit = itemsPerGroup, offset = 0) }.getOrDefault(emptyList())
+            }
+            if (list.isNotEmpty()) {
+                result.add(CategoryPosterGroup(cat, list))
+            }
+        }
+        result
+    }
 
     private suspend fun applyOrganization(
         allItems: List<Poster>,
@@ -689,6 +714,9 @@ class BrowseViewModel(
                             grouping = _state.value.customGrouping,
                             preferredCat = preferredCat,
                         )
+                    } else {
+                        val roomGroups = buildRoomCategoryGroups(categories, isCustom = false)
+                        _state.update { it.copy(categoryGroups = roomGroups) }
                     }
                     return@launch
                 }
