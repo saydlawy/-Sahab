@@ -8,6 +8,7 @@ import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.data.VodCustomGrouping
 import com.saydlawy.sahab.data.VodOrganizationMode
 import com.saydlawy.sahab.data.catalog.CatalogFacetRow
+import com.saydlawy.sahab.data.catalog.loadAllFacetsByPage
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import com.saydlawy.sahab.data.FavItem
@@ -26,13 +27,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.EnumMap
 import java.util.concurrent.ConcurrentHashMap
 
 internal const val RECENTS_CAT_ID = "__RECENTS__"
@@ -89,6 +92,19 @@ class BrowseViewModel(
     private var customItemsByCategory: Map<String, List<Poster>> = emptyMap()
     private var cachedFacets: Map<String, CatalogFacetRow>? = null
     private var cachedFacetsByTitle: Map<String, CatalogFacetRow> = emptyMap()
+    private var lastAppliedFacetVersion: String? = null
+    private var cachedResolvedFacets: Map<String, CatalogFacetRow>? = null
+    private var cachedPreSortedItems: List<Poster>? = null
+    private var cachedDefaultLayout: Triple<List<Poster>, List<Poster>, List<CategoryPosterGroup>>? = null
+    private val cachedCustomLayouts =
+        EnumMap<VodCustomGrouping, Pair<CustomOrganizationResult, List<CategoryPosterGroup>>>(VodCustomGrouping::class.java)
+
+    private fun invalidateOrganizationCaches() {
+        cachedResolvedFacets = null
+        cachedPreSortedItems = null
+        cachedDefaultLayout = null
+        cachedCustomLayouts.clear()
+    }
 
     init {
         viewModelScope.launch {
@@ -96,26 +112,40 @@ class BrowseViewModel(
                 container.prefs.vodOrganizationMode,
                 container.prefs.vodCustomGrouping,
             ) { mode, grouping -> mode to grouping }
-                .collect { (mode, grouping) ->
+                .distinctUntilChanged()
+                .collectLatest { (mode, grouping) ->
                     val prev = _state.value
                     val changed = prev.organizationMode != mode || prev.customGrouping != grouping
                     _state.update { it.copy(organizationMode = mode, customGrouping = grouping) }
-                    if (changed && !searchPool.isNullOrEmpty()) {
-                        applyOrganization(searchPool.orEmpty(), mode, grouping)
+                    val pool = searchPool
+                    if (changed && !pool.isNullOrEmpty()) {
+                        applyOrganization(pool, mode, grouping)
                     }
                 }
         }
         viewModelScope.launch {
             val mediaType = if (series) "series" else "movie"
-            container.catalogDb.movieDao().observeFacetMetadata(mediaType)
+            val dao = container.catalogDb.movieDao()
+            combine(
+                dao.observeFacetVersion(mediaType),
+                container.catalogSync.firebaseSyncing,
+                container.catalogSync.syncing,
+            ) { version, fbSyncing, movieSyncing ->
+                Triple(version, fbSyncing, movieSyncing)
+            }
                 .debounce(2_500L)
-                .map { rows -> buildFacetMaps(rows) }
+                .filter { (_, fbSyncing, movieSyncing) -> !fbSyncing && !movieSyncing }
+                .map { (version, _, _) -> version }
                 .distinctUntilChanged()
-                .flowOn(Dispatchers.Default)
-                .collectLatest { (newStreamMap, newTitleMap) ->
+                .catch { err -> android.util.Log.w("BrowseViewModel", "Facet version observer failed", err) }
+                .collectLatest { version ->
+                    if (version == lastAppliedFacetVersion && cachedFacets != null) return@collectLatest
+                    val (newStreamMap, newTitleMap) = loadFacetMapsFromDb(mediaType) ?: return@collectLatest
+                    lastAppliedFacetVersion = version
                     if (newStreamMap == cachedFacets && newTitleMap == cachedFacetsByTitle) return@collectLatest
                     cachedFacets = newStreamMap
                     cachedFacetsByTitle = newTitleMap
+                    invalidateOrganizationCaches()
                     val currentPool = searchPool
                     if (!currentPool.isNullOrEmpty()) {
                         val refreshed = enrichWithTmdb(currentPool)
@@ -178,17 +208,37 @@ class BrowseViewModel(
         return if (key.length >= 2) byTitle[key] else null
     }
 
+    private suspend fun loadFacetMapsFromDb(
+        mediaType: String,
+    ): Pair<Map<String, CatalogFacetRow>, Map<String, CatalogFacetRow>>? {
+        val rows = withContext(Dispatchers.IO) {
+            try {
+                container.catalogDb.movieDao().loadAllFacetsByPage(mediaType)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                android.util.Log.w("BrowseViewModel", "Failed loading facet pages ($mediaType)", e)
+                null
+            }
+        } ?: return null
+        return withContext(Dispatchers.Default) {
+            buildFacetMaps(rows)
+        }
+    }
+
     private suspend fun getFacetsMap(): Map<String, CatalogFacetRow> {
         cachedFacets?.let { return it }
         val mediaType = if (series) "series" else "movie"
-        val (byStream, byTitle) = withContext(Dispatchers.IO) {
-            runCatching {
-                buildFacetMaps(container.catalogDb.movieDao().getFacetMetadata(mediaType))
-            }.getOrDefault(emptyMap<String, CatalogFacetRow>() to emptyMap())
+        val version = withContext(Dispatchers.IO) {
+            runCatching { container.catalogDb.movieDao().getFacetVersion(mediaType) }.getOrNull()
         }
-        cachedFacets = byStream
-        cachedFacetsByTitle = byTitle
-        return byStream
+        val maps = loadFacetMapsFromDb(mediaType) ?: return emptyMap()
+        cachedFacets = maps.first
+        cachedFacetsByTitle = maps.second
+        if (version != null) {
+            lastAppliedFacetVersion = version
+        }
+        return maps.first
     }
 
     fun refreshFacets() {
@@ -197,6 +247,8 @@ class BrowseViewModel(
         viewModelScope.launch {
             cachedFacets = null
             cachedFacetsByTitle = emptyMap()
+            lastAppliedFacetVersion = null
+            invalidateOrganizationCaches()
             val refreshed = enrichWithTmdb(currentPool)
             updateSearchPool(refreshed)
             applyOrganization(refreshed)
@@ -217,15 +269,42 @@ class BrowseViewModel(
                 val f = resolveFacet(p, facets, byTitle)
                 val tmdbRating = RatingSanitizer.format(f?.rating, f?.tmdbVoteCount)
                 val finalRating = tmdbRating.ifBlank { RatingSanitizer.format(p.rating) }
-                val tmdbYear = VodCustomOrganizer.extractTmdbYear(f?.year)
-                val tmdbGenre = VodCustomOrganizer.primaryGenre(f?.genre)
-                p.copy(
-                    rating = finalRating,
-                    year = tmdbYear.ifBlank { p.year },
-                    genre = tmdbGenre.ifBlank { p.genre },
-                )
+                val finalYear = VodCustomOrganizer.extractTmdbYear(f?.year).ifBlank { p.year }
+                val finalGenre = VodCustomOrganizer.primaryGenre(f?.genre).ifBlank { p.genre }
+                if (finalRating == p.rating && finalYear == p.year && finalGenre == p.genre) {
+                    p
+                } else {
+                    p.copy(
+                        rating = finalRating,
+                        year = finalYear,
+                        genre = finalGenre,
+                    )
+                }
             }
         }
+    }
+
+    private suspend fun ensureResolvedFacets(allItems: List<Poster>): Map<String, CatalogFacetRow> {
+        cachedResolvedFacets?.let { return it }
+        val facets = getFacetsMap()
+        val byTitle = cachedFacetsByTitle
+        return withContext(Dispatchers.Default) {
+            val resolved = HashMap<String, CatalogFacetRow>(allItems.size)
+            for (p in allItems) {
+                resolveFacet(p, facets, byTitle)?.let { resolved[p.id] = it }
+            }
+            resolved
+        }.also { cachedResolvedFacets = it }
+    }
+
+    private suspend fun ensurePreSortedItems(
+        allItems: List<Poster>,
+        resolved: Map<String, CatalogFacetRow>,
+    ): List<Poster> {
+        cachedPreSortedItems?.let { return it }
+        return withContext(Dispatchers.Default) {
+            VodCustomOrganizer.prepareSortedItems(allItems, resolved)
+        }.also { cachedPreSortedItems = it }
     }
 
     private suspend fun applyOrganization(
@@ -259,20 +338,19 @@ class BrowseViewModel(
             return
         }
 
-        val facets = getFacetsMap()
-        val byTitle = cachedFacetsByTitle
-        val organized = withContext(Dispatchers.Default) {
-            val resolvedFacets = HashMap<String, CatalogFacetRow>(allItems.size)
-            for (p in allItems) {
-                resolveFacet(p, facets, byTitle)?.let { resolvedFacets[p.id] = it }
-            }
-            VodCustomOrganizer.organize(allItems, resolvedFacets, grouping)
+        val (organized, groups) = cachedCustomLayouts[grouping] ?: run {
+            val resolved = ensureResolvedFacets(allItems)
+            val preSorted = ensurePreSortedItems(allItems, resolved)
+            withContext(Dispatchers.Default) {
+                val res = VodCustomOrganizer.organize(allItems, resolved, grouping, preSorted)
+                val catGroups = res.categories.mapNotNull { cat ->
+                    val list = res.itemsByCategory[cat.id].orEmpty()
+                    if (list.isEmpty()) null else CategoryPosterGroup(cat, list.take(20))
+                }.take(18)
+                res to catGroups
+            }.also { pair -> cachedCustomLayouts[grouping] = pair }
         }
         customItemsByCategory = organized.itemsByCategory
-        val groups = organized.categories.mapNotNull { cat ->
-            val list = organized.itemsByCategory[cat.id].orEmpty()
-            if (list.isEmpty()) null else CategoryPosterGroup(cat, list.take(20))
-        }.take(18)
         val currentSel = preferredCat ?: _state.value.selectedId
         val targetCat = when {
             currentSel == ALL_CAT_ID || currentSel == FAV_CAT_ID || currentSel == RECENTS_CAT_ID -> currentSel
@@ -294,33 +372,44 @@ class BrowseViewModel(
         }
     }
 
+    private suspend fun buildHeroAndTop10(
+        allItems: List<Poster>,
+    ): Pair<List<Poster>, List<Poster>> {
+        val resolved = ensureResolvedFacets(allItems)
+        val ranked = ensurePreSortedItems(allItems, resolved)
+        return withContext(Dispatchers.Default) {
+            val hero = ranked.filter { it.image.isNotBlank() }.take(6).ifEmpty { allItems.take(6) }
+            val top10 = ranked
+                .filter { RatingSanitizer.parseValid(it.rating, resolved[it.id]?.tmdbVoteCount) != null }
+                .distinctBy { poster ->
+                    val facetTitle = resolved[poster.id]?.titleEn?.ifBlank { resolved[poster.id]?.titleAr } ?: poster.name
+                    normalizeTitleKey(facetTitle).ifBlank { poster.id }
+                }
+                .take(10)
+            hero to top10
+        }
+    }
+
     private suspend fun buildLayoutCollections(
         categories: List<Category>,
         allItems: List<Poster>,
-        facets: Map<String, CatalogFacetRow> = cachedFacets.orEmpty(),
-    ): Triple<List<Poster>, List<Poster>, List<CategoryPosterGroup>> = withContext(Dispatchers.Default) {
-        val ranked = allItems.sortedWith(
-            compareByDescending<Poster> {
-                RatingSanitizer.rankingScore(it.rating, facets[it.id]?.tmdbVoteCount)
-            }.thenByDescending { it.added },
-        )
-        val hero = ranked.filter { it.image.isNotBlank() }.take(6).ifEmpty { allItems.take(6) }
-        val top10 = ranked
-            .filter { RatingSanitizer.parseValid(it.rating, facets[it.id]?.tmdbVoteCount) != null }
-            .distinctBy { poster ->
-                val facetTitle = facets[poster.id]?.titleEn?.ifBlank { facets[poster.id]?.titleAr } ?: poster.name
-                normalizeTitleKey(facetTitle).ifBlank { poster.id }
-            }
-            .take(10)
-        val byCat = allItems.groupBy { it.categoryId }
-        val groups = categories.mapNotNull { cat ->
-            val list = byCat[cat.id].orEmpty()
-            if (list.isEmpty()) null else CategoryPosterGroup(cat, list.take(20))
-        }.take(12)
-        Triple(hero, top10, groups)
+    ): Triple<List<Poster>, List<Poster>, List<CategoryPosterGroup>> {
+        cachedDefaultLayout?.let { return it }
+        val (hero, top10) = buildHeroAndTop10(allItems)
+        return withContext(Dispatchers.Default) {
+            val byCat = allItems.groupBy { it.categoryId }
+            val groups = categories.mapNotNull { cat ->
+                val list = byCat[cat.id].orEmpty()
+                if (list.isEmpty()) null else CategoryPosterGroup(cat, list.take(20))
+            }.take(12)
+            Triple(hero, top10, groups)
+        }.also { cachedDefaultLayout = it }
     }
 
     private suspend fun updateSearchPool(list: List<Poster>) {
+        if (searchPool !== list) {
+            invalidateOrganizationCaches()
+        }
         searchPool = list
         indexedPool = withContext(Dispatchers.Default) {
             list.map { it to it.name.normalizeForSearch() }
@@ -442,43 +531,68 @@ class BrowseViewModel(
                     updateSearchPool(enrichedAll)
                     val counts = computeCounts(enrichedAll)
                     defaultCounts = counts
-                    val (hero, top10, groups) = buildLayoutCollections(categories, enrichedAll)
-                    val targetCat = preferredCat ?: ALL_CAT_ID
-                    val initialItems = if (targetCat == ALL_CAT_ID || targetCat == FAV_CAT_ID || targetCat == RECENTS_CAT_ID) {
-                        enrichedAll
-                    } else {
-                        withContext(Dispatchers.Default) {
-                            enrichedAll.filter { it.categoryId == targetCat }.ifEmpty { enrichedAll }
-                        }
-                    }
-                    _state.update {
-                        it.copy(
-                            categories = categories,
-                            selectedId = targetCat,
-                            items = initialItems,
-                            loadingCategories = false,
-                            loadingItems = false,
-                            totalCount = enrichedAll.size,
-                            categoryCounts = counts,
-                            featuredHeroItems = hero,
-                            top10Items = top10,
-                            categoryGroups = groups,
-                        )
-                    }
-                    if (_focusedDetails.value == null) {
-                        hero.firstOrNull()?.let { p ->
-                            _focusedDetails.value = FocusedPosterDetails(
-                                poster = p,
-                                year = p.year,
-                                rating = cleanRating(p.rating),
-                                backdropUrl = p.image,
+                    val currentMode = _state.value.organizationMode
+                    if (currentMode == VodOrganizationMode.CUSTOM) {
+                        val (hero, top10) = buildHeroAndTop10(enrichedAll)
+                        _state.update {
+                            it.copy(
+                                categories = categories,
+                                loadingCategories = false,
+                                loadingItems = false,
+                                totalCount = enrichedAll.size,
+                                categoryCounts = counts,
+                                featuredHeroItems = hero,
+                                top10Items = top10,
                             )
                         }
-                    }
-                    if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
                         applyOrganization(enrichedAll, preferredCat = preferredCat)
+                        if (_focusedDetails.value == null) {
+                            hero.firstOrNull()?.let { p ->
+                                _focusedDetails.value = FocusedPosterDetails(
+                                    poster = p,
+                                    year = p.year,
+                                    rating = cleanRating(p.rating),
+                                    backdropUrl = p.image,
+                                )
+                            }
+                        }
+                        hero.firstOrNull()?.let { fetchDetailsForHero(it) }
+                    } else {
+                        val (hero, top10, groups) = buildLayoutCollections(categories, enrichedAll)
+                        val targetCat = preferredCat ?: ALL_CAT_ID
+                        val initialItems = if (targetCat == ALL_CAT_ID || targetCat == FAV_CAT_ID || targetCat == RECENTS_CAT_ID) {
+                            enrichedAll
+                        } else {
+                            withContext(Dispatchers.Default) {
+                                enrichedAll.filter { it.categoryId == targetCat }.ifEmpty { enrichedAll }
+                            }
+                        }
+                        _state.update {
+                            it.copy(
+                                categories = categories,
+                                selectedId = targetCat,
+                                items = initialItems,
+                                loadingCategories = false,
+                                loadingItems = false,
+                                totalCount = enrichedAll.size,
+                                categoryCounts = counts,
+                                featuredHeroItems = hero,
+                                top10Items = top10,
+                                categoryGroups = groups,
+                            )
+                        }
+                        if (_focusedDetails.value == null) {
+                            hero.firstOrNull()?.let { p ->
+                                _focusedDetails.value = FocusedPosterDetails(
+                                    poster = p,
+                                    year = p.year,
+                                    rating = cleanRating(p.rating),
+                                    backdropUrl = p.image,
+                                )
+                            }
+                        }
+                        hero.firstOrNull()?.let { fetchDetailsForHero(it) }
                     }
-                    hero.firstOrNull()?.let { fetchDetailsForHero(it) }
                     if (initialQuery.isNotBlank()) {
                         onQuery(initialQuery)
                     }
@@ -522,7 +636,17 @@ class BrowseViewModel(
                         updateSearchPool(allItems)
                         val counts = computeCounts(allItems)
                         defaultCounts = counts
-                        val (hero, top10, groups) = buildLayoutCollections(categories, allItems)
+                        val (hero, top10) = if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
+                            buildHeroAndTop10(allItems)
+                        } else {
+                            val triple = buildLayoutCollections(categories, allItems)
+                            triple.first to triple.second
+                        }
+                        val groups = if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
+                            _state.value.categoryGroups
+                        } else {
+                            buildLayoutCollections(categories, allItems).third
+                        }
                         val hadDetails = _focusedDetails.value != null
                         _state.update { current ->
                             current.copy(

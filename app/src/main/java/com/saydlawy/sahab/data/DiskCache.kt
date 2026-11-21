@@ -230,8 +230,8 @@ class DiskCache(
         private const val LOCK_STRIPES = 64
         private val SHA256_LOCAL: ThreadLocal<MessageDigest> =
             ThreadLocal.withInitial { MessageDigest.getInstance("SHA-256") }
-        const val MAX_CATALOG_BYTES = 500L * 1024L * 1024L // 500 MB LRU cap
-        const val MAX_TMDB_BYTES = 150L * 1024L * 1024L    // 150 MB LRU cap for TMDB metadata
+        const val MAX_CATALOG_BYTES = 120L * 1024L * 1024L // 120 MB LRU cap
+        const val MAX_TMDB_BYTES = 60L * 1024L * 1024L     // 60 MB LRU cap for TMDB metadata
         const val TTL_CATALOG_MS = 12 * 3600_000L       // 12 hours for categories & channel/VOD lists
         const val TTL_DETAILS_MS = 7 * 24 * 3600_000L   // 7 days for movie & series details
         const val TTL_TMDB_MS = 30L * 24 * 3600_000L    // 30 days for TMDB enriched data

@@ -131,17 +131,20 @@ fun BrowseScreen(
     }
 
     val rawItems = state.visibleItems
-    val items by produceState(
+    val isSpecialCategory = state.searchResults == null &&
+        (state.selectedId == RECENTS_CAT_ID || state.selectedId == FAV_CAT_ID)
+    val specialItems by produceState(
         initialValue = emptyList(),
+        isSpecialCategory,
         rawItems,
         state.selectedId,
         favoriteIds,
-        state.searchResults,
         favorites,
         screenRecents,
     ) {
-        value = when {
-            state.selectedId == RECENTS_CAT_ID && state.searchResults == null -> {
+        if (!isSpecialCategory) return@produceState
+        value = when (state.selectedId) {
+            RECENTS_CAT_ID -> {
                 screenRecents.map { r ->
                     Poster(
                         id = if (series && r.groupId.isNotBlank()) r.groupId else r.id,
@@ -153,7 +156,7 @@ fun BrowseScreen(
                     )
                 }.distinctBy { it.id }
             }
-            state.selectedId == FAV_CAT_ID && state.searchResults == null -> {
+            FAV_CAT_ID -> {
                 val fromPool = if (rawItems.size > 400) {
                     withContext(Dispatchers.Default) { rawItems.filter { it.id in favoriteIds } }
                 } else {
@@ -167,6 +170,7 @@ fun BrowseScreen(
             else -> rawItems
         }
     }
+    val items = if (isSpecialCategory) specialItems else rawItems
 
     val gridStorageKey = "${route}_grid_${state.selectedId ?: ALL_CAT_ID}"
     val gridState = rememberRestorableLazyGridState(gridStorageKey)

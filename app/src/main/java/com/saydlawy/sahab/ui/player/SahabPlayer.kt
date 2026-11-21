@@ -46,7 +46,8 @@ object SahabPlayer {
 
     const val SEEK_STEP_MS = 10_000L
     private const val VIDEO_JOINING_TIME_MS = 3_000L
-    private const val MEDIA_CACHE_BYTES = 512L * 1024L * 1024L // 512 MB
+    private const val MEDIA_CACHE_BYTES_TV = 150L * 1024L * 1024L     // 150 MB on Android TV storage
+    private const val MEDIA_CACHE_BYTES_MOBILE = 250L * 1024L * 1024L // 250 MB on mobile/tablet
 
     private val cacheLock = Any()
     private val cacheWarmupStarted = AtomicBoolean(false)
@@ -62,7 +63,12 @@ object SahabPlayer {
             return runCatching {
                 val appContext = context.applicationContext
                 val dir = File(appContext.cacheDir, MEDIA_CACHE_DIR).apply { mkdirs() }
-                val evictor = LeastRecentlyUsedCacheEvictor(MEDIA_CACHE_BYTES)
+                val cacheCap = if (com.saydlawy.sahab.util.isTelevision(appContext)) {
+                    MEDIA_CACHE_BYTES_TV
+                } else {
+                    MEDIA_CACHE_BYTES_MOBILE
+                }
+                val evictor = LeastRecentlyUsedCacheEvictor(cacheCap)
                 val dbProvider = StandaloneDatabaseProvider(appContext)
                 SimpleCache(dir, evictor, dbProvider).also { simpleCache = it }
             }.getOrNull()

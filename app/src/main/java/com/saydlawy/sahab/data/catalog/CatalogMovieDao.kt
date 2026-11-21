@@ -7,6 +7,9 @@ import androidx.room.Query
 import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
+internal const val CATALOG_FACET_PAGE_SIZE = 400
+internal const val CATALOG_ENRICHED_PAGE_SIZE = 200
+
 @Dao
 interface CatalogMovieDao {
 
@@ -134,8 +137,18 @@ interface CatalogMovieDao {
     @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND needsEnrichment = 0")
     suspend fun countEnriched(): Int
 
-    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND tmdbId IS NOT NULL AND tmdbId > 0")
-    suspend fun getAllEnriched(): List<CatalogMovieEntity>
+    @Query(
+        "SELECT * FROM catalog_movies WHERE deleted = 0 AND tmdbId IS NOT NULL AND tmdbId > 0 " +
+            "AND sahabId > :afterSahabId ORDER BY sahabId ASC LIMIT :limit"
+    )
+    suspend fun getEnrichedPage(
+        afterSahabId: String = "",
+        limit: Int = CATALOG_ENRICHED_PAGE_SIZE,
+    ): List<CatalogMovieEntity>
+
+    suspend fun getAllEnriched(): List<CatalogMovieEntity> = loadAllBySahabIdPage(CATALOG_ENRICHED_PAGE_SIZE) { cursor, limit ->
+        getEnrichedPage(afterSahabId = cursor, limit = limit)
+    }
 
     @Query(
         "UPDATE catalog_movies SET " +
@@ -223,16 +236,33 @@ interface CatalogMovieDao {
     suspend fun countByType(mediaType: String = "movie"): Int
 
     @Query(
-        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount, titleAr, titleEn, identifiedTitle FROM catalog_movies " +
-            "WHERE deleted = 0 AND mediaType = :mediaType AND (novaStreamId != '' OR genre != '' OR year != '' OR rating != '')"
+        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount, titleAr, titleEn, identifiedTitle, sahabId " +
+            "FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "AND (novaStreamId != '' OR genre != '' OR year != '' OR rating != '') " +
+            "AND sahabId > :afterSahabId " +
+            "ORDER BY sahabId ASC LIMIT :limit"
     )
-    suspend fun getFacetMetadata(mediaType: String): List<CatalogFacetRow>
+    suspend fun getFacetMetadataPage(
+        mediaType: String,
+        afterSahabId: String = "",
+        limit: Int = CATALOG_FACET_PAGE_SIZE,
+    ): List<CatalogFacetRow>
 
     @Query(
-        "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount, titleAr, titleEn, identifiedTitle FROM catalog_movies " +
-            "WHERE deleted = 0 AND mediaType = :mediaType AND (novaStreamId != '' OR genre != '' OR year != '' OR rating != '')"
+        "SELECT COALESCE(MAX(lastEnriched), 0) || ':' || COUNT(*) FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType"
     )
-    fun observeFacetMetadata(mediaType: String): Flow<List<CatalogFacetRow>>
+    fun observeFacetVersion(mediaType: String): Flow<String>
+
+    @Query(
+        "SELECT COALESCE(MAX(lastEnriched), 0) || ':' || COUNT(*) FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType"
+    )
+    suspend fun getFacetVersion(mediaType: String): String
+
+    suspend fun getFacetMetadata(mediaType: String): List<CatalogFacetRow> =
+        loadAllFacetsByPage(mediaType, CATALOG_FACET_PAGE_SIZE)
 
     @Query(
         "SELECT COUNT(*) AS total, " +
@@ -249,6 +279,42 @@ interface CatalogMovieDao {
 
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()
+}
+
+suspend fun CatalogMovieDao.loadAllFacetsByPage(
+    mediaType: String,
+    pageSize: Int = CATALOG_FACET_PAGE_SIZE,
+): List<CatalogFacetRow> {
+    val safePageSize = pageSize.coerceAtLeast(1)
+    val out = ArrayList<CatalogFacetRow>(safePageSize)
+    var cursor = ""
+    while (true) {
+        val page = getFacetMetadataPage(mediaType = mediaType, afterSahabId = cursor, limit = safePageSize)
+        if (page.isEmpty()) break
+        out.addAll(page)
+        val nextCursor = page.last().sahabId
+        if (page.size < safePageSize || nextCursor.isEmpty() || nextCursor <= cursor) break
+        cursor = nextCursor
+    }
+    return out
+}
+
+private suspend inline fun loadAllBySahabIdPage(
+    pageSize: Int,
+    crossinline fetchPage: suspend (afterSahabId: String, limit: Int) -> List<CatalogMovieEntity>,
+): List<CatalogMovieEntity> {
+    val safePageSize = pageSize.coerceAtLeast(1)
+    val out = ArrayList<CatalogMovieEntity>(safePageSize)
+    var cursor = ""
+    while (true) {
+        val page = fetchPage(cursor, safePageSize)
+        if (page.isEmpty()) break
+        out.addAll(page)
+        val nextCursor = page.last().sahabId
+        if (page.size < safePageSize || nextCursor.isEmpty() || nextCursor <= cursor) break
+        cursor = nextCursor
+    }
+    return out
 }
 
 data class MediaFlowStats(
@@ -270,4 +336,5 @@ data class CatalogFacetRow(
     val titleAr: String = "",
     val titleEn: String = "",
     val identifiedTitle: String = "",
+    val sahabId: String = "",
 )

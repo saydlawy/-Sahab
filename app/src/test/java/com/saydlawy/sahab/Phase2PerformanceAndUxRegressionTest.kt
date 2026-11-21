@@ -8,6 +8,10 @@ import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.TmdbApi
 import com.saydlawy.sahab.data.XtreamApi
+import com.saydlawy.sahab.data.catalog.CATALOG_FACET_PAGE_SIZE
+import com.saydlawy.sahab.data.catalog.CatalogFacetRow
+import com.saydlawy.sahab.data.catalog.CatalogMovieDao
+import com.saydlawy.sahab.data.catalog.loadAllFacetsByPage
 import com.saydlawy.sahab.data.channel.ChannelSync
 import com.saydlawy.sahab.ui.browse.BrowseUiState
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
@@ -118,5 +122,45 @@ class Phase2PerformanceAndUxRegressionTest {
     fun arabicLocalization_rendersChannelsCountDistinctlyFromVodItemsCount() {
         assertEquals("1529 قناة", Ar.channelsCount(1529))
         assertEquals("1529 عنوان", Ar.itemsCount(1529))
+    }
+
+    @Test
+    fun facetPagination_walksAllPagesSafelyAndDiskCacheCapsAreBoundedForTv() = runTest {
+        val totalRows = CATALOG_FACET_PAGE_SIZE * 2 + 15
+        val rows = (1..totalRows).map { idx ->
+            val key = "tmdb:%05d".format(idx)
+            CatalogFacetRow(
+                novaStreamId = idx.toString(),
+                year = "2024",
+                genre = "Action",
+                cast = "",
+                rating = "8.0",
+                novaAdded = idx.toLong(),
+                sahabId = key,
+            )
+        }
+        val recordedCursors = mutableListOf<String>()
+        val fakeDao = java.lang.reflect.Proxy.newProxyInstance(
+            CatalogMovieDao::class.java.classLoader,
+            arrayOf(CatalogMovieDao::class.java),
+        ) { _, method, args ->
+            when (method.name) {
+                "getFacetMetadataPage" -> {
+                    val afterCursor = args?.getOrNull(1) as? String ?: ""
+                    val limit = args?.getOrNull(2) as? Int ?: CATALOG_FACET_PAGE_SIZE
+                    recordedCursors.add(afterCursor)
+                    rows.filter { it.sahabId > afterCursor }.take(limit)
+                }
+                else -> null
+            }
+        } as CatalogMovieDao
+
+        val loaded = fakeDao.loadAllFacetsByPage("movie", CATALOG_FACET_PAGE_SIZE)
+        assertEquals(totalRows, loaded.size)
+        assertEquals("tmdb:00001", loaded.first().sahabId)
+        assertEquals("tmdb:%05d".format(totalRows), loaded.last().sahabId)
+        assertEquals(3, recordedCursors.size)
+        assertEquals(120L * 1024L * 1024L, DiskCache.MAX_CATALOG_BYTES)
+        assertEquals(60L * 1024L * 1024L, DiskCache.MAX_TMDB_BYTES)
     }
 }

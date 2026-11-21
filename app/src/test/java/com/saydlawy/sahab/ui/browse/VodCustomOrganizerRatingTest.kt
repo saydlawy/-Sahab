@@ -139,4 +139,25 @@ class VodCustomOrganizerRatingTest {
         assertTrue(byGenre.categories.any { it.name == "دراما" })
         assertTrue(byGenre.categories.any { it.name == "أكشن" })
     }
+
+    @Test
+    fun prepareSortedItems_reusedAcrossGroupingsMatchesDirectOrganize() {
+        val posters = listOf(
+            Poster(id = "a", name = "Alpha (2023)", image = "1", rating = "8.5", year = "2023", genre = "Action", added = 10L),
+            Poster(id = "b", name = "Beta (2021)", image = "2", rating = "7.4", year = "2021", genre = "Drama", added = 30L),
+            Poster(id = "c", name = "Gamma (2023)", image = "3", rating = "9.0", year = "2023", genre = "Action", added = 20L),
+        )
+        val facets = mapOf(
+            "a" to CatalogFacetRow("a", "2023", "Action", "Actor A, Actor B", "8.5", 10L, tmdbVoteCount = 2000),
+            "b" to CatalogFacetRow("b", "2021", "Drama", "Actor B", "7.4", 30L, tmdbVoteCount = 500),
+            "c" to CatalogFacetRow("c", "2023", "Action", "Actor A", "9.0", 20L, tmdbVoteCount = 4000),
+        )
+
+        val preSorted = VodCustomOrganizer.prepareSortedItems(posters, facets)
+        for (grouping in VodCustomGrouping.entries) {
+            val direct = VodCustomOrganizer.organize(posters, facets, grouping)
+            val cachedSort = VodCustomOrganizer.organize(posters, facets, grouping, preSortedItems = preSorted)
+            assertEquals("Mismatch for $grouping", direct, cachedSort)
+        }
+    }
 }

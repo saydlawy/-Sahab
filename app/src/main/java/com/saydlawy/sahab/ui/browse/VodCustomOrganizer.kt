@@ -83,14 +83,11 @@ internal object VodCustomOrganizer {
         "غربي" to "غربي",
     )
 
-    fun organize(
+    fun prepareSortedItems(
         allItems: List<Poster>,
         facetsByStreamId: Map<String, CatalogFacetRow>,
-        grouping: VodCustomGrouping,
-    ): CustomOrganizationResult {
-        if (allItems.isEmpty()) {
-            return CustomOrganizationResult(emptyList(), emptyMap(), emptyMap())
-        }
+    ): List<Poster> {
+        if (allItems.isEmpty()) return emptyList()
 
         // Precompute sort keys once per item (O(N) instead of O(N log N) repeated hash/score work)
         val count = allItems.size
@@ -122,6 +119,20 @@ internal object VodCustomOrganizer {
         for (idx in indices) {
             sortedItems.add(sanitizedItems[idx!!])
         }
+        return sortedItems
+    }
+
+    fun organize(
+        allItems: List<Poster>,
+        facetsByStreamId: Map<String, CatalogFacetRow>,
+        grouping: VodCustomGrouping,
+        preSortedItems: List<Poster>? = null,
+    ): CustomOrganizationResult {
+        if (allItems.isEmpty()) {
+            return CustomOrganizationResult(emptyList(), emptyMap(), emptyMap())
+        }
+
+        val sortedItems = preSortedItems ?: prepareSortedItems(allItems, facetsByStreamId)
 
         return when (grouping) {
             VodCustomGrouping.GENRE -> groupByGenre(sortedItems, facetsByStreamId)

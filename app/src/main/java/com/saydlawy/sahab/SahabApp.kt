@@ -75,7 +75,7 @@ class AppContainer(context: Context) {
     val weather by lazy { com.saydlawy.sahab.data.weather.WeatherService(client, context.applicationContext) }
 
     val client: OkHttpClient = OkHttpClient.Builder()
-        .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 100L * 1024L * 1024L))
+        .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 32L * 1024L * 1024L))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .addInterceptor(CleartextGuardInterceptor())
@@ -435,6 +435,15 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         FirebaseApp.initializeApp(this)
+        runCatching {
+            val fs = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            val cacheSettings = com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
+                .setSizeBytes(40L * 1024L * 1024L)
+                .build()
+            fs.firestoreSettings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
+                .setLocalCacheSettings(cacheSettings)
+                .build()
+        }
         AppCheckInstaller.install()
         container = AppContainer(this)
         container.ensureAutoSyncStarted()
@@ -458,9 +467,14 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
                     .build()
             }
             .diskCache {
+                val imageCacheBytes = if (com.saydlawy.sahab.util.isTelevision(this@SahabApp)) {
+                    100L * 1024L * 1024L
+                } else {
+                    150L * 1024L * 1024L
+                }
                 CoilDiskCache.Builder()
                     .directory(File(cacheDir, "image_cache").toOkioPath())
-                    .maxSizeBytes(300L * 1024L * 1024L)
+                    .maxSizeBytes(imageCacheBytes)
                     .build()
             }
             .crossfade(false)

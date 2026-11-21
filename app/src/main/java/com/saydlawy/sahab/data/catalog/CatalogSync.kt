@@ -127,27 +127,34 @@ class CatalogSync(
             )
             return@withContext 0
         }
-        val items = dao.getAllEnriched()
-        if (items.isEmpty()) return@withContext 0
-        val total = items.size
+        val total = dao.countEnriched()
+        if (total <= 0) return@withContext 0
         var done = 0
         var failed = 0
         var lastError = ""
         reportBackgroundEnrichProgress(0, total, active = true, currentTitle = "بدء رفع البيانات المحلية...")
         try {
-            for (item in items) {
-                val label = item.titleAr.ifBlank { item.titleEn }
-                reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
-                runCatching {
-                    firebaseCatalog.saveCatalogItem(item)
-                }.onFailure { err ->
-                    if (err is kotlinx.coroutines.CancellationException) throw err
-                    failed += 1
-                    lastError = err.message?.take(120) ?: err::class.java.simpleName
-                    android.util.Log.w("SAHAB_CLOUD", "pushLocalEnrichedToCloud failed [$label]: $lastError", err)
+            var cursor = ""
+            while (true) {
+                val page = dao.getEnrichedPage(afterSahabId = cursor, limit = CATALOG_ENRICHED_PAGE_SIZE)
+                if (page.isEmpty()) break
+                for (item in page) {
+                    val label = item.titleAr.ifBlank { item.titleEn }
+                    reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
+                    runCatching {
+                        firebaseCatalog.saveCatalogItem(item)
+                    }.onFailure { err ->
+                        if (err is kotlinx.coroutines.CancellationException) throw err
+                        failed += 1
+                        lastError = err.message?.take(120) ?: err::class.java.simpleName
+                        android.util.Log.w("SAHAB_CLOUD", "pushLocalEnrichedToCloud failed [$label]: $lastError", err)
+                    }
+                    done += 1
+                    reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
                 }
-                done += 1
-                reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
+                val nextCursor = page.last().sahabId
+                if (page.size < CATALOG_ENRICHED_PAGE_SIZE || nextCursor.isEmpty() || nextCursor <= cursor) break
+                cursor = nextCursor
             }
         } finally {
             reportBackgroundEnrichProgress(done, total, active = false, failed = failed, lastError = lastError)
