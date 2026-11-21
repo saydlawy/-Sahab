@@ -160,22 +160,25 @@ class CatalogSync(
      * مع تحديث [firebaseSyncing] و[firebaseSyncMessage] ليظهر شعار دائم للمستخدم لحين الانتهاء.
      */
     suspend fun syncAllFromFirebaseToRoom(force: Boolean = false): Int = withContext(Dispatchers.IO) {
-        if (!force && dao.countEnriched() >= 200) return@withContext 0
         if (!_firebaseSyncing.compareAndSet(expect = false, update = true)) return@withContext 0
-        val lastDeltaMs = if (dao.countEnriched() >= 200) {
-            runCatching { prefs?.lastCloudDeltaSyncTime?.first() ?: 0L }.getOrDefault(0L)
-        } else {
+        val lastDeltaMs = if (force) {
             0L
+        } else {
+            runCatching { prefs?.lastCloudDeltaSyncTime?.first() ?: 0L }.getOrDefault(0L)
         }
         val syncStartMs = System.currentTimeMillis()
         _firebaseSyncMessage.value = if (lastDeltaMs > 0L) "جارٍ سحب التحديثات السحابية..." else "جارٍ تحميل مكتبة سحاب..."
         try {
-            val fetched = firebaseCatalog.fetchAllCatalogBatched(batchSize = 400L, sinceMs = lastDeltaMs) { batch, totalFetched ->
-                dao.upsertAll(batch)
+            val outcome = firebaseCatalog.fetchAllCatalogBatchedOutcome(batchSize = 400L, sinceMs = lastDeltaMs) { batch, totalFetched ->
+                dao.mergeCloudBatchPreservingLocal(batch)
                 _firebaseSyncMessage.value = "جارٍ مزامنة مكتبة سحاب... ($totalFetched عنصر)"
             }
-            runCatching { prefs?.setLastCloudDeltaSyncTime(syncStartMs) }
-            fetched
+            if (outcome.completedCleanly) {
+                runCatching { prefs?.setLastCloudDeltaSyncTime(syncStartMs) }
+            }
+            outcome.fetched
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.w("SahabFirebaseSync", "syncAllFromFirebaseToRoom failed: ${e.message}")
             0
@@ -402,7 +405,7 @@ class CatalogSync(
                 } else {
                     repo.movieDetails(streamId).year
                 }
-                Regex("(19|20)\\d{2}").find(rawYear)?.value?.toIntOrNull()
+                YEAR_REGEX.find(rawYear)?.value?.toIntOrNull()
             }.getOrNull()
         } else {
             null
@@ -441,8 +444,8 @@ class CatalogSync(
                 trailerUrl = movie.trailerUrl,
                 castJson = encodeTmdbCastJson(movie.credits?.cast),
             )
-            if (existing.sahabId.startsWith("pending:")) {
-                runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
+            if (existing.sahabId.startsWith("pending:") || existing.sahabId.startsWith("series_pending:")) {
+                runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr, normalizedType) }
             }
             val autoUpload = runCatching { prefs?.cloudAutoUploadEnabled?.first() ?: true }.getOrDefault(true)
             if (autoUpload) {
@@ -532,8 +535,8 @@ class CatalogSync(
                 trailerUrl = movie.trailerUrl,
                 castJson = castJsonStr,
             )
-            if (existing.sahabId.startsWith("pending:")) {
-                runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
+            if (existing.sahabId.startsWith("pending:") || existing.sahabId.startsWith("series_pending:")) {
+                runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr, normalizedType) }
             }
         } else {
             dao.upsert(

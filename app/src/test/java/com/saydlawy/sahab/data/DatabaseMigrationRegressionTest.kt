@@ -450,6 +450,29 @@ class DatabaseMigrationRegressionTest {
     }
 
     @Test
+    fun catalogDatabase_migration3To4_emitsDeduplicationBeforeUniqueIndexCreation() {
+        val db = RecordingSqliteDatabase()
+        db.defineTable(
+            name = "catalog_movies",
+            columns = listOf("sahabId", "novaStreamId", "mediaType", "categoryId", "needsEnrichment", "novaAdded", "tmdbId", "lastSeen", "deleted"),
+            rows = listOf(mapOf("sahabId" to "pending:12", "novaStreamId" to "12", "mediaType" to "movie")),
+        )
+        db.indices["index_catalog_movies_novaStreamId"] = true
+
+        CatalogDatabase.MIGRATION_3_4.migrate(db)
+
+        val deleteIdx = db.executedSql.indexOfFirst {
+            it.contains("DELETE FROM `catalog_movies`", ignoreCase = true) &&
+                it.contains("GROUP BY `mediaType`, `novaStreamId`", ignoreCase = true)
+        }
+        val createIdx = db.executedSql.indexOfFirst {
+            it.contains("CREATE UNIQUE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_novaStreamId`", ignoreCase = true)
+        }
+        assertTrue("MIGRATION_3_4 must deduplicate rows before creating unique index", deleteIdx >= 0)
+        assertTrue("MIGRATION_3_4 must create mediaType+novaStreamId unique index", createIdx > deleteIdx)
+    }
+
+    @Test
     fun channelDatabase_migration2To3_addsAccountIdAndPreservesCustomLists() {
         val db = RecordingSqliteDatabase()
         db.defineTable(

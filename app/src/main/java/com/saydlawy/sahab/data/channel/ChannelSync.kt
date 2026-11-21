@@ -171,6 +171,7 @@ class ChannelSync(
 
     private data class ChunkFetchResult(
         val data: Map<String, FirebaseChannelData> = emptyMap(),
+        val succeededSlugs: Set<String> = emptySet(),
         val error: String? = null,
     )
 
@@ -189,7 +190,9 @@ class ChannelSync(
                         docs.forEach { doc ->
                             docToFirebaseData(doc)?.let { chunkMap[doc.id] = it }
                         }
-                        ChunkFetchResult(data = chunkMap)
+                        ChunkFetchResult(data = chunkMap, succeededSlugs = chunk.toSet())
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         val msg = "Firebase query #${index + 1} (${chunk.size} ids): " +
                             (e.message ?: e.javaClass.simpleName)
@@ -201,10 +204,12 @@ class ChannelSync(
         }.awaitAll()
 
         val result = HashMap<String, FirebaseChannelData>(slugs.size)
+        val succeededSlugs = HashSet<String>(slugs.size)
         val errors = mutableListOf<String>()
         var failedBatches = 0
         chunkResults.forEach { r ->
             result.putAll(r.data)
+            succeededSlugs.addAll(r.succeededSlugs)
             if (r.error != null) {
                 failedBatches++
                 errors.add(r.error)
@@ -213,7 +218,7 @@ class ChannelSync(
 
         FirebaseFetchResult(
             data = result,
-            queriedSlugs = slugs.toSet(),
+            queriedSlugs = succeededSlugs,
             failedBatches = failedBatches,
             errors = errors,
         )

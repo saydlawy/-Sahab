@@ -183,9 +183,7 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                 source.size <= 200 -> source.filterNot { it.id in hidden }
                 else -> withContext(Dispatchers.Default) { source.filterNot { it.id in hidden } }
             }
-            _state.update { latest ->
-                transform(latest).copy(visibleChannels = visible)
-            }
+            _state.value = candidate.copy(visibleChannels = visible)
         }
     }
 
@@ -505,8 +503,11 @@ class LiveViewModel(private val container: AppContainer) : ViewModel() {
                 dao.replaceListItems(listId, current.map { it.id })
             } else {
                 val now = System.currentTimeMillis()
-                dao.setSortOrder(current[idx].id, idx, now)
-                dao.setSortOrder(current[target].id, target, now)
+                val lo = minOf(idx, target)
+                val hi = maxOf(idx, target)
+                for (pos in lo..hi) {
+                    dao.setSortOrder(current[pos].id, pos, now)
+                }
             }
         }
     }

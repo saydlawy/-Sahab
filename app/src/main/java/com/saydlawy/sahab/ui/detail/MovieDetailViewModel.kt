@@ -43,7 +43,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 return@launch
             }
             val entity = withContext(Dispatchers.IO) {
-                runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
             }
             val imdbId = entity?.imdbId ?: ""
             val result = generateStoryWithKeyRotation(
@@ -99,7 +99,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                         }
                     }
                     val updated = withContext(Dispatchers.IO) {
-                        runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                        runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
                     }
                     if (updated != null) {
                         // رفع القصة الجديدة إلى السحابة (Firebase) ليستفيد منها باقي المستخدمين
@@ -165,7 +165,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
         viewModelScope.launch {
             // 1. Instant: read from Room
             val fromRoom = withContext(Dispatchers.IO) {
-                runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
             }
 
             if (fromRoom != null) {
@@ -177,7 +177,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                     try {
                         container.catalogSync.enrichOne(container.repo, container.tmdb, id)
                         val updated = withContext(Dispatchers.IO) {
-                            runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                            runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
                         }
                         if (updated != null) {
                             currentDetails = updated.toMovieDetails()
@@ -243,7 +243,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             try {
                 container.catalogSync.enrichOne(container.repo, container.tmdb, id, force = true)
                 val updated = withContext(Dispatchers.IO) {
-                    runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                    runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
                 }
                 if (updated != null) {
                     _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
@@ -266,7 +266,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
         if (q.isBlank() || !container.tmdb.hasApiKey()) return emptyList()
         return withContext(Dispatchers.IO) {
             val directId = q.toIntOrNull()?.takeIf { it > 0 }
-                ?: Regex("(?:movie|tv)/(\\d+)").find(q)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?: TMDB_URL_ID_REGEX.find(q)?.groupValues?.getOrNull(1)?.toIntOrNull()
             val direct = directId?.let { id ->
                 runCatching { container.tmdb.getMovieDetailsById(id) }.getOrNull()?.let { m ->
                     listOf(
@@ -298,7 +298,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 }
                 if (ok) {
                     val updated = withContext(Dispatchers.IO) {
-                        runCatching { container.catalogDb.movieDao().findByStreamId(id) }.getOrNull()
+                        runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
                     }
                     if (updated != null) {
                         _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
@@ -311,5 +311,9 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 _refreshingMetadata.value = false
             }
         }
+    }
+
+    private companion object {
+        val TMDB_URL_ID_REGEX = Regex("(?:movie|tv)/(\\d+)")
     }
 }

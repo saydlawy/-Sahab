@@ -33,14 +33,27 @@ class FirebaseCatalogService {
      * يسحب جميع مستندات كتالوج Firebase (`global_catalog`) على دفعات مرتبة بمعرّف المستند
      * ويمرر كل دفعة إلى [onBatch] لحفظها مباشرة في Room دون استهلاك مفرط للذاكرة.
      */
+    data class BatchFetchOutcome(
+        val fetched: Int,
+        val completedCleanly: Boolean,
+    )
+
     suspend fun fetchAllCatalogBatched(
         batchSize: Long = 400L,
         perBatchTimeoutMs: Long = 15_000L,
         sinceMs: Long = 0L,
         onBatch: suspend (items: List<CatalogMovieEntity>, totalFetched: Int) -> Unit,
-    ): Int {
+    ): Int = fetchAllCatalogBatchedOutcome(batchSize, perBatchTimeoutMs, sinceMs, onBatch).fetched
+
+    suspend fun fetchAllCatalogBatchedOutcome(
+        batchSize: Long = 400L,
+        perBatchTimeoutMs: Long = 15_000L,
+        sinceMs: Long = 0L,
+        onBatch: suspend (items: List<CatalogMovieEntity>, totalFetched: Int) -> Unit,
+    ): BatchFetchOutcome {
         var lastDoc: DocumentSnapshot? = null
         var total = 0
+        var completedCleanly = true
         while (true) {
             val snapshot = withTimeoutOrNull(perBatchTimeoutMs) {
                 suspendCancellableCoroutine<com.google.firebase.firestore.QuerySnapshot?> { cont ->
@@ -61,7 +74,11 @@ class FirebaseCatalogService {
                         .addOnSuccessListener { snap -> if (cont.isActive) cont.resume(snap) }
                         .addOnFailureListener { if (cont.isActive) cont.resume(null) }
                 }
-            } ?: break
+            }
+            if (snapshot == null) {
+                completedCleanly = false
+                break
+            }
 
             val docs = snapshot.documents
             if (docs.isEmpty()) break
@@ -79,7 +96,7 @@ class FirebaseCatalogService {
             lastDoc = docs.last()
             if (docs.size < batchSize) break
         }
-        return total
+        return BatchFetchOutcome(fetched = total, completedCleanly = completedCleanly)
     }
 
     suspend fun getCatalogItem(sahabId: String): CatalogMovieEntity? {
@@ -431,12 +448,15 @@ class FirebaseCatalogService {
             put("identifiedTitle", entity.identifiedTitle)
             put("mediaType", normalizedMediaType)
             put("cast", entity.cast)
+            put("castJson", entity.castJson)
             put("director", entity.director)
             put("genre", entity.genre)
             put("runtime", entity.runtime)
             put("rating", entity.rating)
             put("posterUrl", entity.posterUrl)
             put("backdropUrl", entity.backdropUrl)
+            put("postersJson", entity.postersJson)
+            put("trailerUrl", entity.trailerUrl)
             put("tmdbId", entity.tmdbId)
             put("imdbId", entity.imdbId)
             put("tmdbVoteCount", entity.tmdbVoteCount)
@@ -485,31 +505,39 @@ class FirebaseCatalogService {
             }
     }
 
-    suspend fun linkPendingAliasToTmdb(streamId: String, tmdbDocId: String, titleAr: String = "") {
-        if (streamId.isBlank() || tmdbDocId.isBlank() || tmdbDocId == CatalogMovieEntity.idPending(streamId)) return
+    suspend fun linkPendingAliasToTmdb(
+        streamId: String,
+        tmdbDocId: String,
+        titleAr: String = "",
+        mediaType: String = "movie",
+    ) {
+        val pendingId = CatalogMovieEntity.idPending(streamId, mediaType)
+        if (streamId.isBlank() || tmdbDocId.isBlank() || tmdbDocId == pendingId) return
         if (!tmdbDocId.startsWith("tmdb:")) return
-        val pendingId = CatalogMovieEntity.idPending(streamId)
         val uid = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        if (uid.isNullOrBlank()) return
+        val isAdmin = uid == com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID
         suspendCancellableCoroutine<Unit> { cont ->
-            val tmdbRef = collection.document(tmdbDocId)
-            val mergePayload = mapOf(
-                "aliases" to com.google.firebase.firestore.FieldValue.arrayUnion(pendingId),
-            )
-            tmdbRef.set(mergePayload, SetOptions.merge())
-                .addOnCompleteListener {
-                    if (!uid.isNullOrBlank()) {
-                        db.collection("users").document(uid)
-                            .collection("custom_catalog")
-                            .document(pendingId)
-                            .set(
-                                mapOf("redirectTo" to tmdbDocId, "novaStreamId" to streamId, "titleAr" to titleAr),
-                                SetOptions.merge(),
-                            )
-                            .addOnCompleteListener { if (cont.isActive) cont.resume(Unit) }
-                    } else {
-                        if (cont.isActive) cont.resume(Unit)
-                    }
-                }
+            val writePrivateRedirect = {
+                db.collection("users").document(uid)
+                    .collection("custom_catalog")
+                    .document(pendingId)
+                    .set(
+                        mapOf("redirectTo" to tmdbDocId, "novaStreamId" to streamId, "titleAr" to titleAr),
+                        SetOptions.merge(),
+                    )
+                    .addOnCompleteListener { if (cont.isActive) cont.resume(Unit) }
+            }
+            if (isAdmin) {
+                val tmdbRef = collection.document(tmdbDocId)
+                val mergePayload = mapOf(
+                    "aliases" to com.google.firebase.firestore.FieldValue.arrayUnion(pendingId),
+                )
+                tmdbRef.set(mergePayload, SetOptions.merge())
+                    .addOnCompleteListener { writePrivateRedirect() }
+            } else {
+                writePrivateRedirect()
+            }
         }
     }
 
@@ -534,6 +562,8 @@ class FirebaseCatalogService {
             rating = RatingSanitizer.format(data["rating"] as? String, voteCount),
             posterUrl = data["posterUrl"] as? String ?: "",
             backdropUrl = data["backdropUrl"] as? String ?: "",
+            postersJson = data["postersJson"] as? String ?: "",
+            trailerUrl = data["trailerUrl"] as? String ?: "",
             imdbId = data["imdbId"] as? String ?: "",
             tmdbId = (data["tmdbId"] as? Number)?.toInt(),
             tmdbVoteCount = voteCount,
@@ -552,7 +582,7 @@ class FirebaseCatalogService {
         fun aliasesFor(entity: CatalogMovieEntity): List<String> {
             val streamId = entity.novaStreamId.trim()
             if (streamId.isEmpty()) return emptyList()
-            val pendingId = CatalogMovieEntity.idPending(streamId)
+            val pendingId = CatalogMovieEntity.idPending(streamId, entity.mediaType)
             return if (entity.sahabId != pendingId) listOf(pendingId) else emptyList()
         }
 

@@ -259,7 +259,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                         runCatching { container.catalogDb.movieDao().findByStreamIdAndType(id, "series") }.getOrNull()
                     }
                     val entity = (existing ?: CatalogMovieEntity(
-                        sahabId = CatalogMovieEntity.idPending(id),
+                        sahabId = CatalogMovieEntity.idPending(id, "series"),
                         novaStreamId = id,
                         mediaType = "series",
                         titleAr = details.name,
@@ -308,7 +308,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
         if (q.isBlank() || !container.tmdb.hasApiKey()) return emptyList()
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val directId = q.toIntOrNull()?.takeIf { it > 0 }
-                ?: Regex("(?:movie|tv)/(\\d+)").find(q)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                ?: TMDB_URL_ID_REGEX.find(q)?.groupValues?.getOrNull(1)?.toIntOrNull()
             val direct = directId?.let { id ->
                 runCatching { container.tmdb.getTvDetailsById(id) }.getOrNull()?.let { m ->
                     listOf(
@@ -349,5 +349,9 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                 fetchDetails(forceRefresh = false)
             }
         }
+    }
+
+    private companion object {
+        val TMDB_URL_ID_REGEX = Regex("(?:movie|tv)/(\\d+)")
     }
 }

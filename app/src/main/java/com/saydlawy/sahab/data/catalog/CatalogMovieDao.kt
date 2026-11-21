@@ -50,6 +50,51 @@ interface CatalogMovieDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<CatalogMovieEntity>)
 
+    @Transaction
+    suspend fun mergeCloudBatchPreservingLocal(cloudItems: List<CatalogMovieEntity>) {
+        if (cloudItems.isEmpty()) return
+        val existingById = HashMap<String, CatalogMovieEntity>(cloudItems.size)
+        cloudItems.map { it.sahabId }.distinct().chunked(500).forEach { idChunk ->
+            findByIds(idChunk).forEach { existingById[it.sahabId] = it }
+        }
+        val merged = cloudItems.map { cloud ->
+            val local = existingById[cloud.sahabId]
+            if (local == null) {
+                cloud
+            } else {
+                val keepLocalAiPlot = local.plotSource == "gemini_user_key" && local.plot.isNotBlank()
+                cloud.copy(
+                    novaStreamId = local.novaStreamId.ifBlank { cloud.novaStreamId },
+                    categoryId = local.categoryId.ifBlank { cloud.categoryId },
+                    titleAr = local.titleAr.ifBlank { cloud.titleAr },
+                    titleEn = cloud.titleEn.ifBlank { local.titleEn },
+                    year = cloud.year.ifBlank { local.year },
+                    plot = if (keepLocalAiPlot) local.plot else cloud.plot.ifBlank { local.plot },
+                    plotSource = if (keepLocalAiPlot) local.plotSource else cloud.plotSource.ifBlank { local.plotSource },
+                    plotConfidence = if (keepLocalAiPlot) local.plotConfidence else cloud.plotConfidence.ifBlank { local.plotConfidence },
+                    identifiedTitle = if (keepLocalAiPlot) local.identifiedTitle else cloud.identifiedTitle.ifBlank { local.identifiedTitle },
+                    cast = cloud.cast.ifBlank { local.cast },
+                    castJson = cloud.castJson.ifBlank { local.castJson },
+                    director = cloud.director.ifBlank { local.director },
+                    genre = cloud.genre.ifBlank { local.genre },
+                    runtime = cloud.runtime.ifBlank { local.runtime },
+                    rating = cloud.rating.ifBlank { local.rating },
+                    posterUrl = local.posterUrl.ifBlank { cloud.posterUrl },
+                    backdropUrl = cloud.backdropUrl.ifBlank { local.backdropUrl },
+                    postersJson = cloud.postersJson.ifBlank { local.postersJson },
+                    trailerUrl = cloud.trailerUrl.ifBlank { local.trailerUrl },
+                    imdbId = cloud.imdbId.ifBlank { local.imdbId },
+                    novaAdded = maxOf(local.novaAdded, cloud.novaAdded),
+                    containerExtension = local.containerExtension.ifBlank { cloud.containerExtension },
+                    tmdbId = cloud.tmdbId ?: local.tmdbId,
+                    tmdbVoteCount = cloud.tmdbVoteCount ?: local.tmdbVoteCount,
+                    deleted = local.deleted,
+                )
+            }
+        }
+        upsertAll(merged)
+    }
+
     @Query("UPDATE catalog_movies SET lastSeen = :now, novaAdded = :added WHERE novaStreamId = :streamId AND mediaType = :mediaType")
     suspend fun touch(streamId: String, added: Long, now: Long, mediaType: String = "movie")
 

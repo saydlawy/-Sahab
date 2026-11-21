@@ -32,4 +32,20 @@ class CatalogIdAliasTest {
         assertEquals("pending:9001", FirebaseCatalogService.resolveRedirectId("pending:9001", "pending:9001"))
         assertEquals("pending:9001", FirebaseCatalogService.resolveRedirectId("pending:9001", ""))
     }
+
+    @Test
+    fun idPending_separatesSeriesAndMoviePrimaryKeysWithoutCollision() {
+        val moviePending = CatalogMovieEntity.idPending("1234", "movie")
+        val seriesPending = CatalogMovieEntity.idPending("1234", "series")
+        assertEquals("pending:1234", moviePending)
+        assertEquals("series_pending:1234", seriesPending)
+
+        val seriesEntity = CatalogMovieEntity(
+            sahabId = "tmdb:999",
+            novaStreamId = "1234",
+            mediaType = "series",
+            titleAr = "مسلسل تجريبي",
+        )
+        assertEquals(listOf("series_pending:1234"), FirebaseCatalogService.aliasesFor(seriesEntity))
+    }
 }

@@ -52,6 +52,8 @@ import com.saydlawy.sahab.ui.components.GlassTextField
 import com.saydlawy.sahab.ui.components.Ic
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.util.RatingSanitizer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
@@ -65,11 +67,19 @@ fun TmdbMatchPickerDialog(
     var query by remember(initialQuery) { mutableStateOf(initialQuery) }
     var loading by remember { mutableStateOf(true) }
     var results by remember { mutableStateOf<List<TmdbSearchResult>>(emptyList()) }
+    var searchJob by remember { mutableStateOf<Job?>(null) }
 
     fun runSearch(q: String) {
-        scope.launch {
+        searchJob?.cancel()
+        searchJob = scope.launch {
             loading = true
-            results = runCatching { onSearch(q) }.getOrElse { emptyList() }
+            results = try {
+                onSearch(q)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
             loading = false
         }
     }

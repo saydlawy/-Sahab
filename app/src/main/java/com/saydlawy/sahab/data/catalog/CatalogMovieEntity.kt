@@ -68,7 +68,8 @@ data class CatalogMovieEntity(
         get() = titleAr.ifBlank { titleEn }
 
     companion object {
-        fun idPending(streamId: String): String = "pending:$streamId"
+        fun idPending(streamId: String, mediaType: String = "movie"): String =
+            if (mediaType.equals("series", ignoreCase = true)) "series_pending:$streamId" else "pending:$streamId"
         fun idFromTmdb(tmdbId: Int): String = "tmdb:$tmdbId"
         fun idLocal(name: String, year: String): String {
             val raw = "${name.lowercase().trim()}|${year.trim()}"

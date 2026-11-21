@@ -63,6 +63,11 @@ abstract class CatalogDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_novaStreamId`")
                 db.execSQL(
+                    "DELETE FROM `catalog_movies` WHERE rowid NOT IN (" +
+                        "SELECT MAX(rowid) FROM `catalog_movies` GROUP BY `mediaType`, `novaStreamId`" +
+                        ")",
+                )
+                db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_novaStreamId` ON `catalog_movies` (`mediaType`, `novaStreamId`)",
                 )
                 db.execSQL(

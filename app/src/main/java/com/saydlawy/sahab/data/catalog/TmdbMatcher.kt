@@ -44,9 +44,15 @@ object TmdbMatcher {
 
     // ─────────────────────────────── Normalization ───────────────────────────────
     private val ARABIC_DIACRITICS = Regex("[\\u064B-\\u065F\\u0670]")
+    private val ALEF_FORMS = Regex("[أإآٱ]")
     private val ARABIC_PUNCT = Regex("[،؛؟!]")
     private val LATIN_PUNCT = Regex("[-:\\.'\\u2019\\u2018,\\\"\\u201C\\u201D\\[\\](){}/\\\\|+_*~`]")
     private val MULTI_SPACE = Regex("\\s+")
+    private val TITLE_SPLIT_DELIM = Regex("\\s+[-:|/]\\s+")
+    private val AR_WORDS_REGEX = Regex("[\\u0600-\\u06FF0-9]+")
+    private val EN_WORDS_REGEX = Regex("[a-zA-Z0-9]+")
+    private val TOKEN_SPLIT_REGEX = Regex("[^\\p{L}\\p{N}]+")
+    private val HAS_ARABIC_REGEX = Regex("[\\u0600-\\u06FF]")
 
     private val ROMAN_MAP = listOf(
         Regex("\\bVIII\\b", RegexOption.IGNORE_CASE) to "8",
@@ -62,7 +68,7 @@ object TmdbMatcher {
         if (raw.isBlank()) return ""
         var s = raw
         s = ARABIC_DIACRITICS.replace(s, "").replace("\u0640", "")
-        s = Regex("[أإآٱ]").replace(s, "ا")
+        s = ALEF_FORMS.replace(s, "ا")
         s = s.replace("ؤ", "ء").replace("ئ", "ء").replace("ى", "ي").replace("ة", "ه")
         s = ARABIC_PUNCT.replace(s, " ")
         s = LATIN_PUNCT.replace(s, " ")
@@ -116,13 +122,13 @@ object TmdbMatcher {
         if (normFull.isBlank()) return emptyList()
         val variants = mutableListOf(normFull)
 
-        Regex("\\s+[-:|/]\\s+").split(cleaned).forEach { part ->
+        TITLE_SPLIT_DELIM.split(cleaned).forEach { part ->
             val p = normalizeArabic(part)
             if (p.length >= 2 && p !in variants) variants.add(p)
         }
 
-        val arWords = Regex("[\\u0600-\\u06FF0-9]+").findAll(normFull).map { it.value }.toList()
-        val enWords = Regex("[a-zA-Z0-9]+").findAll(normFull).map { it.value }.toList()
+        val arWords = AR_WORDS_REGEX.findAll(normFull).map { it.value }.toList()
+        val enWords = EN_WORDS_REGEX.findAll(normFull).map { it.value }.toList()
         val hasAr = arWords.any { !it.all { c -> c.isDigit() } }
         val hasEn = enWords.any { !it.all { c -> c.isDigit() } }
 
@@ -167,7 +173,7 @@ object TmdbMatcher {
     fun tokenize(s: String): List<String> {
         val norm = normalizeArabic(s.lowercase(Locale.ROOT))
         val out = mutableListOf<String>()
-        for (t in Regex("\\W+").split(norm)) {
+        for (t in TOKEN_SPLIT_REGEX.split(norm)) {
             if (t.length < 2) continue
             val stripped = stripArticle(t)
             if (stripped in STOPWORDS || stripped.length < 2) continue
@@ -345,7 +351,7 @@ object TmdbMatcher {
         }
 
         for (v in variants) {
-            val isAr = Regex("[\\u0600-\\u06FF]").containsMatchIn(v)
+            val isAr = HAS_ARABIC_REGEX.containsMatchIn(v)
             if (isAr) {
                 add(v, year, "ar"); add(v, null, "ar")
                 add(v, year, "en-US"); add(v, null, "en-US")
@@ -358,7 +364,7 @@ object TmdbMatcher {
             val words = v.split(" ").filter { it.isNotEmpty() }
             val wordsSig = words.filter { it.length > 1 && it.lowercase(Locale.ROOT) !in STOPWORDS }
             val sig = wordsSig.joinToString(" ")
-            val lang = if (Regex("[\\u0600-\\u06FF]").containsMatchIn(v)) "ar" else "en-US"
+            val lang = if (HAS_ARABIC_REGEX.containsMatchIn(v)) "ar" else "en-US"
             if (sig.isNotEmpty() && sig != v) {
                 add(sig, year, lang); add(sig, null, lang)
             }
@@ -419,27 +425,27 @@ object TmdbMatcher {
                 val s = scoreMatch(variants, novaYear, c, preferArabic)
                 when (acceptLevel(s)) {
                     Level.STRONG -> {
-                        if (bestStrong == null || s.final > bestStrong!!.second.final) {
+                        val currentBest = bestStrong
+                        if (currentBest == null || s.final > currentBest.second.final) {
                             bestStrong = c to s
                         }
                     }
                     Level.WEAK -> {
-                        if (bestWeak == null || s.final > bestWeak!!.second.final) {
+                        val currentWeak = bestWeak
+                        if (currentWeak == null || s.final > currentWeak.second.final) {
                             bestWeak = c to s
                         }
                     }
                     else -> Unit
                 }
             }
-            if (bestStrong != null) {
-                val (c, s) = bestStrong!!
+            bestStrong?.let { (c, s) ->
                 val details = if (isTv) tmdb.getTvDetailsById(c.id, includeExtras) else tmdb.getMovieDetailsById(c.id, includeExtras)
                 return EnrichResult(c.id, details, s, Level.STRONG, q.q, tried)
             }
         }
 
-        if (bestWeak != null) {
-            val (c, s) = bestWeak!!
+        bestWeak?.let { (c, s) ->
             val details = if (isTv) tmdb.getTvDetailsById(c.id, includeExtras) else tmdb.getMovieDetailsById(c.id, includeExtras)
             return EnrichResult(c.id, details, s, Level.WEAK, "", tried)
         }

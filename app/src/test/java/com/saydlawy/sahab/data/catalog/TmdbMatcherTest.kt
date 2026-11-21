@@ -205,4 +205,34 @@ class TmdbMatcherTest {
         val s = TmdbMatcher.scoreMatch(variants, null, result("The Town", year = "2010", votes = 5000))
         assertEquals(TmdbMatcher.Level.REJECT, TmdbMatcher.acceptLevel(s))
     }
+
+    @Test
+    fun `tokenize preserves Arabic words and strips Arabic definite articles`() {
+        val tokens = TmdbMatcher.tokenize("الفيل الأزرق - الجزء الثاني")
+        assertTrue("Expected Arabic tokens not empty: $tokens", tokens.isNotEmpty())
+        assertTrue(tokens.contains("فيل"))
+        assertTrue(tokens.contains("ازرق"))
+        assertTrue(tokens.contains("ثاني"))
+    }
+
+    @Test
+    fun `scoreMatch scores Arabic title match cleanly via Unicode Jaccard tokens`() {
+        val variants = TmdbMatcher.extractTitleVariants(TmdbMatcher.cleanIptv("الفيل الازرق 2014 [HD]"))
+        val s = TmdbMatcher.scoreMatch(
+            variants = variants,
+            novaYear = 2014,
+            tmdb = TmdbSearchResult(
+                id = 1,
+                title = "الفيل الأزرق",
+                originalTitle = "الفيل الأزرق",
+                releaseDate = "2014-01-01",
+                voteCount = 450,
+                popularity = 25.0,
+                originalLanguage = "ar",
+            ),
+            preferArabic = true,
+        )
+        assertTrue("Expected high Arabic token Jaccard > 0.6, got ${s.jaccard}", s.jaccard >= 0.60)
+        assertEquals(TmdbMatcher.Level.STRONG, TmdbMatcher.acceptLevel(s))
+    }
 }
