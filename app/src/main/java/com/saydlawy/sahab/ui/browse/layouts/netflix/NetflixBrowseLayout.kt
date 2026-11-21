@@ -95,12 +95,14 @@ internal fun NetflixBrowseLayout(
         (state.selectedId != null && state.selectedId != ALL_CAT_ID)
 
     Box(Modifier.fillMaxSize().background(Palette.CinematicBg)) {
-        NetflixBackdropHost(
-            focusedDetailsFlow = focusedDetailsFlow,
-            fallbackPoster = fallbackHeroPoster,
-            listState = listState,
-            showGrid = showGrid,
-        )
+        if (!showGrid) {
+            NetflixBackdropHost(
+                focusedDetailsFlow = focusedDetailsFlow,
+                fallbackPoster = fallbackHeroPoster,
+                listState = listState,
+                showGrid = showGrid,
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -347,6 +349,8 @@ internal fun NetflixPosterTile(
         onClick = onOpen,
         onLongClick = onLongClick,
         onFocused = onFocused,
+        targetWidthPx = targetWidthPx,
+        targetHeightPx = targetHeightPx,
         modifier = modifier.restorableFocus(route, focusKey, isDefault),
     )
 }

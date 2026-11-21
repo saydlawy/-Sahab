@@ -117,10 +117,12 @@ internal fun PrimeBrowseLayout(
     }
 
     Box(Modifier.fillMaxSize().background(Palette.CinematicBg)) {
-        PrimeBackdropHost(
-            focusedDetailsFlow = focusedDetailsFlow,
-            fallbackPoster = fallbackHeroPoster,
-        )
+        if (homeMode) {
+            PrimeBackdropHost(
+                focusedDetailsFlow = focusedDetailsFlow,
+                fallbackPoster = fallbackHeroPoster,
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -436,7 +438,11 @@ private fun PrimeTile(
     val shape = RoundedCornerShape(8.dp)
     val isPhone = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
     val density = LocalDensity.current
-    val tileW = if (isPhone) 172.dp else 232.dp
+    val tileW = if (landscape) {
+        if (isPhone) 172.dp else 232.dp
+    } else {
+        if (isPhone) 118.dp else 138.dp
+    }
     val tileWPx = remember(density, tileW) { with(density) { tileW.roundToPx() }.takeIf { it > 0 } }
     val tileHPx = remember(tileWPx, landscape) {
         tileWPx?.let { w -> if (landscape) (w * 9) / 16 else (w * 3) / 2 }
