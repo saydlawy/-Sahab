@@ -52,19 +52,21 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                 var details = container.repo.seriesDetails(id)
                 details = details.copy(rating = cleanRating(details.rating))
 
+                var mergedMeta: CatalogMovieEntity? = withContext(Dispatchers.IO) {
+                    runCatching {
+                        container.catalogDb.movieDao().findByStreamIdAndType(id, "series")
+                    }.getOrNull()
+                }
+
                 val needsMeta = forceRefresh ||
+                    mergedMeta == null ||
+                    mergedMeta.tmdbId == null ||
                     details.plot.isBlank() ||
                     details.genre.isBlank() ||
                     details.year.isBlank() ||
                     details.rating.isBlank() ||
                     details.cast.isBlank() ||
                     details.backdrop.isBlank()
-
-                var mergedMeta: CatalogMovieEntity? = withContext(Dispatchers.IO) {
-                    runCatching {
-                        container.catalogDb.movieDao().findByStreamIdAndType(id, "series")
-                    }.getOrNull()
-                }
 
                 if (needsMeta) {
                     // 1. البحث في Firebase السحابي بجميع صيغ المعرّفات (مطابقة مع بانر الهيرو)
@@ -187,17 +189,16 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                             details.trailerUrl
                         }
                     }
+                    val metaRating = RatingSanitizer.format(mergedMeta.rating, mergedMeta.tmdbVoteCount)
                     details = details.copy(
-                        backdrop = details.backdrop.ifBlank { mergedMeta.backdropUrl },
-                        plot = details.plot.ifBlank { mergedMeta.plot },
-                        cast = details.cast.ifBlank { mergedMeta.cast },
+                        backdrop = mergedMeta.backdropUrl.ifBlank { details.backdrop },
+                        plot = mergedMeta.plot.ifBlank { details.plot },
+                        cast = mergedMeta.cast.ifBlank { details.cast },
                         castMembers = com.saydlawy.sahab.data.catalog.parseCastMembersJson(mergedMeta.castJson)
                             .ifEmpty { details.castMembers },
-                        genre = details.genre.ifBlank { mergedMeta.genre },
-                        year = details.year.ifBlank { mergedMeta.year },
-                        rating = cleanRating(details.rating).ifBlank {
-                            RatingSanitizer.format(mergedMeta.rating, mergedMeta.tmdbVoteCount)
-                        },
+                        genre = mergedMeta.genre.ifBlank { details.genre },
+                        year = mergedMeta.year.ifBlank { details.year },
+                        rating = metaRating.ifBlank { cleanRating(details.rating) },
                         posterUrls = if (posters.isNotEmpty()) posters else details.posterUrls,
                         trailerUrl = resolvedTrailer.ifBlank { details.trailerUrl },
                     )
