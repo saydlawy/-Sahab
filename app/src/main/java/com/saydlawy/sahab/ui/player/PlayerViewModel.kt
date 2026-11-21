@@ -197,6 +197,7 @@ class PlayerViewModel(
             )
         }
         val newIdx = newItems.indexOfFirst { it.id == ep.id }.coerceAtLeast(0)
+        retryJob?.cancel()
         saveProgress(positionMs, durationMs)
         _state.update {
             it.copy(
@@ -291,7 +292,7 @@ class PlayerViewModel(
                 val waitMs = 5000L * (s.autoReconnectCount + 1)
                 _state.update { it.copy(
                     reconnecting = true,
-                    error = "تعارض اتصال — إعادة المحاولة بعد ${waitMs / 1000} ثانية...",
+                    error = null,
                 ) }
                 retryJob = viewModelScope.launch {
                     delay(waitMs)
@@ -305,7 +306,7 @@ class PlayerViewModel(
             if (live && s.formatAttempt + 1 < repo.liveExtensions().size) {
                 _state.update { it.copy(
                     reconnecting = true,
-                    error = "جارٍ تبديل الصيغة بعد 5 ثوانٍ...",
+                    error = null,
                 ) }
                 retryJob = viewModelScope.launch {
                     delay(5000)
@@ -329,7 +330,7 @@ class PlayerViewModel(
             s.autoReconnectCount < 2 -> {
                 _state.update { it.copy(
                     reconnecting = true,
-                    error = "جارٍ إعادة الاتصال بعد 2 ثانية...",
+                    error = null,
                 ) }
                 retryJob = viewModelScope.launch {
                     delay(2000)
@@ -342,7 +343,7 @@ class PlayerViewModel(
             live && s.formatAttempt + 1 < repo.liveExtensions().size -> {
                 _state.update { it.copy(
                     reconnecting = true,
-                    error = "جارٍ تبديل الصيغة بعد 3 ثوانٍ...",
+                    error = null,
                 ) }
                 retryJob = viewModelScope.launch {
                     delay(3000)
@@ -389,6 +390,7 @@ class PlayerViewModel(
             it.copy(
                 formatAttempt = (it.formatAttempt + 1) % formats,
                 autoReconnectCount = 0,
+                retryKey = it.retryKey + 1,
                 reconnecting = false,
                 error = null,
             )

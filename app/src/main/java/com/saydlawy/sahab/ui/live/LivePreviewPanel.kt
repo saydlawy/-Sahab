@@ -361,6 +361,7 @@ internal fun PreviewPanel(
                             view.player = previewExo
                         }
                     },
+                    onRelease = { view -> view.player = null },
                     modifier = Modifier.fillMaxSize(),
                 )
 

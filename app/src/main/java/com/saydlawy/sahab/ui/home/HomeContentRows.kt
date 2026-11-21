@@ -79,6 +79,7 @@ import coil3.size.Precision
 internal fun ContinueWatchingSection(
     items: List<ContinueCardModel>,
     hasRealRecents: Boolean,
+    hasDefaultEntry: Boolean = true,
     onClearRecents: () -> Unit,
 ) {
     val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
@@ -142,7 +143,7 @@ internal fun ContinueWatchingSection(
                         .restorableFocus(
                             screenKey = Routes.HOME,
                             itemKey = item.id,
-                            isDefaultEntry = index == 0,
+                            isDefaultEntry = hasDefaultEntry && index == 0,
                         ),
                 )
             }
@@ -290,6 +291,7 @@ internal fun FeaturedChannelsSection(
     channels: List<Channel>,
     onPlay: (PlayRequest) -> Unit,
     onSeeAll: () -> Unit,
+    hasDefaultEntry: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     if (channels.isEmpty()) return
@@ -383,7 +385,11 @@ internal fun FeaturedChannelsSection(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(if (isTvOrTablet) 90.dp else 80.dp)
-                                    .restorableFocus(Routes.HOME, itemKey),
+                                    .restorableFocus(
+                                        screenKey = Routes.HOME,
+                                        itemKey = itemKey,
+                                        isDefaultEntry = hasDefaultEntry && rIdx == 0 && cIdx == 0,
+                                    ),
                             )
                         }
                         repeat(cols - rowItems.size) {
@@ -416,7 +422,11 @@ internal fun FeaturedChannelsSection(
                         },
                         modifier = Modifier
                             .size(width = cardW, height = cardH)
-                            .restorableFocus(Routes.HOME, itemKey),
+                            .restorableFocus(
+                                screenKey = Routes.HOME,
+                                itemKey = itemKey,
+                                isDefaultEntry = hasDefaultEntry && index == 0,
+                            ),
                     )
                 }
             }

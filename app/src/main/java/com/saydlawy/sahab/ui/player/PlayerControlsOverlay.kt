@@ -55,6 +55,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -504,6 +505,8 @@ internal fun GradientTimelineBar(
     val shown = (dragFraction ?: progress).coerceIn(0f, 1f)
     val bufShown = buffered.coerceIn(shown, 1f)
     val progressBrush = rememberTimelineProgressBrush()
+    val currentOnSeekToFraction by rememberUpdatedState(onSeekToFraction)
+    val hasSeekHandler = onSeekToFraction != null
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Canvas(
@@ -515,7 +518,7 @@ internal fun GradientTimelineBar(
                     progressBarRangeInfo = ProgressBarRangeInfo(shown, 0f..1f)
                 }
                 .then(
-                    if (onSeekToFraction != null) {
+                    if (hasSeekHandler) {
                         Modifier
                             .onKeyEvent { event ->
                                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
@@ -529,17 +532,17 @@ internal fun GradientTimelineBar(
                                 }
                             }
                             .focusable(interactionSource = interaction)
-                            .pointerInput(onSeekToFraction) {
+                            .pointerInput(hasSeekHandler) {
                                 detectTapGestures { offset ->
                                     if (size.width > 0) {
-                                        onSeekToFraction((offset.x / size.width).coerceIn(0f, 1f))
+                                        currentOnSeekToFraction?.invoke((offset.x / size.width).coerceIn(0f, 1f))
                                     }
                                 }
                             }
-                            .pointerInput(onSeekToFraction) {
+                            .pointerInput(hasSeekHandler) {
                                 detectHorizontalDragGestures(
                                     onDragEnd = {
-                                        dragFraction?.let { onSeekToFraction(it) }
+                                        dragFraction?.let { currentOnSeekToFraction?.invoke(it) }
                                         dragFraction = null
                                     },
                                     onDragCancel = { dragFraction = null },

@@ -475,20 +475,20 @@ private fun AppearanceSlider(
                 onValueChangeFinished = { onValue(localValue) },
                 valueRange = range,
                 modifier = Modifier.onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown) {
-                        when (event.nativeKeyEvent.keyCode) {
-                            android.view.KeyEvent.KEYCODE_DPAD_DOWN -> focusManager.moveFocus(FocusDirection.Down)
-                            android.view.KeyEvent.KEYCODE_DPAD_UP -> focusManager.moveFocus(FocusDirection.Up)
-                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                if (layoutDirection == LayoutDirection.Rtl) applyDelta(step) else applyDelta(step)
-                            }
-                            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                if (layoutDirection == LayoutDirection.Rtl) applyDelta(-step) else applyDelta(-step)
-                            }
-                            else -> false
+                    when (event.nativeKeyEvent.keyCode) {
+                        android.view.KeyEvent.KEYCODE_DPAD_DOWN ->
+                            if (event.type == KeyEventType.KeyDown) focusManager.moveFocus(FocusDirection.Down) else false
+                        android.view.KeyEvent.KEYCODE_DPAD_UP ->
+                            if (event.type == KeyEventType.KeyDown) focusManager.moveFocus(FocusDirection.Up) else false
+                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            if (event.type == KeyEventType.KeyDown) applyDelta(step)
+                            true
                         }
-                    } else {
-                        false
+                        android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            if (event.type == KeyEventType.KeyDown) applyDelta(-step)
+                            true
+                        }
+                        else -> false
                     }
                 },
             )

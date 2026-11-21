@@ -5,12 +5,17 @@ import androidx.compose.ui.unit.dp
 import com.saydlawy.sahab.data.weather.WeatherCondition
 import com.saydlawy.sahab.data.weather.WeatherService
 import com.saydlawy.sahab.ui.DisplayMode
+import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.computeAdaptiveWindowInfo
+import com.saydlawy.sahab.ui.focus.FocusNavigationController
+import com.saydlawy.sahab.ui.player.TrackSection
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -70,6 +75,46 @@ class Phase3ArchitectureAndModernizationTest {
 
         val phonePortrait = computeAdaptiveWindowInfo(maxWidth = 390.dp, maxHeight = 844.dp, isTv = false)
         assertEquals(DisplayMode.PHONE_PORTRAIT, phonePortrait.mode)
+    }
+
+    @Test
+    fun focusNavigationController_preservesAndClearsScreenAndSessionFocusState() {
+        val controller = FocusNavigationController()
+        assertFalse(controller.hasSavedFocus(Routes.HOME))
+
+        controller.recordFocus(Routes.HOME, "home_quick_movies")
+        assertTrue(controller.hasSavedFocus(Routes.HOME))
+        assertEquals("home_quick_movies", controller.lastFocused(Routes.HOME))
+
+        controller.markNavigateFrom(Routes.HOME, "home_quick_movies")
+        assertEquals("home_quick_movies", controller.pendingTarget(Routes.HOME))
+        val gen1 = controller.restoreGeneration(Routes.HOME)
+
+        controller.consumeRestore(Routes.HOME, "home_quick_movies")
+        assertNull(controller.pendingTarget(Routes.HOME))
+
+        controller.onScreenResumed(Routes.HOME)
+        assertEquals("home_quick_movies", controller.pendingTarget(Routes.HOME))
+        assertTrue(controller.restoreGeneration(Routes.HOME) > gen1)
+
+        controller.setSelectedCategory(Routes.MOVIES, "cat_action")
+        assertEquals("cat_action", controller.getSelectedCategory(Routes.MOVIES))
+
+        controller.clearScreen(Routes.HOME)
+        assertFalse(controller.hasSavedFocus(Routes.HOME))
+        assertNull(controller.lastFocused(Routes.HOME))
+        assertEquals("cat_action", controller.getSelectedCategory(Routes.MOVIES))
+
+        controller.clearAll()
+        assertNull(controller.getSelectedCategory(Routes.MOVIES))
+    }
+
+    @Test
+    fun trackSectionEnum_exposesAllSupportedPlayerTrackSections() {
+        assertEquals(
+            setOf(TrackSection.ALL, TrackSection.QUALITY, TrackSection.AUDIO, TrackSection.SUBTITLES),
+            TrackSection.entries.toSet(),
+        )
     }
 
     private class SimpleInMemoryPrefs : SharedPreferences {

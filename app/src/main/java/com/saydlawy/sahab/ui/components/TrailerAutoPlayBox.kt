@@ -4,7 +4,9 @@ import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.compose.foundation.AndroidEmbeddedExternalSurface
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -175,13 +177,20 @@ fun TrailerAutoPlayBox(
         }
 
         if (shouldPlay && hasMediaSource) {
+            var muteFocused by remember { mutableStateOf(false) }
             IconButton(
                 onClick = { muted = !muted },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(10.dp)
                     .size(34.dp)
-                    .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .onFocusChanged { muteFocused = it.isFocused }
+                    .border(
+                        width = if (muteFocused) 2.dp else 0.dp,
+                        color = if (muteFocused) Palette.FocusCyan else Color.Transparent,
+                        shape = CircleShape,
+                    ),
             ) {
                 Text(
                     text = if (muted) "🔇" else "🔊",

@@ -55,6 +55,7 @@ fun TrendingMoviesSection(
     title: String = "أفلام مقترحة لك",
     iconEmoji: String = "🔥",
     rowKey: String = "home_trending_movies_row",
+    hasDefaultEntry: Boolean = false,
 ) {
     if (movies.isEmpty()) return
 
@@ -110,6 +111,7 @@ fun TrendingMoviesSection(
                         .restorableFocus(
                             screenKey = Routes.HOME,
                             itemKey = itemFocusKey,
+                            isDefaultEntry = hasDefaultEntry && index == 0,
                         ),
                 )
             }

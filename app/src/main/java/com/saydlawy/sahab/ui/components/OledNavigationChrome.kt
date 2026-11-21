@@ -3,6 +3,7 @@ package com.saydlawy.sahab.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -42,31 +46,60 @@ private val chromeTabs = listOf(
 
 @Composable
 internal fun OledNavigationChrome(current: String?, onTab: (String) -> Unit, mode: DisplayMode) {
+    val activeTabFocus = remember(current) { FocusRequester() }
     if (mode == DisplayMode.PHONE_PORTRAIT) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
                 .clip(RoundedCornerShape(20.dp)).background(Palette.CardSurface)
-                .border(1.dp, Palette.CardBorderIdle, RoundedCornerShape(20.dp)).padding(vertical = 8.dp),
+                .border(1.dp, Palette.CardBorderIdle, RoundedCornerShape(20.dp))
+                .focusGroup()
+                .focusRestorer()
+                .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            chromeTabs.forEach { tab -> ChromeTabItem(tab, current, onTab, vertical = true) }
+            chromeTabs.forEach { tab ->
+                ChromeTabItem(
+                    tab = tab,
+                    current = current,
+                    onTab = onTab,
+                    vertical = true,
+                    modifier = if (tab.route == current) Modifier.focusRequester(activeTabFocus) else Modifier,
+                )
+            }
         }
     } else {
         Column(
             modifier = Modifier.width(76.dp).fillMaxHeight().padding(horizontal = 8.dp, vertical = 24.dp)
                 .clip(RoundedCornerShape(18.dp)).background(Palette.CardSurface)
-                .border(1.dp, Palette.CardBorderIdle, RoundedCornerShape(18.dp)).padding(vertical = 12.dp),
+                .border(1.dp, Palette.CardBorderIdle, RoundedCornerShape(18.dp))
+                .focusGroup()
+                .focusRestorer()
+                .padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            chromeTabs.forEach { tab -> ChromeTabItem(tab, current, onTab, vertical = false) }
+            chromeTabs.forEach { tab ->
+                ChromeTabItem(
+                    tab = tab,
+                    current = current,
+                    onTab = onTab,
+                    vertical = false,
+                    modifier = if (tab.route == current) Modifier.focusRequester(activeTabFocus) else Modifier,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ChromeTabItem(tab: ChromeTab, current: String?, onTab: (String) -> Unit, vertical: Boolean) {
+private fun ChromeTabItem(
+    tab: ChromeTab,
+    current: String?,
+    onTab: (String) -> Unit,
+    vertical: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val selected = current == tab.route
     var focused by remember { mutableStateOf(false) }
     val bgColor = when {
@@ -76,7 +109,7 @@ private fun ChromeTabItem(tab: ChromeTab, current: String?, onTab: (String) -> U
     }
     val tint = if (focused || selected) Palette.FocusCyan else Palette.TextMuted
     Column(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(bgColor)
             .then(

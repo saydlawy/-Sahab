@@ -30,7 +30,7 @@ import com.saydlawy.sahab.ui.theme.Palette
 internal fun NetflixTop10Row(
     screenKey: String,
     top10: List<Poster>,
-    onOpenPoster: (Poster) -> Unit,
+    onOpenPoster: (Poster, String) -> Unit,
     onToggleFavorite: (Poster) -> Unit,
     onFocusedPoster: (Poster) -> Unit = {},
 ) {
@@ -57,6 +57,7 @@ internal fun NetflixTop10Row(
                             fontWeight = FontWeight.Black,
                         )
                     }
+                    val focusKey = "top10_${index}_${poster.id}"
                     PosterCard(
                         title = poster.name,
                         imageUrl = poster.image,
@@ -64,12 +65,12 @@ internal fun NetflixTop10Row(
                         quality = qualityOf(poster.name),
                         subtitle = poster.year,
                             genre = poster.genre,
-                        onClick = { onOpenPoster(poster) },
+                        onClick = { onOpenPoster(poster, focusKey) },
                         onLongClick = { onToggleFavorite(poster) },
                         onFocused = { onFocusedPoster(poster) },
                         modifier = Modifier
                             .width(120.dp)
-                            .restorableFocus(screenKey, "top10_${index}_${poster.id}", isDefaultEntry = false),
+                            .restorableFocus(screenKey, focusKey, isDefaultEntry = false),
                     )
                 }
             }

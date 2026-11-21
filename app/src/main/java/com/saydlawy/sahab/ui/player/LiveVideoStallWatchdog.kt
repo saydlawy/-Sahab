@@ -37,12 +37,14 @@ fun LiveVideoStallWatchdog(
     player: ExoPlayer?,
     enabled: Boolean,
     itemKey: Any?,
+    isReleased: () -> Boolean = { false },
     onEscalate: () -> Boolean = { false },
 ) {
     val escalate by rememberUpdatedState(onEscalate)
+    val releasedCheck by rememberUpdatedState(isReleased)
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(player, enabled, itemKey, lifecycleOwner) {
-        if (player == null || !enabled) return@LaunchedEffect
+        if (player == null || !enabled || releasedCheck()) return@LaunchedEffect
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             var lastRendered = -1
             var frozenSinceMs = 0L
@@ -50,17 +52,20 @@ fun LiveVideoStallWatchdog(
             var recoveries = 0
             var windowStartMs = SystemClock.elapsedRealtime()
 
-            while (isActive) {
+            while (isActive && !releasedCheck()) {
                 delay(SAMPLE_MS)
-                val counters = player.videoDecoderCounters
+                if (releasedCheck()) break
+                val counters = runCatching { player.videoDecoderCounters }.getOrNull()
                 if (counters == null) {
                     lastRendered = -1
                     continue
                 }
 
-                val armed = player.isPlaying &&
-                    player.playbackState == Player.STATE_READY &&
-                    player.videoFormat != null
+                val armed = runCatching {
+                    player.isPlaying &&
+                        player.playbackState == Player.STATE_READY &&
+                        player.videoFormat != null
+                }.getOrDefault(false)
                 if (!armed) {
                     lastRendered = -1
                     continue
@@ -69,7 +74,7 @@ fun LiveVideoStallWatchdog(
                 counters.ensureUpdated()
                 val rendered = counters.renderedOutputBufferCount
                 val now = SystemClock.elapsedRealtime()
-                val position = player.currentPosition
+                val position = runCatching { player.currentPosition }.getOrDefault(0L)
                 if (rendered != lastRendered) {
                     lastRendered = rendered
                     frozenSinceMs = now
@@ -97,13 +102,16 @@ fun LiveVideoStallWatchdog(
                     "-> recovery #$recoveries"
                 Log.w(TAG, stallMsg)
                 runCatching { com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().log(stallMsg) }
+                if (releasedCheck()) break
                 // stop() resets the renderers, which releases the deadlocked MediaCodec instance.
-                player.stop()
+                runCatching { player.stop() }
                 val escalated = recoveries >= 2 && escalate()
-                if (!escalated) {
-                    player.seekToDefaultPosition()
-                    player.prepare()
-                    player.play()
+                if (!escalated && !releasedCheck()) {
+                    runCatching {
+                        player.seekToDefaultPosition()
+                        player.prepare()
+                        player.play()
+                    }
                 }
                 lastRendered = -1
             }

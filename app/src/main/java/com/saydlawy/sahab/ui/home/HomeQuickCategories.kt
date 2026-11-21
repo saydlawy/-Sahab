@@ -45,6 +45,7 @@ internal fun QuickCategoriesSection(
     onOpenLive: () -> Unit,
     onOpenMovies: () -> Unit,
     onOpenSeries: () -> Unit,
+    hasDefaultEntry: Boolean = false,
 ) {
     val mode = LocalDisplayMode.current
     val isTvOrTablet = mode == DisplayMode.TABLET_OR_TV
@@ -100,7 +101,7 @@ internal fun QuickCategoriesSection(
                 modifier = Modifier
                     .weight(1f)
                     .height(cardHeight)
-                    .restorableFocus(Routes.HOME, "home_quick_live"),
+                    .restorableFocus(Routes.HOME, "home_quick_live", isDefaultEntry = hasDefaultEntry),
             )
             QuickCategoryBanner(
                 title = "الأفلام",

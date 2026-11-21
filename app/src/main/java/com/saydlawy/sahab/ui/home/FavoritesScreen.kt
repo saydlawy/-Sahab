@@ -13,7 +13,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +45,7 @@ import com.saydlawy.sahab.ui.components.PosterCard
 import com.saydlawy.sahab.ui.components.SahabTopBar
 import com.saydlawy.sahab.ui.components.Tag
 import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.focus.LocalFocusNavigation
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyGridState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
@@ -54,6 +55,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayRequest) -> Unit) {
     val container = LocalContainer.current
+    val focusNav = LocalFocusNavigation.current
     val scope = rememberCoroutineScope()
     val isTv = LocalIsTv.current
     val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
@@ -125,7 +127,8 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                             Text(Ar.favoritesHint, fontSize = 12.sp, color = Palette.TextDim)
                         }
                     }
-                    items(filtered, key = { "${it.accountId}_${it.kind}_${it.id}" }) { favorite ->
+                    itemsIndexed(filtered, key = { idx, it -> "${it.accountId}_${it.kind}_${it.id}_$idx" }) { index, favorite ->
+                        val itemKey = "fav_${favorite.kind}_${favorite.id}_$index"
                         PosterCard(
                             title = favorite.name,
                             imageUrl = favorite.icon,
@@ -133,6 +136,7 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                             subtitle = Ar.kindLabel(favorite.kind),
                             contentScale = if (favorite.kind == Kind.LIVE) ContentScale.Fit else ContentScale.Crop,
                             onClick = {
+                                focusNav.markNavigateFrom(Routes.FAVORITES, itemKey)
                                 when (favorite.kind) {
                                     Kind.LIVE -> onPlay(
                                         PlayRequest(listOf(PlayItem(Kind.LIVE, favorite.id, favorite.name, icon = favorite.icon, url = favorite.url)), 0),
@@ -144,7 +148,8 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (String) -> Unit, onPlay: (PlayR
                             onLongClick = { scope.launch { container.prefs.toggleFavorite(favorite) } },
                             modifier = Modifier.restorableFocus(
                                 screenKey = Routes.FAVORITES,
-                                itemKey = "fav_${favorite.kind}_${favorite.id}",
+                                itemKey = itemKey,
+                                isDefaultEntry = index == 0,
                             ),
                         )
                     }

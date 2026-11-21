@@ -206,9 +206,16 @@ internal fun PrimeCategoryTabs(
     } else {
         var searchExpanded by remember { mutableStateOf(query.isNotBlank()) }
         var searchBtnFocused by remember { mutableStateOf(false) }
+        var restoreSearchBtnFocus by remember { mutableStateOf(false) }
         val searchBoxFocus = remember { FocusRequester() }
-        LaunchedEffect(searchExpanded) {
-            if (searchExpanded) runCatching { searchBoxFocus.requestFocus() }
+        val searchBtnFocus = remember { FocusRequester() }
+        LaunchedEffect(searchExpanded, restoreSearchBtnFocus) {
+            if (searchExpanded) {
+                runCatching { searchBoxFocus.requestFocus() }
+            } else if (restoreSearchBtnFocus) {
+                restoreSearchBtnFocus = false
+                runCatching { searchBtnFocus.requestFocus() }
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -224,8 +231,11 @@ internal fun PrimeCategoryTabs(
                         .width(220.dp)
                         .focusRequester(searchBoxFocus)
                         .onPreviewKeyEvent { ev ->
-                            if (ev.type == KeyEventType.KeyUp && ev.key == Key.Back && query.isBlank()) {
-                                searchExpanded = false
+                            if (ev.key == Key.Back && query.isBlank()) {
+                                if (ev.type == KeyEventType.KeyUp && ev.nativeKeyEvent.repeatCount == 0) {
+                                    restoreSearchBtnFocus = true
+                                    searchExpanded = false
+                                }
                                 true
                             } else {
                                 false
@@ -236,6 +246,7 @@ internal fun PrimeCategoryTabs(
                 Box(
                     modifier = Modifier
                         .size(32.dp)
+                        .focusRequester(searchBtnFocus)
                         .clip(CircleShape)
                         .background(if (searchBtnFocused) PrimeCyan else Palette.GlassStrong)
                         .border(if (searchBtnFocused) 2.dp else 1.dp, if (searchBtnFocused) Color.White else Palette.GlassBorder, CircleShape)

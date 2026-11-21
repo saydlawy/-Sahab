@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -14,6 +15,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,12 +38,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
@@ -83,6 +89,7 @@ import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.LocalThemeCustomization
 import com.saydlawy.sahab.ui.theme.isVisible
 import com.saydlawy.sahab.util.Ar
+import com.saydlawy.sahab.util.findActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -343,9 +350,15 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                 )
 
                 if (restoringCloud) {
+                    val overlayFocus = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { runCatching { overlayFocus.requestFocus() } }
+                    BackHandler(enabled = true) { }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .focusRequester(overlayFocus)
+                            .focusable()
+                            .onPreviewKeyEvent { true }
                             .background(Color.Black.copy(alpha = 0.68f))
                             .pointerInput(Unit) { detectTapGestures { } },
                         contentAlignment = Alignment.Center,
@@ -376,7 +389,24 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                 nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true } }
             })
         }
-        composable(Routes.HOME) { HomeScreen(onOpen = open, onPlay = play) }
+        composable(Routes.HOME) {
+            val isTv = LocalIsTv.current
+            var lastBackUptimeMs by remember { mutableLongStateOf(0L) }
+            BackHandler(enabled = isTv) {
+                val now = SystemClock.uptimeMillis()
+                if (now - lastBackUptimeMs <= 2_500L) {
+                    context.findActivity()?.finish()
+                } else {
+                    lastBackUptimeMs = now
+                    android.widget.Toast.makeText(
+                        context,
+                        "اضغط رجوع مرة أخرى للخروج من سحاب",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+            HomeScreen(onOpen = open, onPlay = play)
+        }
         composable(Routes.LIVE) { LiveScreen(onBack = back, onPlay = play) }
         composable(Routes.MOVIES) {
             BrowseScreen(series = false, onBack = back, onOpenItem = { open(Routes.movie(it)) }, onPlay = play)
@@ -397,6 +427,7 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
                     container.authManager.signOut(context)
                     container.repo.setAccount(null)
                     scope.launch {
+                        focusController.clearAll()
                         container.clearAllLocalData(clearPrefsAccount = true)
                         nav.navigate(Routes.CLOUD_LOGIN) {
                             popUpTo(nav.graph.findStartDestination().id) { inclusive = true }
@@ -609,9 +640,15 @@ private fun RootSyncStatusOverlay(
     val syncing = repoSyncing || catalogSyncing || firebaseSyncing || channelSyncing || epgSyncing || switchingAccount
 
     if (switchingAccount && !onPlayer) {
+        val overlayFocus = remember { FocusRequester() }
+        LaunchedEffect(Unit) { runCatching { overlayFocus.requestFocus() } }
+        BackHandler(enabled = true) { }
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .focusRequester(overlayFocus)
+                .focusable()
+                .onPreviewKeyEvent { true }
                 .background(Color.Black.copy(alpha = 0.58f))
                 .pointerInput(Unit) { detectTapGestures { } },
             contentAlignment = Alignment.Center,

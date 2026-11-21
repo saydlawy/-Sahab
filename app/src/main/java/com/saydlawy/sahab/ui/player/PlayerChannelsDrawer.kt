@@ -17,6 +17,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -64,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -191,14 +193,8 @@ internal fun LiveChannelsDrawer(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
-                        onClose()
-                        true
-                    } else {
-                        false
-                    }
-                },
+                .focusGroup()
+                .focusRestorer(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val anchorIdx = currentIndex.takeIf { it in playlist.indices } ?: 0
@@ -397,14 +393,8 @@ internal fun VodEpisodesDrawer(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
-                        onClose()
-                        true
-                    } else {
-                        false
-                    }
-                },
+                .focusGroup()
+                .focusRestorer(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (seasonEpisodes.isNotEmpty()) {

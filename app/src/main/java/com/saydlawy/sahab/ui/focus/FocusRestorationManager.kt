@@ -149,6 +149,31 @@ class FocusNavigationController {
         }
     }
 
+    /** Removes stored focus and filter state for a single screen. */
+    fun clearScreen(screenKey: String) {
+        lastFocusedByScreen.remove(screenKey)
+        hasAnySavedByScreen.remove(screenKey)
+        pendingRestoreByScreen.remove(screenKey)
+        restoreGenerationByScreen.remove(screenKey)
+        selectedFilterByScreen.remove(screenKey)
+        previewItemByScreen.remove(screenKey)
+        searchQueryByScreen.remove(screenKey)
+    }
+
+    /** Clears all stored focus, scroll, and filter state (e.g., on account switch or sign-out). */
+    fun clearAll() {
+        lastFocusedByScreen.clear()
+        hasAnySavedByScreen.clear()
+        pendingRestoreByScreen.clear()
+        restoreGenerationByScreen.clear()
+        listScrollPositions.clear()
+        gridScrollPositions.clear()
+        selectedFilterByScreen.clear()
+        previewItemByScreen.clear()
+        selectedSeasonBySeries.clear()
+        searchQueryByScreen.clear()
+    }
+
     // --- Scroll State Persistence ---
 
     fun getListScroll(key: String): SavedScrollPosition =

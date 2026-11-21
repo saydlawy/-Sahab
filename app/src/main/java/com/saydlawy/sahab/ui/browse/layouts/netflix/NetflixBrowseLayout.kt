@@ -284,7 +284,7 @@ internal fun NetflixBrowseLayout(
                         NetflixTop10Row(
                             screenKey = route,
                             top10 = state.top10Items,
-                            onOpenPoster = { poster -> callbacks.onOpenPosterWithKey(poster, "top10_0_${poster.id}") },
+                            onOpenPoster = { poster, focusKey -> callbacks.onOpenPosterWithKey(poster, focusKey) },
                             onToggleFavorite = callbacks.onToggleFavorite,
                             onFocusedPoster = callbacks.onPosterFocused,
                         )
@@ -297,6 +297,7 @@ internal fun NetflixBrowseLayout(
                         DotTitle(group.category.name, Color(0xFFE50914), fontSize = 16.sp)
                         LazyRow(
                             state = rowState,
+                            modifier = Modifier.fillMaxWidth().focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
                         ) {

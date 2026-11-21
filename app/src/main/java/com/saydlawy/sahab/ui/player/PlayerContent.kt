@@ -2,6 +2,7 @@ package com.saydlawy.sahab.ui.player
 
 import com.saydlawy.sahab.data.channel.EpgProgramEntity
 import android.content.pm.ActivityInfo
+import android.os.SystemClock
 import androidx.compose.foundation.lazy.rememberLazyListState
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
@@ -55,8 +56,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -159,6 +162,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     val index = ui.index
     val item = ui.currentItem
     val isLive = ui.isLive
+    val currentIsLive by rememberUpdatedState(isLive)
     val isPlaying = ui.isPlaying
     val buffering = ui.buffering
     val reconnecting = ui.reconnecting
@@ -191,16 +195,20 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         vm.loadSeriesIfNeeded(item)
     }
 
-    val saveNow: () -> Unit = {
-        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-        vm.saveProgress(exo.currentPosition, total)
-    }
-
     var isPlayerReleased by remember(exo) { mutableStateOf(false) }
+    val saveNow: () -> Unit = {
+        if (!isPlayerReleased) {
+            val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+            vm.saveProgress(exo.currentPosition, total)
+        }
+    }
     val releasePlayerNow: () -> Unit = {
         if (!isPlayerReleased) {
             isPlayerReleased = true
-            runCatching { saveNow() }
+            runCatching {
+                val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                vm.saveProgress(exo.currentPosition, total)
+            }
             runCatching { vm.flushRecents() }
             runCatching { SahabMediaSessionBridge.detach(context, exo) }
             SahabPlayer.releasePlayer(exo)
@@ -212,8 +220,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     }
 
     val goTo: (Int) -> Unit = { target ->
-        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-        if (vm.goTo(target, exo.currentPosition, total)) {
+        val pos = if (isPlayerReleased) 0L else exo.currentPosition
+        val total = if (isPlayerReleased) 0L else (exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+        if (vm.goTo(target, pos, total)) {
             ended = false
             controlsVisible = true
             interactions++
@@ -221,8 +230,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     }
 
     val playEpisodeFromDrawer: (Episode) -> Unit = { ep ->
-        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-        if (vm.playEpisodeFromDrawer(ep, exo.currentPosition, total)) {
+        val pos = if (isPlayerReleased) 0L else exo.currentPosition
+        val total = if (isPlayerReleased) 0L else (exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+        if (vm.playEpisodeFromDrawer(ep, pos, total)) {
             ended = false
             controlsVisible = true
             interactions++
@@ -230,35 +240,39 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     }
 
     val zapNext: () -> Unit = {
-        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-        if (vm.zapNext(exo.currentPosition, total)) {
+        val pos = if (isPlayerReleased) 0L else exo.currentPosition
+        val total = if (isPlayerReleased) 0L else (exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+        if (vm.zapNext(pos, total)) {
             ended = false
             controlsVisible = true
             interactions++
         }
     }
     val zapPrevious: () -> Unit = {
-        val total = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-        if (vm.zapPrevious(exo.currentPosition, total)) {
+        val pos = if (isPlayerReleased) 0L else exo.currentPosition
+        val total = if (isPlayerReleased) 0L else (exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
+        if (vm.zapPrevious(pos, total)) {
             ended = false
             controlsVisible = true
             interactions++
         }
     }
     val togglePlay: () -> Unit = {
-        if (exo.playbackState == Player.STATE_ENDED) {
-            // Only restart on explicit manual user play press — never auto-repeat
-            exo.seekTo(0L)
-            exo.play()
-        } else if (exo.isPlaying) {
-            exo.pause()
-        } else {
-            exo.play()
+        if (!isPlayerReleased) {
+            if (exo.playbackState == Player.STATE_ENDED) {
+                // Only restart on explicit manual user play press — never auto-repeat
+                exo.seekTo(0L)
+                exo.play()
+            } else if (exo.isPlaying) {
+                exo.pause()
+            } else {
+                exo.play()
+            }
+            interactions++
         }
-        interactions++
     }
     val seekBy: (Long) -> Unit = { delta ->
-        if (canSeek) {
+        if (!isPlayerReleased && canSeek) {
             val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: Long.MAX_VALUE
             exo.seekTo((exo.currentPosition + delta).coerceIn(0L, total))
             vm.onSeekPosition(exo.currentPosition)
@@ -266,7 +280,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
     val cycleSpeed: () -> Unit = {
-        if (canSeek) {
+        if (!isPlayerReleased && canSeek) {
             val nextSpeed = vm.cycleSpeed(PlaybackSpeeds)
             exo.setPlaybackSpeed(nextSpeed)
             interactions++
@@ -325,19 +339,19 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         saveNow()
         vm.flushRecents()
         val inPip = context.findActivity()?.isInPictureInPictureMode == true
-        if (!inPip && (exo.playWhenReady || exo.isPlaying)) {
+        if (!inPip && !isPlayerReleased && (exo.playWhenReady || exo.isPlaying)) {
             stoppedByLifecycle = true
             exo.pause()
-            if (isLive) {
+            if (currentIsLive) {
                 exo.stop()
             }
         }
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
-        if (stoppedByLifecycle) {
+        if (stoppedByLifecycle && !isPlayerReleased) {
             stoppedByLifecycle = false
-            if (isLive) {
+            if (currentIsLive) {
                 exo.seekToDefaultPosition()
                 exo.prepare()
             }
@@ -400,24 +414,28 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     var hasPreparedFirst by remember(exo) { mutableStateOf(false) }
 
     LaunchedEffect(item.id, ui.retryKey, ui.formatAttempt, ui.autoReconnectCount) {
+        if (isPlayerReleased) return@LaunchedEffect
         val activeItem = item
+        val capturedPositionMs = exo.currentPosition
+        val resume = vm.resolveResumePositionMs(activeItem, capturedPositionMs)
         vm.onPrepareStarted()
-        if (hasPreparedFirst) {
+        if (hasPreparedFirst && !isPlayerReleased) {
             exo.stop()
             exo.clearMediaItems()
         }
         if (ui.autoReconnectCount > 0) {
             delay(1_100)
-        } else if (isLive && hasPreparedFirst && ui.retryKey == 0) {
+        } else if (currentIsLive && hasPreparedFirst && ui.retryKey == 0) {
             delay(280L)
         }
+        if (isPlayerReleased) return@LaunchedEffect
         val url = try {
             vm.streamUrl(activeItem, ui.formatAttempt)
         } catch (e: Exception) {
             vm.onUrlError()
             return@LaunchedEffect
         }
-        val resume = vm.resolveResumePositionMs(activeItem, exo.currentPosition)
+        if (isPlayerReleased) return@LaunchedEffect
         exo.volume = 1.0f
         exo.repeatMode = Player.REPEAT_MODE_OFF
         val metadata = MediaMetadata.Builder()
@@ -438,19 +456,22 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     // LIVE-01: recover from silent hardware-decoder stalls (frozen picture while audio continues).
     LiveVideoStallWatchdog(
         player = exo,
-        enabled = isLive,
+        enabled = currentIsLive,
         itemKey = item.id,
+        isReleased = { isPlayerReleased },
         onEscalate = { vm.switchLiveFormatAfterStall() },
     )
 
     LaunchedEffect(ended) {
         if (ended) {
             ended = false
-            val total = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+            val total = if (isPlayerReleased) 0L else (exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L)
             vm.onPlaybackEnded(total) {
-                // Last episode or movie ended: NEVER auto-repeat/loop same item
-                exo.playWhenReady = false
-                exo.pause()
+                if (!isPlayerReleased) {
+                    // Last episode or movie ended: NEVER auto-repeat/loop same item
+                    exo.playWhenReady = false
+                    exo.pause()
+                }
                 controlsVisible = true
                 vm.bumpPlayFocusTick()
             }
@@ -507,20 +528,51 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    BackHandler(enabled = true) {
+    val handleBack: () -> Unit = {
         when {
+            showTracks -> {
+                showTracks = false
+                interactions++
+                vm.bumpPlayFocusTick()
+            }
+            showGuide -> {
+                showGuide = false
+                interactions++
+                vm.bumpPlayFocusTick()
+            }
             showEpisodesDrawer -> showEpisodesDrawer = false
-            showQuickChannelsDrawer && isLive -> showQuickChannelsDrawer = false
+            showQuickChannelsDrawer && currentIsLive -> showQuickChannelsDrawer = false
             controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT -> controlsVisible = false
             else -> exitPlayerNow()
         }
     }
 
+    BackHandler(enabled = true) {
+        handleBack()
+    }
+
+    var lastRepeatSeekUptimeMs by remember { mutableLongStateOf(0L) }
     val onKey: (KeyEvent) -> Boolean = handler@{ event ->
+        if (event.key == Key.Escape) {
+            if (event.type == KeyEventType.KeyUp && event.nativeKeyEvent.repeatCount == 0) {
+                handleBack()
+            }
+            return@handler true
+        }
+        // Leave Key.Back strictly to BackHandler so a single Back press never closes both OSD and Player
+        if (event.key == Key.Back) return@handler false
         if (event.type != KeyEventType.KeyDown) return@handler false
         // Preserve hardware/source volume: never intercept or alter volume internally
         if (event.key == Key.VolumeUp || event.key == Key.VolumeDown || event.key == Key.VolumeMute) {
             return@handler false
+        }
+        val isRepeat = event.nativeKeyEvent.repeatCount > 0
+        fun allowRepeatSeek(): Boolean {
+            if (!isRepeat) return true
+            val now = SystemClock.uptimeMillis()
+            if (now - lastRepeatSeekUptimeMs < 180L) return false
+            lastRepeatSeekUptimeMs = now
+            return true
         }
         interactions++
         when (event.key) {
@@ -531,21 +583,21 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                 true
             }
             Key.MediaPlay -> {
-                exo.play()
+                if (!isPlayerReleased) exo.play()
                 true
             }
             Key.MediaPause -> {
-                exo.pause()
+                if (!isPlayerReleased) exo.pause()
                 controlsVisible = true
                 vm.bumpPlayFocusTick()
                 true
             }
             Key.MediaFastForward -> {
-                if (canSeek) seekBy(3 * SEEK_STEP_MS)
+                if (canSeek && allowRepeatSeek()) seekBy(3 * SEEK_STEP_MS)
                 true
             }
             Key.MediaRewind -> {
-                if (canSeek) seekBy(-3 * SEEK_STEP_MS)
+                if (canSeek && allowRepeatSeek()) seekBy(-3 * SEEK_STEP_MS)
                 true
             }
             Key.MediaNext, Key.ChannelUp -> {
@@ -556,57 +608,34 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                 zapPrevious()
                 true
             }
-            Key.Back, Key.Escape -> {
-                if (showEpisodesDrawer) {
-                    showEpisodesDrawer = false
-                    true
-                } else if (showQuickChannelsDrawer && isLive) {
-                    showQuickChannelsDrawer = false
-                    true
-                } else if (controlsVisible && displayMode != DisplayMode.PHONE_PORTRAIT) {
-                    controlsVisible = false
-                    true
-                } else {
-                    exitPlayerNow()
-                    true
-                }
-            }
             else -> {
-                if (controlsVisible || showEpisodesDrawer || (showQuickChannelsDrawer && isLive)) {
+                if (error != null || controlsVisible || showEpisodesDrawer || (showQuickChannelsDrawer && currentIsLive)) {
                     false
                 } else {
                     when (event.key) {
                         Key.DirectionCenter, Key.Enter, Key.Spacebar -> {
-                            // First OK pauses playback, shows OSD, and highlights Play/Pause button with cyan glow
-                            if (exo.isPlaying) {
-                                exo.pause()
-                            } else if (exo.playbackState == Player.STATE_ENDED) {
-                                exo.seekTo(0L)
-                                exo.play()
-                            } else {
-                                exo.play()
-                            }
+                            togglePlay()
                             controlsVisible = true
                             vm.bumpPlayFocusTick()
                         }
                         Key.DirectionUp -> {
-                            if (isLive) zapNext() else if (playlist.size > 1 || seriesDetails != null) {
+                            if (currentIsLive) zapNext() else if (playlist.size > 1 || seriesDetails != null) {
                                 showEpisodesDrawer = true
                             }
                             controlsVisible = true
                         }
                         Key.DirectionDown -> {
-                            if (isLive) zapPrevious() else {
+                            if (currentIsLive) zapPrevious() else {
                                 showTracks = true
                             }
                             controlsVisible = true
                         }
                         Key.DirectionRight -> {
-                            if (canSeek) seekBy(SEEK_STEP_MS)
+                            if (canSeek && allowRepeatSeek()) seekBy(SEEK_STEP_MS)
                             controlsVisible = true
                         }
                         Key.DirectionLeft -> {
-                            if (canSeek) seekBy(-SEEK_STEP_MS)
+                            if (canSeek && allowRepeatSeek()) seekBy(-SEEK_STEP_MS)
                             controlsVisible = true
                         }
                         else -> controlsVisible = true
@@ -703,9 +732,11 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     onTogglePlay = togglePlay,
                     onSeekBy = seekBy,
                     onSeekTo = { target ->
-                        exo.seekTo(target.coerceAtLeast(0L))
-                        vm.onSeekPosition(target)
-                        interactions++
+                        if (!isPlayerReleased) {
+                            exo.seekTo(target.coerceAtLeast(0L))
+                            vm.onSeekPosition(target)
+                            interactions++
+                        }
                     },
                     onPrev = zapPrevious,
                     onNext = zapNext,
@@ -753,6 +784,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                                 it.player = null
                             }
                         },
+                        onRelease = { it.player = null },
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -816,9 +848,11 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                             onTogglePlay = togglePlay,
                             onSeekBy = seekBy,
                             onSeekTo = { target ->
-                                exo.seekTo(target.coerceAtLeast(0L))
-                                vm.onSeekPosition(target)
-                                interactions++
+                                if (!isPlayerReleased) {
+                                    exo.seekTo(target.coerceAtLeast(0L))
+                                    vm.onSeekPosition(target)
+                                    interactions++
+                                }
                             },
                             onPrev = zapPrevious,
                             onNext = zapNext,
@@ -896,6 +930,11 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                     }
 
                     error?.let { message ->
+                        val errorRetryFocus = remember { FocusRequester() }
+                        LaunchedEffect(message) {
+                            withFrameNanos { }
+                            runCatching { errorRetryFocus.requestFocus() }
+                        }
                         Column(
                             modifier = Modifier
                                 .align(Alignment.Center)
@@ -916,6 +955,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                                 GlassButton(
                                     Ar.retry,
                                     { vm.retry() },
+                                    modifier = Modifier.focusRequester(errorRetryFocus),
                                     primary = true,
                                     autoFocus = true,
                                 )
@@ -929,10 +969,18 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     }
 
     if (showTracks) {
-        TracksDialog(tracks, exo, trackSelectionParams) { showTracks = false }
+        TracksDialog(tracks, exo, trackSelectionParams) {
+            showTracks = false
+            interactions++
+            vm.bumpPlayFocusTick()
+        }
     }
     if (showGuide && isLive) {
-        EpgDialog(channelName = item.title, channelId = item.id, onDismiss = { showGuide = false })
+        EpgDialog(channelName = item.title, channelId = item.id) {
+            showGuide = false
+            interactions++
+            vm.bumpPlayFocusTick()
+        }
     }
 }
 

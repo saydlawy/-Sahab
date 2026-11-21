@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -90,7 +92,7 @@ internal fun CinematicNavTabsRow(
         }
         LazyRow(
             state = listState,
-            modifier = modifier,
+            modifier = modifier.focusGroup().focusRestorer(),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -107,7 +109,7 @@ internal fun CinematicNavTabsRow(
         }
     } else {
         Row(
-            modifier = modifier,
+            modifier = modifier.focusGroup().focusRestorer(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -164,6 +166,8 @@ internal fun CinematicNavTab(
 
     val shape = RoundedCornerShape(10.dp)
 
+    var centerDownOnTab by remember { mutableStateOf(false) }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -182,13 +186,23 @@ internal fun CinematicNavTab(
             )
             .hoverable(interaction)
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
-                ) {
-                    onClick()
-                    true
-                } else {
-                    false
+                val isSelectKey = event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter
+                if (!isSelectKey) return@onPreviewKeyEvent false
+                when (event.type) {
+                    KeyEventType.KeyDown -> {
+                        if (event.nativeKeyEvent.repeatCount == 0) {
+                            centerDownOnTab = true
+                        }
+                        true
+                    }
+                    KeyEventType.KeyUp -> {
+                        if (centerDownOnTab) {
+                            centerDownOnTab = false
+                            onClick()
+                        }
+                        true
+                    }
+                    else -> false
                 }
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -239,6 +253,7 @@ internal fun TopBarProfileButton(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val scale by animateFloatAsState(if (focused) 1.08f else 1f, tween(140), label = "profScale")
+    var centerDownOnProfile by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -265,13 +280,23 @@ internal fun TopBarProfileButton(
                 shape = CircleShape,
             )
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
-                ) {
-                    onClick()
-                    true
-                } else {
-                    false
+                val isSelectKey = event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter
+                if (!isSelectKey) return@onPreviewKeyEvent false
+                when (event.type) {
+                    KeyEventType.KeyDown -> {
+                        if (event.nativeKeyEvent.repeatCount == 0) {
+                            centerDownOnProfile = true
+                        }
+                        true
+                    }
+                    KeyEventType.KeyUp -> {
+                        if (centerDownOnProfile) {
+                            centerDownOnProfile = false
+                            onClick()
+                        }
+                        true
+                    }
+                    else -> false
                 }
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),

@@ -21,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -101,6 +103,7 @@ fun SettingsDataFlowPanel(container: AppContainer) {
 
         FlowCard(title = "التحكم في المسارات") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                var refreshFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     enabled = !busy,
                     onClick = {
@@ -111,9 +114,14 @@ fun SettingsDataFlowPanel(container: AppContainer) {
                             busy = false
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .onFocusChanged { refreshFocused = it.isFocused }
+                        .border(if (refreshFocused) 2.dp else 0.dp, if (refreshFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(24.dp)),
                 ) { Text("تحديث الأرقام") }
 
+                var pullFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     enabled = !busy && !bgStatus.active,
                     onClick = {
@@ -125,13 +133,18 @@ fun SettingsDataFlowPanel(container: AppContainer) {
                             busy = false
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .onFocusChanged { pullFocused = it.isFocused }
+                        .border(if (pullFocused) 2.dp else 0.dp, if (pullFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(24.dp)),
                 ) { Text("سحب: السحابة ← Room") }
             }
 
             Spacer(Modifier.height(8.dp))
 
             if (isAdmin) {
+                var adminPushFocused by remember { mutableStateOf(false) }
                 Button(
                     enabled = !busy && !bgStatus.active,
                     onClick = {
@@ -143,12 +156,17 @@ fun SettingsDataFlowPanel(container: AppContainer) {
                             busy = false
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .onFocusChanged { adminPushFocused = it.isFocused }
+                        .border(if (adminPushFocused) 2.dp else 0.dp, if (adminPushFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(24.dp)),
                 ) { Text("رفع (أدمن): Room ← السحابة") }
                 Spacer(Modifier.height(8.dp))
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                var retryFailedFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     enabled = !busy && (movieStats.failed + seriesStats.failed) > 0,
                     onClick = {
@@ -162,9 +180,14 @@ fun SettingsDataFlowPanel(container: AppContainer) {
                             busy = false
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .onFocusChanged { retryFailedFocused = it.isFocused }
+                        .border(if (retryFailedFocused) 2.dp else 0.dp, if (retryFailedFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(24.dp)),
                 ) { Text("إعادة محاولة الفاشل") }
 
+                var clearCacheFocused by remember { mutableStateOf(false) }
                 OutlinedButton(
                     enabled = !busy,
                     onClick = {
@@ -176,7 +199,11 @@ fun SettingsDataFlowPanel(container: AppContainer) {
                             busy = false
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp))
+                        .onFocusChanged { clearCacheFocused = it.isFocused }
+                        .border(if (clearCacheFocused) 2.dp else 0.dp, if (clearCacheFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(24.dp)),
                 ) { Text("مسح كاش القوائم") }
             }
         }

@@ -265,10 +265,12 @@ fun HomeScreen(
                 }
 
                 items(visibleHomeSections, key = { it }) { section ->
+                    val isDefaultSection = section == visibleHomeSections.firstOrNull()
                     when (section) {
                         "section_continue_watching" -> ContinueWatchingSection(
                             items = continueWatchingItems,
                             hasRealRecents = recents.isNotEmpty(),
+                            hasDefaultEntry = isDefaultSection,
                             onClearRecents = { scope.launch { container.prefs.clearRecentsForAccount(activeAccountId) } },
                         )
                         "section_live_channels" -> FeaturedChannelsSection(
@@ -279,10 +281,12 @@ fun HomeScreen(
                                 focusNav.markNavigateFrom(Routes.HOME, "home_live_see_all")
                                 onOpen(Routes.LIVE)
                             },
+                            hasDefaultEntry = isDefaultSection,
                         )
                         "section_trending_movies" -> TrendingMoviesSection(
                             movies = trendingMovies,
                             onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
+                            hasDefaultEntry = isDefaultSection,
                         )
                         "section_top_rated" -> TrendingMoviesSection(
                             movies = topRatedMovies,
@@ -290,11 +294,13 @@ fun HomeScreen(
                             title = "الأعلى 10",
                             iconEmoji = "⭐",
                             rowKey = "home_top_rated_row",
+                            hasDefaultEntry = isDefaultSection,
                         )
                         "section_quick_categories" -> QuickCategoriesSection(
                             onOpenLive = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_live"); onOpen(Routes.LIVE) },
                             onOpenMovies = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_movies"); onOpen(Routes.MOVIES) },
                             onOpenSeries = { focusNav.markNavigateFrom(Routes.HOME, "home_quick_series"); onOpen(Routes.SERIES) },
+                            hasDefaultEntry = isDefaultSection,
                         )
                         else -> Unit
                     }

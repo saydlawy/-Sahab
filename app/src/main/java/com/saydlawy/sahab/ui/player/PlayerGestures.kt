@@ -228,6 +228,7 @@ internal fun PhonePortraitPlayerScreen(
                         it.player = null
                     }
                 },
+                onRelease = { it.player = null },
                 modifier = Modifier.fillMaxSize(),
             )
 

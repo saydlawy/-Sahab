@@ -3,6 +3,7 @@ package com.saydlawy.sahab.ui.login
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,11 +25,15 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -80,6 +85,12 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
     val context = LocalContext.current
     val isTv = LocalIsTv.current
     val version = appVersion(context).ifBlank { "1.0" }
+    val firstInputFocus = remember { FocusRequester() }
+    LaunchedEffect(isTv) {
+        if (isTv && state.server.isBlank()) {
+            runCatching { firstInputFocus.requestFocus() }
+        }
+    }
 
     val displayMode = LocalDisplayMode.current
     val maxWidth = LocalWindowInfo.current.widthDp
@@ -148,7 +159,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
 
                     // Account Type Tabs
                     Row(
-                        Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        Modifier.fillMaxWidth().focusGroup().padding(bottom = 16.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -156,7 +167,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                             onClick = { vm.onAccountTypeChange("XTREAM") },
                             shape = RoundedCornerShape(12.dp),
                             selected = state.accountType == "XTREAM",
-                            modifier = Modifier.padding(horizontal = 4.dp)
+                            modifier = Modifier.padding(horizontal = 4.dp).focusRequester(firstInputFocus)
                         ) {
                             Text("Xtream", Modifier.padding(horizontal = 24.dp, vertical = 10.dp), color = if (state.accountType == "XTREAM") Color.White else Palette.TextDim, fontWeight = FontWeight.Bold)
                         }
@@ -286,7 +297,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             M3uTipCard()
-                            SubmitControl(state.loading, isTv) { vm.submit(onLoggedIn) }
+                            SubmitControl(state.loading, isTv && state.server.isNotBlank()) { vm.submit(onLoggedIn) }
                         }
                     } else {
                         Column(
@@ -294,7 +305,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            SubmitControl(state.loading, isTv, Modifier.fillMaxWidth()) { vm.submit(onLoggedIn) }
+                            SubmitControl(state.loading, isTv && state.server.isNotBlank(), Modifier.fillMaxWidth()) { vm.submit(onLoggedIn) }
                             M3uTipCard(Modifier.fillMaxWidth())
                         }
                     }

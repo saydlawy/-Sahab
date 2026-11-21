@@ -46,11 +46,13 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
@@ -58,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.data.Category
+import com.saydlawy.sahab.ui.LocalIsTv
 import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.theme.Palette
 import com.saydlawy.sahab.ui.theme.CairoFamily
@@ -84,8 +87,17 @@ fun GlassTextField(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val focusManager = LocalFocusManager.current
+    val isTv = LocalIsTv.current
     val light = LocalLightEffects.current
     var reveal by remember { mutableStateOf(false) }
+    var editedWhileFocused by remember(focused) { mutableStateOf(false) }
+    var tfv by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    if (tfv.text != value) {
+        tfv = tfv.copy(
+            text = value,
+            selection = TextRange(value.length),
+        )
+    }
     val shape = RoundedCornerShape(16.dp)
 
     val textStyle = TextStyle(
@@ -120,8 +132,12 @@ fun GlassTextField(
                 Text(placeholder, fontSize = 15.sp, color = Palette.TextDim.copy(alpha = 0.7f), maxLines = 1)
             }
             BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
+                value = tfv,
+                onValueChange = { next ->
+                    if (next.text != tfv.text) editedWhileFocused = true
+                    tfv = next
+                    if (next.text != value) onValueChange(next.text)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .onPreviewKeyEvent { event ->
@@ -129,8 +145,30 @@ fun GlassTextField(
                             when (event.key) {
                                 Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
                                 Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
-                                Key.DirectionLeft -> if (value.isEmpty()) focusManager.moveFocus(FocusDirection.Left) else false
-                                Key.DirectionRight -> if (value.isEmpty()) focusManager.moveFocus(FocusDirection.Right) else false
+                                Key.DirectionLeft -> {
+                                    val atEdge = if (ltr) {
+                                        tfv.selection.collapsed && tfv.selection.start <= 0
+                                    } else {
+                                        tfv.selection.collapsed && tfv.selection.end >= tfv.text.length
+                                    }
+                                    if (tfv.text.isEmpty() || (isTv && !editedWhileFocused) || atEdge) {
+                                        focusManager.moveFocus(FocusDirection.Left)
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.DirectionRight -> {
+                                    val atEdge = if (ltr) {
+                                        tfv.selection.collapsed && tfv.selection.end >= tfv.text.length
+                                    } else {
+                                        tfv.selection.collapsed && tfv.selection.start <= 0
+                                    }
+                                    if (tfv.text.isEmpty() || (isTv && !editedWhileFocused) || atEdge) {
+                                        focusManager.moveFocus(FocusDirection.Right)
+                                    } else {
+                                        false
+                                    }
+                                }
                                 else -> false
                             }
                         } else {
@@ -151,11 +189,23 @@ fun GlassTextField(
                         }
                     },
                     onDone = {
-                        focusManager.clearFocus()
+                        if (isTv) {
+                            if (!focusManager.moveFocus(FocusDirection.Next)) {
+                                focusManager.moveFocus(FocusDirection.Down)
+                            }
+                        } else {
+                            focusManager.clearFocus()
+                        }
                         onImeAction()
                     },
                     onSearch = {
-                        focusManager.clearFocus()
+                        if (isTv) {
+                            if (!focusManager.moveFocus(FocusDirection.Down)) {
+                                focusManager.moveFocus(FocusDirection.Next)
+                            }
+                        } else {
+                            focusManager.clearFocus()
+                        }
                         onImeAction()
                     },
                 ),

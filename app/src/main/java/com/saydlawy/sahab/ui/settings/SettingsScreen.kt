@@ -525,6 +525,7 @@ private fun SettingsDetailContent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    var switchFocused by remember { mutableStateOf(false) }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "الرفع التلقائي للسحابة أثناء الإثراء",
@@ -542,8 +543,17 @@ private fun SettingsDetailContent(
                                 container.prefs.setCloudAutoUploadEnabled(enabled)
                             }
                         },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .onFocusChanged { switchFocused = it.isFocused }
+                            .border(
+                                width = if (switchFocused) 2.dp else 0.dp,
+                                color = if (switchFocused) Palette.FocusCyan else Color.Transparent,
+                                shape = RoundedCornerShape(16.dp),
+                            ),
                     )
                 }
+                var uploadBtnFocused by remember { mutableStateOf(false) }
                 androidx.compose.material3.Button(
                     onClick = {
                         cloudScope.launch {
@@ -551,6 +561,14 @@ private fun SettingsDetailContent(
                         }
                     },
                     enabled = !cloudBgStatus.active,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .onFocusChanged { uploadBtnFocused = it.isFocused }
+                        .border(
+                            width = if (uploadBtnFocused) 2.dp else 0.dp,
+                            color = if (uploadBtnFocused) Palette.FocusCyan else Color.Transparent,
+                            shape = RoundedCornerShape(24.dp),
+                        ),
                 ) {
                     Text(
                         if (cloudBgStatus.active) "جارٍ رفع البيانات للسحابة..."
