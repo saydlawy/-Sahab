@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.lang.ref.WeakReference
 
 class PlayerLeaseCoordinatorTest {
 
@@ -100,5 +101,54 @@ class PlayerLeaseCoordinatorTest {
         assertEquals(1, fullscreen.releaseCount)
         assertFalse(coordinator.isActive(fullscreen))
         assertNull(coordinator.activeRole())
+    }
+
+    @Test
+    fun release_thenReacquireSameHandle_allowsActiveLease() {
+        val coordinator = PlayerLeaseCoordinator()
+        val player = FakeLeasedPlayer(PlayerRole.FULLSCREEN)
+        coordinator.acquire(player)
+        coordinator.release(player)
+        assertFalse(coordinator.isActive(player))
+
+        coordinator.acquire(player)
+        assertTrue(coordinator.isActive(player))
+        assertEquals(PlayerRole.FULLSCREEN, coordinator.activeRole())
+    }
+
+    @Test
+    fun evictedAndReleasedHandles_areNotRetainedByCoordinator() {
+        val coordinator = PlayerLeaseCoordinator()
+        val preemptedRef = createAcquireAndPreempt(coordinator)
+        repeat(6) {
+            if (preemptedRef.get() == null) return@repeat
+            System.gc()
+            System.runFinalization()
+            Thread.sleep(20)
+        }
+        assertNull("Preempted player handle must not be strongly retained by coordinator", preemptedRef.get())
+
+        val releasedRef = acquireAndReleaseActive(coordinator)
+        repeat(6) {
+            if (releasedRef.get() == null) return@repeat
+            System.gc()
+            System.runFinalization()
+            Thread.sleep(20)
+        }
+        assertNull("Released player handle must not be strongly retained by coordinator", releasedRef.get())
+    }
+
+    private fun createAcquireAndPreempt(coordinator: PlayerLeaseCoordinator): WeakReference<FakeLeasedPlayer> {
+        val preview = FakeLeasedPlayer(PlayerRole.PREVIEW)
+        coordinator.acquire(preview)
+        coordinator.acquire(FakeLeasedPlayer(PlayerRole.FULLSCREEN))
+        return WeakReference(preview)
+    }
+
+    private fun acquireAndReleaseActive(coordinator: PlayerLeaseCoordinator): WeakReference<FakeLeasedPlayer> {
+        val active = FakeLeasedPlayer(PlayerRole.FULLSCREEN)
+        coordinator.acquire(active)
+        coordinator.release(active)
+        return WeakReference(active)
     }
 }

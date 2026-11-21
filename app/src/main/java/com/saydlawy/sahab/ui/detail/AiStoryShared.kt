@@ -28,7 +28,7 @@ internal suspend fun generateStoryWithKeyRotation(
     posterUrl: String,
     contentType: ContentType,
 ): GeminiResult? {
-    val keys = container.aiKeys.orderedKeysForRotation()
+    val keys = container.aiKeys.orderedKeysForRotationAsync()
     if (keys.isEmpty()) return null
     val posterBytes = container.gemini.downloadPoster(posterUrl)
     var lastResult: GeminiResult = GeminiResult.RateLimited

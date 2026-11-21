@@ -92,23 +92,36 @@ internal object VodCustomOrganizer {
             return CustomOrganizationResult(emptyList(), emptyMap(), emptyMap())
         }
 
-        val sanitizedItems = allItems.map { item ->
+        // Precompute sort keys once per item (O(N) instead of O(N log N) repeated hash/score work)
+        val count = allItems.size
+        val scores = DoubleArray(count)
+        val addedTimes = LongArray(count)
+        val sanitizedItems = ArrayList<Poster>(count)
+        val indices = arrayOfNulls<Int>(count)
+
+        for (i in 0 until count) {
+            val item = allItems[i]
             val f = facetsByStreamId[item.id]
             val clean = RatingSanitizer.format(f?.rating, f?.tmdbVoteCount)
                 .ifBlank { RatingSanitizer.format(item.rating) }
-            if (clean == item.rating) item else item.copy(rating = clean)
+            sanitizedItems.add(if (clean == item.rating) item else item.copy(rating = clean))
+            val facetScore = RatingSanitizer.rankingScore(f?.rating, f?.tmdbVoteCount)
+            scores[i] = if (facetScore > 0.0) facetScore else RatingSanitizer.rankingScore(clean)
+            addedTimes[i] = maxOf(f?.novaAdded ?: 0L, item.added)
+            indices[i] = i
         }
 
-        val sortedItems = sanitizedItems.sortedWith(
-            compareByDescending<Poster> { item ->
-                val f = facetsByStreamId[item.id]
-                val facetScore = RatingSanitizer.rankingScore(f?.rating, f?.tmdbVoteCount)
-                if (facetScore > 0.0) facetScore else RatingSanitizer.rankingScore(item.rating)
-            }.thenByDescending { item ->
-                val f = facetsByStreamId[item.id]
-                maxOf(f?.novaAdded ?: 0L, item.added)
-            },
-        )
+        indices.sortWith { a, b ->
+            val ia = a!!
+            val ib = b!!
+            val scoreCmp = scores[ib].compareTo(scores[ia])
+            if (scoreCmp != 0) scoreCmp else addedTimes[ib].compareTo(addedTimes[ia])
+        }
+
+        val sortedItems = ArrayList<Poster>(count)
+        for (idx in indices) {
+            sortedItems.add(sanitizedItems[idx!!])
+        }
 
         return when (grouping) {
             VodCustomGrouping.GENRE -> groupByGenre(sortedItems, facetsByStreamId)
@@ -123,7 +136,7 @@ internal object VodCustomOrganizer {
     ): CustomOrganizationResult {
         val buckets = LinkedHashMap<String, MutableList<Poster>>()
         for (poster in sortedItems) {
-            val rawGenre = facets[poster.id]?.genre.orEmpty()
+            val rawGenre = facets[poster.id]?.genre?.takeIf { it.isNotBlank() } ?: poster.genre
             val normalized = rawGenre
                 .split(splitRegex)
                 .mapNotNull { token -> normalizeGenre(token) }
@@ -218,7 +231,11 @@ internal object VodCustomOrganizer {
     }
 
     private fun extractYear(facetYear: String?, posterYear: String, title: String): Int? {
-        return facetYear?.let { yearRegex.find(it)?.value?.toIntOrNull() }
+        facetYear?.let { yearRegex.find(it)?.value?.toIntOrNull() }?.let { return it }
+        if (posterYear.isNotBlank()) {
+            yearRegex.find(posterYear)?.value?.toIntOrNull()?.let { return it }
+        }
+        return if (title.isNotBlank()) yearRegex.find(title)?.value?.toIntOrNull() else null
     }
 
     private fun yearToBucketLabel(year: Int?): String = when {

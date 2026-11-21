@@ -124,4 +124,19 @@ class VodCustomOrganizerRatingTest {
             }
         }
     }
+
+    @Test
+    fun organize_fallsBackToPosterYearTitleAndGenreWhenFacetsMissing() {
+        val posters = listOf(
+            Poster(id = "p1", name = "فيلم تجريبي 2021", image = "a", rating = "7.9", year = "", genre = "دراما", categoryId = "1", added = 100L),
+            Poster(id = "p2", name = "Action Hit", image = "b", rating = "8.2", year = "2018", genre = "Action", categoryId = "1", added = 200L),
+        )
+        val byYear = VodCustomOrganizer.organize(posters, emptyMap(), VodCustomGrouping.YEAR)
+        assertTrue(byYear.categories.any { it.name == "2021" })
+        assertTrue(byYear.categories.any { it.name == "2010 - 2019" })
+
+        val byGenre = VodCustomOrganizer.organize(posters, emptyMap(), VodCustomGrouping.GENRE)
+        assertTrue(byGenre.categories.any { it.name == "دراما" })
+        assertTrue(byGenre.categories.any { it.name == "أكشن" })
+    }
 }

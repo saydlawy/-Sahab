@@ -2,7 +2,9 @@ package com.saydlawy.sahab.data.ai
 
 import android.util.Base64
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
@@ -15,11 +17,17 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 enum class ContentType { MOVIE, SERIES }
 
@@ -54,12 +62,14 @@ class GeminiStoryService(
         if (url.isBlank()) return@withContext null
         try {
             val req = Request.Builder().url(url).build()
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bytes = resp.body?.bytes() ?: return@withContext null
-                if (bytes.size > 6_000_000) return@withContext null
+            awaitCall(req) { resp ->
+                if (!resp.isSuccessful) return@awaitCall null
+                val bytes = resp.body?.bytes() ?: return@awaitCall null
+                if (bytes.size > 6_000_000) return@awaitCall null
                 bytes
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w("GeminiStory", "poster download failed: $e")
             null
@@ -85,27 +95,49 @@ class GeminiStoryService(
                 .post(body.toRequestBody("application/json".toMediaType()))
                 .build()
 
-            client.newCall(req).execute().use { resp ->
+            awaitCall(req) { resp ->
                 val code = resp.code
-                if (code == 429) return@use GeminiResult.RateLimited
-                if (code == 401 || code == 403) return@use GeminiResult.InvalidKey
+                if (code == 429) return@awaitCall GeminiResult.RateLimited
+                if (code == 401 || code == 403) return@awaitCall GeminiResult.InvalidKey
                 if (code == 400) {
                     val err = resp.body?.string().orEmpty()
                     Log.e("GeminiStory", "400: $err")
-                    return@use GeminiResult.Error("الطلب مرفوض — تحقق من المفتاح")
+                    return@awaitCall GeminiResult.Error("الطلب مرفوض — تحقق من المفتاح")
                 }
                 if (!resp.isSuccessful) {
                     Log.e("GeminiStory", "HTTP $code: ${resp.body?.string().orEmpty()}")
-                    return@use GeminiResult.Error("خطأ في الخدمة ($code)")
+                    return@awaitCall GeminiResult.Error("خطأ في الخدمة ($code)")
                 }
                 val text = resp.body?.string().orEmpty()
                 parseSuccess(text)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("GeminiStory", "exception", e)
             GeminiResult.Error("تعذّر الاتصال بخدمات الذكاء الاصطناعي")
         }
     }
+
+    private suspend fun <T> awaitCall(req: Request, parser: (Response) -> T): T =
+        suspendCancellableCoroutine { cont ->
+            val call = client.newCall(req)
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    val parsed = runCatching { response.use(parser) }
+                    if (!cont.isActive) return
+                    parsed.fold(
+                        onSuccess = { cont.resume(it) },
+                        onFailure = { cont.resumeWithException(it) },
+                    )
+                }
+            })
+        }
 
     private fun buildBody(prompt: String, posterBytes: ByteArray?): String {
         val root = buildJsonObject {

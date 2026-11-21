@@ -9,6 +9,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.MyFirebaseMessagingService
 import com.saydlawy.sahab.data.auth.CloudAccountRestoreResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -242,6 +243,14 @@ class SyncCoordinator(private val container: AppContainer) {
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }.getOrDefault(true)
 
+    private suspend inline fun <T> suspendRunCatching(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        Result.failure(t)
+    }
+
     /**
      * يشغّل المزامنة اليدوية من الإعدادات داخل [container.appScope] بحيث تستمر حتى لو أغلق المستخدم شاشة الإعدادات.
      */
@@ -251,7 +260,7 @@ class SyncCoordinator(private val container: AppContainer) {
         activeSyncJob = container.appScope.launch(Dispatchers.IO) {
             previous?.cancelAndJoin()
             syncMutex.withLock {
-                val msg = runCatching {
+                val msg = suspendRunCatching {
                     container.repo.syncCatalog(force = true)
                     container.catalogSync.syncAllFromFirebaseToRoom(force = false)
                     container.catalogSync.syncMovies(container.repo)
@@ -301,14 +310,14 @@ class SyncCoordinator(private val container: AppContainer) {
     suspend fun runFullSync(context: Context, forceCatalog: Boolean = false, reason: String = "startup"): Unit = syncMutex.withLock {
         container.prefs.migrateSyncKeysIfNeeded()
 
-        runCatching {
+        suspendRunCatching {
             val stats = container.catalogSync.populateFromSeed(context)
             Log.d("SahabSeed", "[$reason] seed: total=${stats.total} loaded=${stats.loaded} skipped=${stats.wasSkipped} dur=${stats.durationMs}ms")
         }.onFailure { Log.w("SahabSeed", "[$reason] seed failed: ${it.message}") }
 
         if (!forceCatalog) {
             Log.d("SahabSync", "[$reason] step 1/5: prewarmCatalog")
-            runCatching { container.repo.prewarmCatalog() }
+            suspendRunCatching { container.repo.prewarmCatalog() }
                 .onFailure { Log.w("SahabSync", "[$reason] prewarm failed: ${it.message}") }
         }
 
@@ -318,19 +327,19 @@ class SyncCoordinator(private val container: AppContainer) {
         }
 
         Log.d("SahabSync", "[$reason] step 2/5: syncCatalog (force=$forceCatalog)")
-        val sync = runCatching { container.repo.syncCatalog(force = forceCatalog) }
+        val sync = suspendRunCatching { container.repo.syncCatalog(force = forceCatalog) }
             .getOrElse { Repository.SyncResult.Failure(it.message ?: "unknown") }
         Log.d("SahabSync", "[$reason] step 2/5 result: $sync")
 
         Log.d("SahabSync", "[$reason] step 2.5/5: catalogSync.syncAllFromFirebaseToRoom (force=$forceCatalog)")
-        runCatching { container.catalogSync.syncAllFromFirebaseToRoom(force = forceCatalog) }
+        suspendRunCatching { container.catalogSync.syncAllFromFirebaseToRoom(force = forceCatalog) }
             .onSuccess { count -> Log.d("SahabSync", "[$reason] firebase->room synced=$count") }
             .onFailure { Log.w("SahabSync", "[$reason] firebase->room failed: ${it.message}") }
 
-        val hasLocalCatalog = runCatching { container.catalogDb.movieDao().count() > 0 }.getOrDefault(false)
+        val hasLocalCatalog = suspendRunCatching { container.catalogDb.movieDao().count() > 0 }.getOrDefault(false)
         if (sync is Repository.SyncResult.Success || (sync is Repository.SyncResult.Skipped && hasLocalCatalog)) {
             Log.d("SahabSync", "[$reason] step 3/5: catalogSync.syncMovies")
-            runCatching { container.catalogSync.syncMovies(container.repo) }
+            suspendRunCatching { container.catalogSync.syncMovies(container.repo) }
                 .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3/5 done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
                 .onFailure { Log.w("SahabSync", "[$reason] step 3/5 failed: ${it.message}") }
         }
@@ -339,7 +348,7 @@ class SyncCoordinator(private val container: AppContainer) {
         val needChSync = forceCatalog || lastChSync == 0L || (System.currentTimeMillis() - lastChSync > 24L * 3600_000L)
         val chStats = if (needChSync) {
             Log.d("SahabChannelSync", "[$reason] step 4/5: channelSync.sync")
-            runCatching { container.channelSync.sync(container.repo, forceFullRefresh = forceCatalog) }
+            suspendRunCatching { container.channelSync.sync(container.repo, forceFullRefresh = forceCatalog) }
                 .onSuccess { st ->
                     Log.d("SahabChannelSync", "[$reason] total=${st.total} enriched=${st.enriched} errors=${st.errors.size}")
                     if (st.isSuccess) container.prefs.setLastChannelSyncTime(System.currentTimeMillis())
@@ -354,7 +363,7 @@ class SyncCoordinator(private val container: AppContainer) {
         val needEpgSync = forceCatalog || lastEpgSync == 0L || (System.currentTimeMillis() - lastEpgSync > 24L * 3600_000L)
         if (canRunEpg && needEpgSync) {
             Log.d("SahabEpgSync", "[$reason] step 5/5: epgSync.sync")
-            runCatching { container.epgSync.sync() }
+            suspendRunCatching { container.epgSync.sync() }
                 .onSuccess { epgStats ->
                     Log.d("SahabEpgSync", "[$reason] epgIds=${epgStats.epgIdsProcessed} upserted=${epgStats.programsUpserted} errors=${epgStats.errors.size}")
                     if (epgStats.isSuccess) container.prefs.setLastEpgSyncTime(System.currentTimeMillis())

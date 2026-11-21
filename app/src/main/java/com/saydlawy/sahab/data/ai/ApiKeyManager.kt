@@ -4,9 +4,15 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 data class ApiKey(
     val id: String,
@@ -18,10 +24,36 @@ data class ApiKey(
 
 class ApiKeyManager(context: Context) {
 
+    private val appContext = context.applicationContext
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+    private val readyPrefs = CompletableDeferred<SharedPreferences>()
+
+    @Volatile
     var isEncrypted: Boolean = true
         private set
 
-    private val prefs: SharedPreferences = createSecurePrefsWithRecovery(context.applicationContext)
+    init {
+        ioScope.launch {
+            val loadedPrefs = createSecurePrefsWithRecovery(appContext)
+            val diskKeys = loadKeys(loadedPrefs)
+            val diskActive = loadedPrefs.getString("active_id", "") ?: ""
+            synchronized(this@ApiKeyManager) {
+                val pending = _keys.value
+                val merged = if (pending.isEmpty()) diskKeys else (diskKeys + pending).distinctBy { it.id }
+                _keys.value = merged
+                if (_activeId.value.isBlank()) {
+                    _activeId.value = diskActive.ifBlank { merged.firstOrNull()?.id.orEmpty() }
+                }
+            }
+            readyPrefs.complete(loadedPrefs)
+        }
+    }
+
+    suspend fun warmUp() {
+        readyPrefs.await()
+    }
 
     private fun createSecurePrefsWithRecovery(ctx: Context): SharedPreferences {
         // Delete any legacy plaintext fallback file left by previous versions.
@@ -53,10 +85,10 @@ class ApiKeyManager(context: Context) {
         )
     }
 
-    private val _keys = MutableStateFlow(loadKeys())
+    private val _keys = MutableStateFlow<List<ApiKey>>(emptyList())
     val keys: StateFlow<List<ApiKey>> = _keys.asStateFlow()
 
-    private val _activeId = MutableStateFlow(prefs.getString("active_id", "") ?: "")
+    private val _activeId = MutableStateFlow("")
     val activeId: StateFlow<String> = _activeId.asStateFlow()
 
     fun addKey(rawValue: String, label: String = ""): ApiKey? {
@@ -64,41 +96,73 @@ class ApiKeyManager(context: Context) {
         if (v.length < 20) return null
         val id = "key_${System.currentTimeMillis()}"
         val k = ApiKey(id = id, value = v, label = label.ifBlank { "Key ${_keys.value.size + 1}" })
-        prefs.edit()
-            .putString("key_value_$id", v)
-            .putString("key_label_$id", k.label)
-            .apply()
-        val updated = _keys.value + k
-        _keys.value = updated
-        saveIndex(updated)
-        if (_activeId.value.isBlank()) {
-            _activeId.value = id
-            prefs.edit().putString("active_id", id).apply()
+        val updated: List<ApiKey>
+        val nextActive: String
+        synchronized(this) {
+            updated = _keys.value + k
+            _keys.value = updated
+            if (_activeId.value.isBlank()) {
+                _activeId.value = id
+            }
+            nextActive = _activeId.value
+        }
+        ioScope.launch {
+            val prefs = readyPrefs.await()
+            prefs.edit()
+                .putString("key_value_$id", v)
+                .putString("key_label_$id", k.label)
+                .putString("active_id", nextActive)
+                .apply()
+            saveIndex(prefs, updated)
         }
         return k
     }
 
     fun removeKey(id: String) {
-        prefs.edit().remove("key_value_$id").remove("key_label_$id").apply()
-        val updated = _keys.value.filterNot { it.id == id }
-        _keys.value = updated
-        saveIndex(updated)
-        if (_activeId.value == id) {
-            val next = updated.firstOrNull()?.id ?: ""
-            _activeId.value = next
-            prefs.edit().putString("active_id", next).apply()
+        val updated: List<ApiKey>
+        val nextActive: String
+        val activeChanged: Boolean
+        synchronized(this) {
+            updated = _keys.value.filterNot { it.id == id }
+            _keys.value = updated
+            activeChanged = _activeId.value == id
+            if (activeChanged) {
+                _activeId.value = updated.firstOrNull()?.id ?: ""
+            }
+            nextActive = _activeId.value
+        }
+        ioScope.launch {
+            val prefs = readyPrefs.await()
+            val ed = prefs.edit().remove("key_value_$id").remove("key_label_$id")
+            if (activeChanged) ed.putString("active_id", nextActive)
+            ed.apply()
+            saveIndex(prefs, updated)
         }
     }
 
     fun setActive(id: String) {
-        if (_keys.value.any { it.id == id }) {
-            _activeId.value = id
-            prefs.edit().putString("active_id", id).apply()
+        val exists = synchronized(this) {
+            if (_keys.value.any { it.id == id }) {
+                _activeId.value = id
+                true
+            } else {
+                false
+            }
+        }
+        if (exists) {
+            ioScope.launch {
+                readyPrefs.await().edit().putString("active_id", id).apply()
+            }
         }
     }
 
     fun getActiveKey(): ApiKey? =
         _keys.value.firstOrNull { it.id == _activeId.value }
+
+    suspend fun orderedKeysForRotationAsync(): List<ApiKey> {
+        warmUp()
+        return orderedKeysForRotation()
+    }
 
     /** O-01: Active key first, then remaining keys ordered by oldest 429 timestamp for rotation. */
     fun orderedKeysForRotation(): List<ApiKey> {
@@ -113,12 +177,15 @@ class ApiKeyManager(context: Context) {
     fun mark429(id: String) = mutate(id) { it.copy(last429Ms = System.currentTimeMillis()) }
 
     private fun mutate(id: String, block: (ApiKey) -> ApiKey) {
-        val u = _keys.value.map { if (it.id == id) block(it) else it }
-        _keys.value = u
-        saveIndex(u)
+        val updated = synchronized(this) {
+            _keys.value.map { if (it.id == id) block(it) else it }.also { _keys.value = it }
+        }
+        ioScope.launch {
+            saveIndex(readyPrefs.await(), updated)
+        }
     }
 
-    private fun loadKeys(): List<ApiKey> {
+    private fun loadKeys(prefs: SharedPreferences): List<ApiKey> {
         val idx = prefs.getString("key_index", "") ?: ""
         if (idx.isBlank()) return emptyList()
         return idx.split(",").filter { it.isNotBlank() }.mapNotNull { id ->
@@ -133,7 +200,7 @@ class ApiKeyManager(context: Context) {
         }
     }
 
-    private fun saveIndex(keys: List<ApiKey>) {
+    private fun saveIndex(prefs: SharedPreferences, keys: List<ApiKey>) {
         val ed = prefs.edit().putString("key_index", keys.joinToString(",") { it.id })
         keys.forEach {
             ed.putLong("key_lastused_${it.id}", it.lastUsedMs)

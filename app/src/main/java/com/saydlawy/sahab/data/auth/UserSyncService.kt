@@ -341,36 +341,34 @@ class UserSyncService(
 
     suspend fun saveFavorites(favs: List<FavItem>) {
         val uid = currentUid ?: return
-        val capped = (if (favs.size > MAX_CLOUD_FAVS) favs.take(MAX_CLOUD_FAVS) else favs)
-            .map { item -> if (item.url.isBlank()) item else item.copy(url = redactCredentialsFromStreamUrl(item.url)) }
-        val jsonStr = json.encodeToString(favSerializer, capped)
+        val jsonStr = withContext(Dispatchers.Default) {
+            val capped = (if (favs.size > MAX_CLOUD_FAVS) favs.take(MAX_CLOUD_FAVS) else favs)
+                .map { item -> if (item.url.isBlank()) item else item.copy(url = redactCredentialsFromStreamUrl(item.url)) }
+            json.encodeToString(favSerializer, capped)
+        }
         writeWithRetry("favorites", uid) {
             db.collection("users").document(uid).collection("data").document("favorites")
                 .set(mapOf("json" to jsonStr))
         }
     }
 
-    suspend fun fetchFavorites(): CloudFetchResult<List<FavItem>> = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(CloudFetchResult.Error())
-        db.collection("users").document(uid).collection("data").document("favorites")
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (!snapshot.exists()) {
-                    cont.resume(CloudFetchResult.NotFound)
-                    return@addOnSuccessListener
-                }
-                val jsonStr = snapshot.getString("json")
-                if (jsonStr == null) {
-                    cont.resume(CloudFetchResult.NotFound)
-                } else {
-                    val parsed = runCatching { json.decodeFromString(favSerializer, jsonStr) }
-                    parsed.fold(
-                        onSuccess = { cont.resume(CloudFetchResult.Success(it)) },
-                        onFailure = { cont.resume(CloudFetchResult.Error(it)) },
-                    )
-                }
-            }
-            .addOnFailureListener { e -> cont.resume(CloudFetchResult.Error(e)) }
+    suspend fun fetchFavorites(): CloudFetchResult<List<FavItem>> {
+        val uid = currentUid ?: return CloudFetchResult.Error()
+        val snapshot = try {
+            awaitTask(db.collection("users").document(uid).collection("data").document("favorites").get())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return CloudFetchResult.Error(e)
+        }
+        if (!snapshot.exists()) return CloudFetchResult.NotFound
+        val jsonStr = snapshot.getString("json") ?: return CloudFetchResult.NotFound
+        return withContext(Dispatchers.Default) {
+            runCatching { json.decodeFromString(favSerializer, jsonStr) }.fold(
+                onSuccess = { CloudFetchResult.Success(it) },
+                onFailure = { CloudFetchResult.Error(it) },
+            )
+        }
     }
 
     suspend fun getFavorites(): List<FavItem>? =
@@ -378,36 +376,34 @@ class UserSyncService(
 
     suspend fun saveRecents(recents: List<RecentItem>) {
         val uid = currentUid ?: return
-        val capped = (if (recents.size > MAX_CLOUD_RECENTS) recents.take(MAX_CLOUD_RECENTS) else recents)
-            .map { item -> if (item.url.isBlank()) item else item.copy(url = redactCredentialsFromStreamUrl(item.url)) }
-        val jsonStr = json.encodeToString(recentSerializer, capped)
+        val jsonStr = withContext(Dispatchers.Default) {
+            val capped = (if (recents.size > MAX_CLOUD_RECENTS) recents.take(MAX_CLOUD_RECENTS) else recents)
+                .map { item -> if (item.url.isBlank()) item else item.copy(url = redactCredentialsFromStreamUrl(item.url)) }
+            json.encodeToString(recentSerializer, capped)
+        }
         writeWithRetry("recents", uid) {
             db.collection("users").document(uid).collection("data").document("recents")
                 .set(mapOf("json" to jsonStr))
         }
     }
 
-    suspend fun fetchRecents(): CloudFetchResult<List<RecentItem>> = suspendCancellableCoroutine { cont ->
-        val uid = currentUid ?: return@suspendCancellableCoroutine cont.resume(CloudFetchResult.Error())
-        db.collection("users").document(uid).collection("data").document("recents")
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (!snapshot.exists()) {
-                    cont.resume(CloudFetchResult.NotFound)
-                    return@addOnSuccessListener
-                }
-                val jsonStr = snapshot.getString("json")
-                if (jsonStr == null) {
-                    cont.resume(CloudFetchResult.NotFound)
-                } else {
-                    val parsed = runCatching { json.decodeFromString(recentSerializer, jsonStr) }
-                    parsed.fold(
-                        onSuccess = { cont.resume(CloudFetchResult.Success(it)) },
-                        onFailure = { cont.resume(CloudFetchResult.Error(it)) },
-                    )
-                }
-            }
-            .addOnFailureListener { e -> cont.resume(CloudFetchResult.Error(e)) }
+    suspend fun fetchRecents(): CloudFetchResult<List<RecentItem>> {
+        val uid = currentUid ?: return CloudFetchResult.Error()
+        val snapshot = try {
+            awaitTask(db.collection("users").document(uid).collection("data").document("recents").get())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return CloudFetchResult.Error(e)
+        }
+        if (!snapshot.exists()) return CloudFetchResult.NotFound
+        val jsonStr = snapshot.getString("json") ?: return CloudFetchResult.NotFound
+        return withContext(Dispatchers.Default) {
+            runCatching { json.decodeFromString(recentSerializer, jsonStr) }.fold(
+                onSuccess = { CloudFetchResult.Success(it) },
+                onFailure = { CloudFetchResult.Error(it) },
+            )
+        }
     }
 
     suspend fun getRecents(): List<RecentItem>? =

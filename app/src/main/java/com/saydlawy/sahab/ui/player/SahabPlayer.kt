@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.ui.player
 
+import android.app.ActivityManager
 import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -24,8 +25,14 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 /**
@@ -41,28 +48,49 @@ object SahabPlayer {
     private const val VIDEO_JOINING_TIME_MS = 3_000L
     private const val MEDIA_CACHE_BYTES = 512L * 1024L * 1024L // 512 MB
 
+    private val cacheLock = Any()
+    private val cacheWarmupStarted = AtomicBoolean(false)
+    private val cacheIoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     @Volatile
     private var simpleCache: SimpleCache? = null
 
-    @Synchronized
-    private fun getMediaCache(context: Context): SimpleCache? {
+    private fun getOrInitMediaCacheOffMain(context: Context): SimpleCache? {
         simpleCache?.let { return it }
-        return runCatching {
-            val appContext = context.applicationContext
-            val dir = File(appContext.cacheDir, MEDIA_CACHE_DIR).apply { mkdirs() }
-            val evictor = LeastRecentlyUsedCacheEvictor(MEDIA_CACHE_BYTES)
-            val dbProvider = StandaloneDatabaseProvider(appContext)
-            SimpleCache(dir, evictor, dbProvider).also { simpleCache = it }
-        }.getOrNull()
+        synchronized(cacheLock) {
+            simpleCache?.let { return it }
+            return runCatching {
+                val appContext = context.applicationContext
+                val dir = File(appContext.cacheDir, MEDIA_CACHE_DIR).apply { mkdirs() }
+                val evictor = LeastRecentlyUsedCacheEvictor(MEDIA_CACHE_BYTES)
+                val dbProvider = StandaloneDatabaseProvider(appContext)
+                SimpleCache(dir, evictor, dbProvider).also { simpleCache = it }
+            }.getOrNull()
+        }
     }
 
-    @Synchronized
-    fun clearMediaCache(context: Context) {
-        runCatching { simpleCache?.release() }
-        simpleCache = null
-        runCatching {
-            File(context.applicationContext.cacheDir, MEDIA_CACHE_DIR).deleteRecursively()
+    private fun ensureMediaCacheWarmingAsync(appContext: Context) {
+        if (simpleCache != null) return
+        if (cacheWarmupStarted.compareAndSet(false, true)) {
+            cacheIoScope.launch {
+                runCatching { getOrInitMediaCacheOffMain(appContext) }
+            }
         }
+    }
+
+    fun clearMediaCache(context: Context) {
+        synchronized(cacheLock) {
+            runCatching { simpleCache?.release() }
+            simpleCache = null
+            cacheWarmupStarted.set(false)
+            runCatching {
+                File(context.applicationContext.cacheDir, MEDIA_CACHE_DIR).deleteRecursively()
+            }
+        }
+    }
+
+    suspend fun clearMediaCacheOffMain(context: Context) {
+        withContext(Dispatchers.IO) { clearMediaCache(context) }
     }
 
     private const val MEDIA_CACHE_DIR = "sahab_media_cache"
@@ -77,10 +105,13 @@ object SahabPlayer {
         private val player: ExoPlayer,
         override val role: PlayerRole,
     ) : LeasedPlayerHandle {
+        private val released = AtomicBoolean(false)
+
         @Volatile
         var onRevoked: (() -> Unit)? = null
 
         override fun stopAndRelease() {
+            if (!released.compareAndSet(false, true)) return
             playerHandles.remove(player)
             onRevoked?.invoke()
             onRevoked = null
@@ -120,7 +151,7 @@ object SahabPlayer {
     }
 
     fun warmUpMediaCache(context: Context) {
-        getMediaCache(context)
+        getOrInitMediaCacheOffMain(context.applicationContext)
     }
 
     fun create(
@@ -130,9 +161,10 @@ object SahabPlayer {
         isPreview: Boolean = false,
         accountHash: String = "anon",
     ): ExoPlayer {
+        val appContext = context.applicationContext
         // Release any existing active player lease before allocating a new ExoPlayer/MediaCodec instance.
         leaseCoordinator.releaseAll()
-        val renderers = DefaultRenderersFactory(context)
+        val renderers = DefaultRenderersFactory(appContext)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             // LIVE-01: let video join the already-running audio clock without dropping the first frames.
@@ -140,8 +172,8 @@ object SahabPlayer {
 
         // LIVE-01: adapt across any quality / fps / codec / audio format the provider sends.
         val trackSelector = DefaultTrackSelector(
-            context,
-            DefaultTrackSelector.Parameters.Builder(context)
+            appContext,
+            DefaultTrackSelector.Parameters.Builder(appContext)
                 .setAllowVideoMixedMimeTypeAdaptiveness(true)
                 .setAllowVideoNonSeamlessAdaptiveness(true)
                 .setAllowAudioMixedMimeTypeAdaptiveness(true)
@@ -166,7 +198,7 @@ object SahabPlayer {
             .setUserAgent("Sahab/1.0 (Android)")
 
         val dataSourceFactory: DataSource.Factory = if (!isLive) {
-            val cache = getMediaCache(context)
+            val cache = simpleCache
             if (cache != null) {
                 val sanitizedKeyFactory = CacheKeyFactory { dataSpec ->
                     val rawKey = dataSpec.key ?: dataSpec.uri.toString()
@@ -180,13 +212,14 @@ object SahabPlayer {
                     .setUpstreamDataSourceFactory(httpFactory)
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
             } else {
+                ensureMediaCacheWarmingAsync(appContext)
                 httpFactory
             }
         } else {
             httpFactory
         }
 
-        val sources = DefaultMediaSourceFactory(context, extractors)
+        val sources = DefaultMediaSourceFactory(appContext, extractors)
             .setDataSourceFactory(dataSourceFactory)
             .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(if (isLive) 4 else 3))
             .apply {
@@ -219,19 +252,24 @@ object SahabPlayer {
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .setBackBuffer(0, false)
                 .build()
-            else -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    /* minBufferMs = */ 20_000,
-                    /* maxBufferMs = */ 60_000,
-                    /* bufferForPlaybackMs = */ 800,
-                    /* bufferForPlaybackAfterRebufferMs = */ 1_800,
-                )
-                .setTargetBufferBytes(64 * 1024 * 1024)
-                .setPrioritizeTimeOverSizeThresholds(false)
-                .build()
+            else -> {
+                val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                val isConstrainedRam = am?.isLowRamDevice == true || (am?.memoryClass ?: 256) <= 128
+                val vodTargetBytes = if (isConstrainedRam) 24 * 1024 * 1024 else 48 * 1024 * 1024
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 15_000,
+                        /* maxBufferMs = */ 45_000,
+                        /* bufferForPlaybackMs = */ 800,
+                        /* bufferForPlaybackAfterRebufferMs = */ 1_800,
+                    )
+                    .setTargetBufferBytes(vodTargetBytes)
+                    .setPrioritizeTimeOverSizeThresholds(false)
+                    .build()
+            }
         }
 
-        return ExoPlayer.Builder(context, renderers)
+        return ExoPlayer.Builder(appContext, renderers)
             .setTrackSelector(trackSelector)
             .setMediaSourceFactory(sources)
             .setLoadControl(loadControl)

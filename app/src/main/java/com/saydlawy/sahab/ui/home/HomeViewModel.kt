@@ -12,6 +12,7 @@ import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.util.RatingSanitizer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,20 +61,26 @@ class HomeViewModel(
                 customIds = customIds,
                 favorites = favorites,
             )
-            _state.update { it.copy(featuredChannels = loaded) }
+            if (loaded != null) {
+                _state.update { it.copy(featuredChannels = loaded) }
+            }
         }
     }
 
     fun refreshTrendingMovies() {
         trendingJob?.cancel()
         trendingJob = viewModelScope.launch {
-            val instant = runCatching {
+            val instant = try {
                 container.firebaseCatalog.getInstantRecommendedMovies(
                     repo = container.repo,
                     dao = container.catalogDb.movieDao(),
                     limit = 18,
                 )
-            }.getOrNull().orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                emptyList()
+            }
             if (instant.isNotEmpty()) {
                 val topInstant = instant
                     .filter { RatingSanitizer.parseValid(it.rating, it.tmdbVoteCount) != null }
@@ -82,13 +89,17 @@ class HomeViewModel(
                 _state.update { it.copy(trendingMovies = instant, topRatedMovies = topInstant.ifEmpty { it.topRatedMovies }) }
             }
 
-            val enriched = runCatching {
+            val enriched = try {
                 container.firebaseCatalog.getXtreamRecommendedMovies(
                     repo = container.repo,
                     dao = container.catalogDb.movieDao(),
                     limit = 18,
                 )
-            }.getOrNull().orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                emptyList()
+            }
             if (enriched.isNotEmpty()) {
                 val topEnriched = enriched
                     .filter { RatingSanitizer.parseValid(it.rating, it.tmdbVoteCount) != null }
@@ -106,8 +117,8 @@ internal suspend fun loadFeaturedChannels(
     categoryId: String,
     customIds: Set<String>,
     favorites: List<FavItem>,
-): List<Channel> = withContext(Dispatchers.IO) {
-    runCatching {
+): List<Channel>? = withContext(Dispatchers.IO) {
+    try {
         val all = repo.peekAllLiveChannels() ?: repo.liveChannels(null)
         if (all.isEmpty()) return@withContext emptyList()
 
@@ -129,7 +140,13 @@ internal suspend fun loadFeaturedChannels(
             HomeChannelsSource.CATEGORY -> {
                 if (categoryId.isNotBlank()) {
                     val catChannels = all.filter { it.categoryId == categoryId }.ifEmpty {
-                        runCatching { repo.liveChannels(categoryId) }.getOrDefault(emptyList())
+                        try {
+                            repo.liveChannels(categoryId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Throwable) {
+                            emptyList()
+                        }
                     }
                     if (catChannels.isNotEmpty()) return@withContext catChannels.take(18)
                 }
@@ -172,5 +189,9 @@ internal suspend fun loadFeaturedChannels(
             }
         }
         matched
-    }.getOrDefault(emptyList())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        null
+    }
 }

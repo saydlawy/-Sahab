@@ -29,8 +29,12 @@ class DiskCache(
         rootDir = File(context.applicationContext.cacheDir, "sahab_api_cache"),
     )
 
-    private val catalogDir = File(rootDir.apply { mkdirs() }, "catalog").apply { mkdirs() }
-    private val tmdbDir = File(rootDir, "tmdb").apply { mkdirs() }
+    private val catalogDir: File by lazy {
+        File(rootDir, "catalog").also { dir -> dir.mkdirs() }
+    }
+    private val tmdbDir: File by lazy {
+        File(rootDir, "tmdb").also { dir -> dir.mkdirs() }
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -41,9 +45,13 @@ class DiskCache(
     private val lockStripes = Array(LOCK_STRIPES) { Mutex() }
 
     private val catalogEvictionLock = Any()
+    private val tmdbEvictionLock = Any()
 
     @Volatile
     private var estimatedCatalogBytes: Long = -1L
+
+    @Volatile
+    private var estimatedTmdbBytes: Long = -1L
 
     private fun lockFor(key: String): Mutex =
         lockStripes[(key.hashCode() and Int.MAX_VALUE) % LOCK_STRIPES]
@@ -80,7 +88,7 @@ class DiskCache(
                 val dir = if (permanentNamespace) tmdbDir else catalogDir
                 if (!dir.exists()) dir.mkdirs()
                 val file = fileFor(key, permanentNamespace)
-                val previousBytes = if (!permanentNamespace && file.exists()) file.length() else 0L
+                val previousBytes = if (file.exists()) file.length() else 0L
                 val tmp = File(dir, "${file.name}.tmp")
                 BufferedOutputStream(tmp.outputStream(), 64 * 1024).use { output ->
                     json.encodeToStream(serializer, value, output)
@@ -95,8 +103,11 @@ class DiskCache(
                     return@runCatching false
                 }
                 file.setLastModified(System.currentTimeMillis())
-                if (!permanentNamespace) {
-                    onCatalogPut(file.length() - previousBytes)
+                val deltaBytes = file.length() - previousBytes
+                if (permanentNamespace) {
+                    onTmdbPut(deltaBytes)
+                } else {
+                    onCatalogPut(deltaBytes)
                 }
                 true
             }.getOrDefault(false)
@@ -133,6 +144,38 @@ class DiskCache(
             }
         }
         estimatedCatalogBytes = totalBytes.coerceAtLeast(0L)
+    }
+
+    private fun onTmdbPut(deltaBytes: Long) {
+        synchronized(tmdbEvictionLock) {
+            if (estimatedTmdbBytes < 0L) {
+                val files = tmdbDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") }.orEmpty()
+                estimatedTmdbBytes = files.sumOf { it.length() }
+            } else {
+                estimatedTmdbBytes = (estimatedTmdbBytes + deltaBytes).coerceAtLeast(0L)
+            }
+            if (estimatedTmdbBytes > MAX_TMDB_BYTES) {
+                enforceTmdbLruLimitLocked()
+            }
+        }
+    }
+
+    private fun enforceTmdbLruLimitLocked() {
+        val files = tmdbDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") } ?: return
+        var totalBytes = files.sumOf { it.length() }
+        if (totalBytes <= MAX_TMDB_BYTES) {
+            estimatedTmdbBytes = totalBytes
+            return
+        }
+        val oldestFirst = files.sortedBy { it.lastModified() }
+        for (candidate in oldestFirst) {
+            if (totalBytes <= MAX_TMDB_BYTES) break
+            val size = candidate.length()
+            if (candidate.delete()) {
+                totalBytes -= size
+            }
+        }
+        estimatedTmdbBytes = totalBytes.coerceAtLeast(0L)
     }
 
     data class CacheStats(
@@ -188,6 +231,7 @@ class DiskCache(
         private val SHA256_LOCAL: ThreadLocal<MessageDigest> =
             ThreadLocal.withInitial { MessageDigest.getInstance("SHA-256") }
         const val MAX_CATALOG_BYTES = 500L * 1024L * 1024L // 500 MB LRU cap
+        const val MAX_TMDB_BYTES = 150L * 1024L * 1024L    // 150 MB LRU cap for TMDB metadata
         const val TTL_CATALOG_MS = 12 * 3600_000L       // 12 hours for categories & channel/VOD lists
         const val TTL_DETAILS_MS = 7 * 24 * 3600_000L   // 7 days for movie & series details
         const val TTL_TMDB_MS = 30L * 24 * 3600_000L    // 30 days for TMDB enriched data

@@ -3,16 +3,24 @@ package com.saydlawy.sahab.data.weather
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import java.io.IOException
 import java.util.Locale
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 enum class WeatherCondition {
     CLEAR_DAY,
@@ -49,45 +57,66 @@ class WeatherService(
 
     @Volatile
     private var cacheHydrated: Boolean = prefsOverride != null
+
+    @Volatile
+    private var cachedManualCity: String? = prefsOverride?.getString("manual_city", "")
+
     private val _weather = MutableStateFlow(if (prefsOverride != null) loadCachedWeather() else WeatherData())
     val weather: StateFlow<WeatherData> = _weather.asStateFlow()
 
+    @Volatile
     private var lastFetchMs: Long = 0L
 
-    fun getManualCity(): String = prefs?.getString("manual_city", "") ?: ""
+    fun getManualCity(): String = cachedManualCity ?: ""
+
+    suspend fun loadManualCity(): String = withContext(Dispatchers.IO) {
+        val loaded = prefs?.getString("manual_city", "") ?: ""
+        cachedManualCity = loaded
+        loaded
+    }
 
     suspend fun setManualCity(cityName: String): Boolean {
         val trimmed = cityName.trim()
         if (trimmed.isEmpty()) {
-            prefs?.edit()?.remove("manual_city")?.remove("manual_lat")?.remove("manual_lon")?.apply()
+            cachedManualCity = ""
+            withContext(Dispatchers.IO) {
+                prefs?.edit()?.remove("manual_city")?.remove("manual_lat")?.remove("manual_lon")?.apply()
+            }
             refreshIfNeeded(force = true)
             return true
         }
         val geo = withContext(Dispatchers.IO) {
-            runCatching {
+            try {
                 val encoded = java.net.URLEncoder.encode(trimmed, "UTF-8")
                 val req = Request.Builder()
                     .url("${geoBaseUrl.trimEnd('/')}/v1/search?name=$encoded&count=1&language=ar")
                     .build()
-                client.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use null
+                awaitCall(req) { resp ->
+                    if (!resp.isSuccessful) return@awaitCall null
                     val body = resp.body?.string().orEmpty()
-                    if (body.isBlank()) return@use null
+                    if (body.isBlank()) return@awaitCall null
                     val parsed = json.decodeFromString(GeoSearchResponse.serializer(), body)
-                    val item = parsed.results.firstOrNull() ?: return@use null
+                    val item = parsed.results.firstOrNull() ?: return@awaitCall null
                     Triple(
                         item.latitude.toFloat(),
                         item.longitude.toFloat(),
                         item.name.ifBlank { trimmed },
                     )
                 }
-            }.getOrNull()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
         } ?: return false
-        prefs?.edit()
-            ?.putString("manual_city", geo.third)
-            ?.putFloat("manual_lat", geo.first)
-            ?.putFloat("manual_lon", geo.second)
-            ?.apply()
+        cachedManualCity = geo.third
+        withContext(Dispatchers.IO) {
+            prefs?.edit()
+                ?.putString("manual_city", geo.third)
+                ?.putFloat("manual_lat", geo.first)
+                ?.putFloat("manual_lon", geo.second)
+                ?.apply()
+        }
         refreshIfNeeded(force = true)
         return true
     }
@@ -100,6 +129,7 @@ class WeatherService(
 
         withContext(Dispatchers.IO) {
             if (!cacheHydrated) {
+                cachedManualCity = prefs?.getString("manual_city", "") ?: ""
                 _weather.value = loadCachedWeather()
                 cacheHydrated = true
             }
@@ -107,6 +137,7 @@ class WeatherService(
                 // 1. Manual city override first, else IP geolocation
                 val store = prefs
                 val manualCity = store?.getString("manual_city", "").orEmpty()
+                cachedManualCity = manualCity
                 val hasManual = manualCity.isNotBlank() &&
                     store?.contains("manual_lat") == true &&
                     store.contains("manual_lon")
@@ -122,11 +153,11 @@ class WeatherService(
                     .header("User-Agent", "Sahab/1.0 (Android)")
                     .build()
 
-                client.newCall(req).execute().use { res ->
-                    if (!res.isSuccessful) return@withContext
-                    val body = res.body?.string() ?: return@withContext
+                awaitCall(req) { res ->
+                    if (!res.isSuccessful) return@awaitCall
+                    val body = res.body?.string() ?: return@awaitCall
                     val parsed = json.decodeFromString(OpenMeteoResponse.serializer(), body)
-                    val current = parsed.current ?: return@withContext
+                    val current = parsed.current ?: return@awaitCall
                     val temp = current.temperature_2m.toInt()
                     val code = current.weather_code
                     val isDay = current.is_day == 1
@@ -147,32 +178,56 @@ class WeatherService(
                     lastFetchMs = now
                     saveCachedWeather(data)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 runCatching { Log.w("WeatherService", "Weather refresh failed: ${e.message}") }
             }
         }
     }
 
-    private fun fetchIpLocation(): Triple<Double, Double, String>? {
+    private suspend fun fetchIpLocation(): Triple<Double, Double, String>? {
         return try {
             val req = Request.Builder()
                 .url(ipGeoUrl)
                 .header("User-Agent", "Sahab/1.0 (Android)")
                 .build()
-            client.newCall(req).execute().use { res ->
-                if (!res.isSuccessful) return null
-                val body = res.body?.string() ?: return null
+            awaitCall(req) { res ->
+                if (!res.isSuccessful) return@awaitCall null
+                val body = res.body?.string() ?: return@awaitCall null
                 val parsed = json.decodeFromString(IpWhoResponse.serializer(), body)
-                if (!parsed.success) return null
-                val lat = parsed.latitude ?: return null
-                val lon = parsed.longitude ?: return null
+                if (!parsed.success) return@awaitCall null
+                val lat = parsed.latitude ?: return@awaitCall null
+                val lon = parsed.longitude ?: return@awaitCall null
                 val city = parsed.city.ifBlank { "Kuwait City" }
                 Triple(lat, lon, city)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         }
     }
+
+    private suspend fun <T> awaitCall(req: Request, parser: (Response) -> T): T =
+        suspendCancellableCoroutine { cont ->
+            val call = client.newCall(req)
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    val result = runCatching { response.use(parser) }
+                    if (!cont.isActive) return
+                    result.fold(
+                        onSuccess = { cont.resume(it) },
+                        onFailure = { cont.resumeWithException(it) },
+                    )
+                }
+            })
+        }
 
     @Serializable
     private data class GeoSearchResponse(

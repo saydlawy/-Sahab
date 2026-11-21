@@ -19,9 +19,6 @@ class PlayerLeaseCoordinator {
 
     private val lock = Any()
     private var activeHandle: LeasedPlayerHandle? = null
-    private val releasedHandles = java.util.Collections.newSetFromMap(
-        java.util.IdentityHashMap<LeasedPlayerHandle, Boolean>(),
-    )
 
     /**
      * Acquires the exclusive player lease for [handle].
@@ -31,27 +28,25 @@ class PlayerLeaseCoordinator {
         val previous = synchronized(lock) {
             val prev = activeHandle
             activeHandle = handle
-            if (prev != null && prev !== handle && !releasedHandles.contains(prev)) {
-                releasedHandles.add(prev)
-                prev
-            } else {
-                null
-            }
+            if (prev != null && prev !== handle) prev else null
         }
         previous?.runCatching { stopAndRelease() }
     }
 
     /**
-     * Synchronously stops and releases [handle] if it has not already been released,
-     * and clears the active lease if [handle] is the current holder.
+     * Synchronously stops and releases [handle] if it currently holds the active lease.
+     * Safe to invoke idempotently from both explicit exit paths and Compose `DisposableEffect.onDispose`
+     * without retaining strong references to already-released handles.
      */
     fun release(handle: LeasedPlayerHandle?) {
         if (handle == null) return
         val shouldRelease = synchronized(lock) {
             if (activeHandle === handle) {
                 activeHandle = null
+                true
+            } else {
+                false
             }
-            releasedHandles.add(handle)
         }
         if (shouldRelease) {
             handle.runCatching { stopAndRelease() }
@@ -66,7 +61,7 @@ class PlayerLeaseCoordinator {
             val current = activeHandle
             if (current != null && current.role == role) {
                 activeHandle = null
-                if (releasedHandles.add(current)) current else null
+                current
             } else {
                 null
             }
@@ -81,7 +76,7 @@ class PlayerLeaseCoordinator {
         val target = synchronized(lock) {
             val current = activeHandle
             activeHandle = null
-            if (current != null && releasedHandles.add(current)) current else null
+            current
         }
         target?.runCatching { stopAndRelease() }
     }
@@ -91,6 +86,6 @@ class PlayerLeaseCoordinator {
     }
 
     fun isActive(handle: LeasedPlayerHandle): Boolean = synchronized(lock) {
-        activeHandle === handle && !releasedHandles.contains(handle)
+        activeHandle === handle
     }
 }

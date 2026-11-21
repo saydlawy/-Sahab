@@ -27,6 +27,8 @@ import com.saydlawy.sahab.data.channel.EpgSync
 import com.saydlawy.sahab.data.TmdbApi
 import com.saydlawy.sahab.data.XtreamApi
 import com.saydlawy.sahab.ui.player.SahabPlayer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -97,8 +99,12 @@ class AppContainer(context: Context) {
     val tmdb by lazy { TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache) }
     val repo by lazy { Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao(), okHttpClient = client) }
 
+    private val appExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        runCatching { android.util.Log.e("SahabApp", "Uncaught coroutine error", throwable) }
+    }
+
     /** Outlives screens, so progress can still be saved while the player is closing. */
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + appExceptionHandler)
 
     /** What the player screen should play; set right before navigating to it. */
     @Volatile
@@ -318,6 +324,8 @@ class AppContainer(context: Context) {
                     forceCatalog = true,
                     reason = "switchAccount",
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 android.util.Log.e("SahabSwitch", "Failed to switch account: ${e.message}")
             } finally {
@@ -382,8 +390,19 @@ class AppContainer(context: Context) {
                 }
                 val delayMs = RETRY_BACKOFFS_MS[attempt]
                 attempt++
+                var slept = 0L
                 try {
-                    Thread.sleep(delayMs)
+                    while (slept < delayMs) {
+                        if (chain.call().isCanceled()) {
+                            throw IOException("Retry canceled")
+                        }
+                        val chunk = minOf(RETRY_SLEEP_SLICE_MS, delayMs - slept)
+                        Thread.sleep(chunk)
+                        slept += chunk
+                    }
+                    if (chain.call().isCanceled()) {
+                        throw IOException("Retry canceled")
+                    }
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     throw IOException("Retry interrupted")
@@ -394,6 +413,7 @@ class AppContainer(context: Context) {
 
     private companion object {
         const val USER_AGENT = "Sahab/1.0 (Android)"
+        const val RETRY_SLEEP_SLICE_MS = 100L
         val RETRY_BACKOFFS_MS = longArrayOf(500L, 1500L)
         val STRICT_HTTPS_DOMAINS = listOf(
             "themoviedb.org",
@@ -419,10 +439,10 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
         container = AppContainer(this)
         container.ensureAutoSyncStarted()
         container.appScope.launch {
-            // L-05: warm EncryptedSharedPreferences / MasterKey off the main thread.
-            container.aiKeys
-            SahabPlayer.warmUpMediaCache(this@SahabApp)
-            container.weather.refreshIfNeeded()
+            // L-05: warm EncryptedSharedPreferences / MasterKey + media cache + weather off the main thread.
+            runCatching { container.aiKeys.warmUp() }
+            runCatching { SahabPlayer.warmUpMediaCache(this@SahabApp) }
+            runCatching { container.weather.refreshIfNeeded() }
         }
     }
 

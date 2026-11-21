@@ -164,4 +164,84 @@ class RepositoryTest {
         val second = diskRepo.liveChannels(null)
         assertEquals(listOf("Channel Two"), second.map { it.name })
     }
+
+    @Test
+    fun forceNetwork_concurrentCallsCoalesceIntoSingleNetworkRequest() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setBodyDelay(150, TimeUnit.MILLISECONDS)
+                .setResponseCode(200)
+                .setBody("""[{"category_id":"1","category_name":"رياضة"}]"""),
+        )
+
+        val (first, second) = awaitAll(
+            async { repo.liveCategories(forceNetwork = true) },
+            async { repo.liveCategories(forceNetwork = true) },
+        )
+
+        assertEquals(1, first.size)
+        assertEquals(first, second)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun syncCatalog_evictsStaleCategorySubCaches() = runTest {
+        // 1. Populate category sub-cache "vod:10" with initial movie
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """[{"stream_id":"1","name":"Old Movie","category_id":"10","added":"100"}]""",
+            ),
+        )
+        val before = repo.movies("10")
+        assertEquals(listOf("Old Movie"), before.map { it.name })
+
+        // 2. Sync catalog succeeds and returns updated catalog for category "10"
+        val updatedMoviesJson = """[{"stream_id":"2","name":"Fresh Movie","category_id":"10","added":"200"}]"""
+        repeat(7) { idx ->
+            val path = server.url("/").toString() // dummy reference
+            assertTrue(path.isNotBlank())
+        }
+        // Enqueue responses in any order via Dispatcher since syncCatalog launches parallel endpoints
+        val syncServer = MockWebServer()
+        syncServer.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                return when (request.requestUrl?.queryParameter("action")) {
+                    null -> MockResponse().setBody("""{"user_info":{"status":"Active"},"server_info":{"url":"localhost"}}""")
+                    "get_vod_streams" -> MockResponse().setBody(updatedMoviesJson)
+                    else -> MockResponse().setBody("[]")
+                }
+            }
+        }
+        syncServer.start()
+        try {
+            val client = OkHttpClient.Builder().build()
+            val syncRepo = Repository(
+                api = XtreamApi(client),
+                tmdb = TmdbApi(client, ""),
+                disk = DiskCache(tempFolder.root),
+            )
+            syncRepo.setAccount(Account(id = "sync-acc", server = syncServer.url("/").toString().trimEnd('/'), user = "u", pass = "p"))
+
+            // Prime stale category "10" cache directly via get_vod_streams?category_id=10
+            val afterFirstLoad = syncRepo.movies("10")
+            assertEquals(listOf("Fresh Movie"), afterFirstLoad.map { it.name })
+
+            // Now change server response for next sync and verify sub-cache invalidates cleanly
+            syncServer.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+                override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                    return when (request.requestUrl?.queryParameter("action")) {
+                        null -> MockResponse().setBody("""{"user_info":{"status":"Active"},"server_info":{"url":"localhost"}}""")
+                        "get_vod_streams" -> MockResponse().setBody("""[{"stream_id":"3","name":"Synced Movie V2","category_id":"10","added":"300"}]""")
+                        else -> MockResponse().setBody("[]")
+                    }
+                }
+            }
+            val syncResult = syncRepo.syncCatalog(force = true)
+            assertTrue(syncResult is Repository.SyncResult.Success)
+            val afterSync = syncRepo.movies("10")
+            assertEquals(listOf("Synced Movie V2"), afterSync.map { it.name })
+        } finally {
+            syncServer.shutdown()
+        }
+    }
 }

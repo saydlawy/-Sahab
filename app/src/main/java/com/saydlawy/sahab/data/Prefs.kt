@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -101,6 +102,10 @@ class Prefs @JvmOverloads constructor(
     private var accountInitialized = false
 
     @Volatile
+    var isEncryptedPrefsHealthy: Boolean = true
+        private set
+
+    @Volatile
     private var cachedSecurePrefs: SharedPreferences? = secureStoreOverride
 
     private fun securePrefs(): SharedPreferences {
@@ -117,7 +122,10 @@ class Prefs @JvmOverloads constructor(
                         ks.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
                     }
                     runCatching { appContext?.deleteSharedPreferences(SECURE_PREFS_NAME) }
-                    createEncryptedPrefs()
+                    runCatching { createEncryptedPrefs() }.getOrElse {
+                        isEncryptedPrefsHealthy = false
+                        InMemorySecurePrefs()
+                    }
                 }
             }
             cachedSecurePrefs = created
@@ -238,12 +246,14 @@ class Prefs @JvmOverloads constructor(
         .distinctUntilChanged()
         .map { decodeFavs(it) }
         .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
 
     val recents: Flow<List<RecentItem>> = store.data
         .map { it[Keys.Recents] }
         .distinctUntilChanged()
         .map { decodeRecents(it) }
         .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
 
     val lightEffects: Flow<Boolean> = store.data
         .map { it[Keys.LightEffects] ?: false }
@@ -257,6 +267,7 @@ class Prefs @JvmOverloads constructor(
                 ?: ThemePreferences()
         }
         .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
 
     val showRecents: Flow<Boolean> = store.data
         .map { it[Keys.ShowRecents] ?: true }
@@ -377,6 +388,13 @@ class Prefs @JvmOverloads constructor(
 
     suspend fun setVodCustomGrouping(grouping: VodCustomGrouping) {
         store.edit { it[Keys.VodCustomGroupingKey] = grouping.name }
+    }
+
+    suspend fun setVodOrganization(mode: VodOrganizationMode, grouping: VodCustomGrouping) {
+        store.edit {
+            it[Keys.VodOrganizationModeKey] = mode.name
+            it[Keys.VodCustomGroupingKey] = grouping.name
+        }
     }
 
     suspend fun setHomeChannelsSource(source: HomeChannelsSource) {
@@ -693,6 +711,48 @@ class Prefs @JvmOverloads constructor(
     private fun decodeRecents(raw: String?): List<RecentItem> =
         if (raw.isNullOrBlank()) emptyList()
         else runCatching { json.decodeFromString(recentSerializer, raw) }.getOrDefault(emptyList())
+
+    private class InMemorySecurePrefs : SharedPreferences {
+        private val lock = Any()
+        private val map = linkedMapOf<String, Any?>()
+
+        override fun getAll(): MutableMap<String, *> = synchronized(lock) { map.toMutableMap() }
+        override fun getString(key: String?, defValue: String?): String? = synchronized(lock) { (map[key] as? String) ?: defValue }
+        @Suppress("UNCHECKED_CAST")
+        override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+            synchronized(lock) { (map[key] as? MutableSet<String>)?.toMutableSet() ?: defValues }
+        override fun getInt(key: String?, defValue: Int): Int = synchronized(lock) { (map[key] as? Int) ?: defValue }
+        override fun getLong(key: String?, defValue: Long): Long = synchronized(lock) { (map[key] as? Long) ?: defValue }
+        override fun getFloat(key: String?, defValue: Float): Float = synchronized(lock) { (map[key] as? Float) ?: defValue }
+        override fun getBoolean(key: String?, defValue: Boolean): Boolean = synchronized(lock) { (map[key] as? Boolean) ?: defValue }
+        override fun contains(key: String?): Boolean = synchronized(lock) { map.containsKey(key) }
+        override fun edit(): SharedPreferences.Editor = EditorImpl()
+        override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+        override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {}
+
+        private inner class EditorImpl : SharedPreferences.Editor {
+            private val pending = linkedMapOf<String, Any?>()
+            private var clearAll = false
+
+            override fun putString(key: String?, value: String?) = apply { if (key != null) synchronized(lock) { pending[key] = value } }
+            override fun putStringSet(key: String?, values: MutableSet<String>?) = apply { if (key != null) synchronized(lock) { pending[key] = values?.toMutableSet() } }
+            override fun putInt(key: String?, value: Int) = apply { if (key != null) synchronized(lock) { pending[key] = value } }
+            override fun putLong(key: String?, value: Long) = apply { if (key != null) synchronized(lock) { pending[key] = value } }
+            override fun putFloat(key: String?, value: Float) = apply { if (key != null) synchronized(lock) { pending[key] = value } }
+            override fun putBoolean(key: String?, value: Boolean) = apply { if (key != null) synchronized(lock) { pending[key] = value } }
+            override fun remove(key: String?) = apply { if (key != null) synchronized(lock) { pending[key] = null } }
+            override fun clear() = apply { synchronized(lock) { clearAll = true } }
+            override fun commit(): Boolean { apply(); return true }
+            override fun apply() {
+                synchronized(lock) {
+                    if (clearAll) map.clear()
+                    for ((k, v) in pending) { if (v == null) map.remove(k) else map[k] = v }
+                    pending.clear()
+                    clearAll = false
+                }
+            }
+        }
+    }
 
     private companion object {
         const val MAX_RECENTS = 30

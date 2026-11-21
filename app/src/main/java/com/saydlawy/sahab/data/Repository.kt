@@ -59,19 +59,40 @@ class Repository(
     private data class CacheEntry(
         val typeTag: String,
         val value: Any,
+        val expiresAtMs: Long = 0L,
     )
 
-    private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val cacheLock = Any()
+    private val cache = object : LinkedHashMap<String, CacheEntry>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean =
+            size > MAX_MEMORY_CACHE_ENTRIES
+    }
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<CacheEntry>>()
 
     @Suppress("UNCHECKED_CAST")
     private fun <T : Any> getTypedCache(key: String, serializer: KSerializer<T>): T? {
-        val entry = cache[key] ?: return null
-        return if (entry.typeTag == serializer.descriptor.serialName) entry.value as? T else null
+        val mKey = diskKey(key)
+        synchronized(cacheLock) {
+            val entry = cache[mKey] ?: return null
+            if (entry.expiresAtMs > 0L && System.currentTimeMillis() > entry.expiresAtMs) {
+                cache.remove(mKey)
+                return null
+            }
+            return if (entry.typeTag == serializer.descriptor.serialName) entry.value as? T else null
+        }
     }
 
-    private fun <T : Any> putTypedCache(key: String, serializer: KSerializer<T>, value: T) {
-        cache[key] = CacheEntry(serializer.descriptor.serialName, value)
+    private fun <T : Any> putTypedCache(
+        key: String,
+        serializer: KSerializer<T>,
+        value: T,
+        ttlMs: Long = CATALOG_LIST_TTL_MS,
+    ) {
+        val mKey = diskKey(key)
+        val expiresAt = if (ttlMs > 0L) System.currentTimeMillis() + ttlMs else 0L
+        synchronized(cacheLock) {
+            cache[mKey] = CacheEntry(serializer.descriptor.serialName, value, expiresAt)
+        }
     }
     private val epgCacheLock = Any()
     private val epgCache = object : LinkedHashMap<String, Pair<Long, List<Program>>>(64, 0.75f, true) {
@@ -101,7 +122,9 @@ class Repository(
     }
 
     fun clearCache(clearDisk: Boolean = false) {
-        cache.clear()
+        synchronized(cacheLock) {
+            cache.clear()
+        }
         inFlight.clear()
         synchronized(epgCacheLock) {
             epgCache.clear()
@@ -112,8 +135,23 @@ class Repository(
     }
 
     fun invalidateLiveChannelCache() {
-        cache.keys.removeIf { it.startsWith("live:") }
+        synchronized(cacheLock) {
+            cache.keys.removeIf { it.contains("::live:") }
+        }
         inFlight.keys.removeIf { it.contains("::live:") }
+    }
+
+    private fun invalidateCategorySubCaches() {
+        val prefix = "${accountTag()}::"
+        synchronized(cacheLock) {
+            cache.keys.removeIf { k ->
+                k.startsWith(prefix) && (
+                    (k.contains("::live:") && !k.endsWith("::live:")) ||
+                        (k.contains("::vod:") && !k.endsWith("::vod:")) ||
+                        (k.contains("::series:") && !k.endsWith("::series:"))
+                    )
+            }
+        }
     }
 
     private fun requireAccount(): Account = account ?: throw ApiException(Ar.errNoAccount)
@@ -230,6 +268,7 @@ class Repository(
                 runCatching { Log.w("SahabSync", "syncCatalog aborted without stamping time: ${firstFailure.message}") }
                 SyncResult.Failure(firstFailure.message ?: "sync failed")
             } else {
+                invalidateCategorySubCaches()
                 prefs?.setLastCatalogSyncTime(System.currentTimeMillis())
                 SyncResult.Success
             }
@@ -300,9 +339,10 @@ class Repository(
     ): T {
         val typeTag = serializer.descriptor.serialName
         val dKey = diskKey(key)
+        val flightKey = if (forceNetwork) "$dKey::force" else dKey
         if (!forceNetwork) {
             getTypedCache(key, serializer)?.let { return it }
-            val existing = inFlight[dKey]
+            val existing = inFlight[flightKey]
             if (existing != null) {
                 return try {
                     val awaited = existing.await()
@@ -311,7 +351,7 @@ class Repository(
                         awaited.value as T
                     } else {
                         load().also { loaded ->
-                            putTypedCache(key, serializer, loaded)
+                            putTypedCache(key, serializer, loaded, ttlMs)
                             disk?.put(dKey, serializer, loaded)
                         }
                     }
@@ -320,9 +360,27 @@ class Repository(
                     cachedPersistent(key, serializer, ttlMs, forceNetwork = false, load = load)
                 }
             }
+        } else {
+            inFlight[flightKey]?.let { existingForce ->
+                return try {
+                    val awaited = existingForce.await()
+                    if (awaited.typeTag == typeTag) {
+                        @Suppress("UNCHECKED_CAST")
+                        awaited.value as T
+                    } else {
+                        load().also { loaded ->
+                            putTypedCache(key, serializer, loaded, ttlMs)
+                            disk?.put(dKey, serializer, loaded)
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                    cachedPersistent(key, serializer, ttlMs, forceNetwork = true, load = load)
+                }
+            }
         }
         val mine = CompletableDeferred<CacheEntry>()
-        val existing = if (forceNetwork) null else inFlight.putIfAbsent(dKey, mine)
+        val existing = inFlight.putIfAbsent(flightKey, mine)
         if (existing != null) {
             return try {
                 val awaited = existing.await()
@@ -331,13 +389,13 @@ class Repository(
                     awaited.value as T
                 } else {
                     load().also { loaded ->
-                        putTypedCache(key, serializer, loaded)
+                        putTypedCache(key, serializer, loaded, ttlMs)
                         disk?.put(dKey, serializer, loaded)
                     }
                 }
             } catch (e: CancellationException) {
                 currentCoroutineContext().ensureActive()
-                cachedPersistent(key, serializer, ttlMs, forceNetwork = false, load = load)
+                cachedPersistent(key, serializer, ttlMs, forceNetwork = forceNetwork, load = load)
             }
         }
         return try {
@@ -348,25 +406,25 @@ class Repository(
                 }
                 val fromDisk = disk?.get(dKey, serializer, ttlMs)
                 if (fromDisk != null) {
-                    putTypedCache(key, serializer, fromDisk)
+                    putTypedCache(key, serializer, fromDisk, ttlMs)
                     mine.complete(CacheEntry(typeTag, fromDisk))
                     return fromDisk
                 }
             }
             val loaded = load()
-            putTypedCache(key, serializer, loaded)
+            putTypedCache(key, serializer, loaded, ttlMs)
             disk?.put(dKey, serializer, loaded)
             mine.complete(CacheEntry(typeTag, loaded))
             loaded
         } catch (e: CancellationException) {
-            inFlight.remove(dKey, mine)
+            inFlight.remove(flightKey, mine)
             mine.cancel(e)
             throw e
         } catch (t: Throwable) {
             mine.completeExceptionally(t)
             throw t
         } finally {
-            inFlight.remove(dKey, mine)
+            inFlight.remove(flightKey, mine)
         }
     }
 
@@ -378,7 +436,7 @@ class Repository(
         getTypedCache(key, serializer)?.let { return it }
         val fromDisk = disk?.get(diskKey(key), serializer, ttlMs)
         if (fromDisk != null) {
-            putTypedCache(key, serializer, fromDisk)
+            putTypedCache(key, serializer, fromDisk, ttlMs)
             return fromDisk
         }
         return null
@@ -917,6 +975,7 @@ class Repository(
         YEAR_REGEX.find(raw)?.value.orEmpty()
 
     private companion object {
+        const val MAX_MEMORY_CACHE_ENTRIES = 64
         const val MAX_CONCURRENT_CATALOG_TASKS = 2
         const val MAX_EPG_MEMORY_ENTRIES = 256
         val YEAR_REGEX = Regex("(19|20)\\d{2}")

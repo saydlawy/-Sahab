@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 internal const val RECENTS_CAT_ID = "__RECENTS__"
 internal const val FAV_CAT_ID = "__FAVORITES__"
@@ -77,7 +78,7 @@ class BrowseViewModel(
     private var searchJob: Job? = null
     private var focusDetailJob: Job? = null
     private var bgEnrichJob: Job? = null
-    private val bgEnrichAttempted = HashSet<String>()
+    private val bgEnrichAttempted: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private var searchPool: List<Poster>? = null
     private var indexedPool: List<Pair<Poster, String>>? = null
     private var defaultCategories: List<Category> = emptyList()
@@ -104,7 +105,7 @@ class BrowseViewModel(
         viewModelScope.launch {
             val mediaType = if (series) "series" else "movie"
             container.catalogDb.movieDao().observeFacetMetadata(mediaType)
-                .debounce(1_000L)
+                .debounce(2_500L)
                 .map { rows -> buildFacetMaps(rows) }
                 .distinctUntilChanged()
                 .flowOn(Dispatchers.Default)
@@ -128,21 +129,20 @@ class BrowseViewModel(
 
     fun setCustomGrouping(grouping: VodCustomGrouping) {
         viewModelScope.launch {
-            container.prefs.setVodCustomGrouping(grouping)
-            container.prefs.setVodOrganizationMode(VodOrganizationMode.CUSTOM)
+            container.prefs.setVodOrganization(VodOrganizationMode.CUSTOM, grouping)
         }
     }
 
     private fun normalizeTitleKey(raw: String): String {
         if (raw.isBlank()) return ""
         return raw.lowercase(java.util.Locale.ROOT)
-            .replace(Regex("""^[^|]{1,20}\|\s*"""), "")
-            .replace(Regex("""\[.*?]|\(.*?\)"""), " ")
-            .replace(Regex("""[\u064B-\u065F\u0670\u0640]"""), "")
+            .replace(TITLE_PREFIX_PIPE_REGEX, "")
+            .replace(TITLE_BRACKETS_REGEX, " ")
+            .replace(ARABIC_DIACRITICS_REGEX, "")
             .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
             .replace('ة', 'ه').replace('ى', 'ي')
-            .replace(Regex("""\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|hdtv|vod|ar|en|sub|dub|s\d{1,2}|season\s*\d{1,2}|فيلم|مسلسل|انمي|كرتون|كارتون|الموسم|موسم|مدبلج|مترجم)\b"""), " ")
-            .replace(Regex("""[^\p{L}\p{N}]+"""), " ")
+            .replace(TITLE_NOISE_TOKENS_REGEX, " ")
+            .replace(TITLE_NON_ALNUM_REGEX, " ")
             .trim()
     }
 
@@ -865,7 +865,7 @@ class BrowseViewModel(
                     xtreamBackdrop = d.backdrop.ifBlank { d.image }
                     xtreamTrailer = d.trailerUrl
                 }
-            }
+            }.onFailure { if (it is CancellationException) throw it }
 
             if (xtreamPlot.isNotBlank()) {
                 _state.update {
@@ -889,7 +889,7 @@ class BrowseViewModel(
             if (container.tmdb.hasApiKey()) {
                 val catName = _state.value.categories.firstOrNull { it.id == poster.categoryId }?.name.orEmpty()
                 val enriched = withContext(Dispatchers.IO) {
-                    runCatching {
+                    try {
                         TmdbMatcher.enrich(
                             tmdb = container.tmdb,
                             rawName = poster.name,
@@ -898,7 +898,11 @@ class BrowseViewModel(
                             mediaType = mediaType,
                             includeExtras = false,
                         )
-                    }.getOrNull()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        null
+                    }
                 }
                 val tmdbItem = enriched?.movie
                 if (tmdbItem != null && (enriched.level == TmdbMatcher.Level.STRONG || enriched.level == TmdbMatcher.Level.WEAK)) {
@@ -1042,5 +1046,15 @@ class BrowseViewModel(
                 FavItem(kind, poster.id, poster.name, poster.image, poster.ext, accountId = container.prefs.currentActiveAccountId())
             )
         }
+    }
+
+    private companion object {
+        val TITLE_PREFIX_PIPE_REGEX = Regex("""^[^|]{1,20}\|\s*""")
+        val TITLE_BRACKETS_REGEX = Regex("""\[.*?]|\(.*?\)""")
+        val ARABIC_DIACRITICS_REGEX = Regex("""[\u064B-\u065F\u0670\u0640]""")
+        val TITLE_NOISE_TOKENS_REGEX = Regex(
+            """\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|hdtv|vod|ar|en|sub|dub|s\d{1,2}|season\s*\d{1,2}|فيلم|مسلسل|انمي|كرتون|كارتون|الموسم|موسم|مدبلج|مترجم)\b""",
+        )
+        val TITLE_NON_ALNUM_REGEX = Regex("""[^\p{L}\p{N}]+""")
     }
 }
