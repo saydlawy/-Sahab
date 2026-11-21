@@ -66,6 +66,7 @@ fun YouTubeEmbedPlayer(
 
     val currentOnPlaying by rememberUpdatedState(onPlaying)
     var renderEpoch by remember(cleanId) { mutableIntStateOf(0) }
+    var renderFailed by remember(cleanId) { mutableStateOf(false) }
     var webViewRef by remember(cleanId, renderEpoch) { mutableStateOf<WebView?>(null) }
     var pageLoaded by remember(cleanId, renderEpoch) { mutableStateOf(false) }
 
@@ -114,83 +115,91 @@ fun YouTubeEmbedPlayer(
     }
 
     Box(modifier = modifier) {
-        androidx.compose.runtime.key(cleanId, renderEpoch) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                        setBackgroundColor(Color.TRANSPARENT)
-                        isFocusable = false
-                        isFocusableInTouchMode = false
-                        isVerticalScrollBarEnabled = false
-                        isHorizontalScrollBarEnabled = false
-                        overScrollMode = View.OVER_SCROLL_NEVER
+        if (!renderFailed) {
+            androidx.compose.runtime.key(cleanId, renderEpoch) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            setBackgroundColor(Color.TRANSPARENT)
+                            isFocusable = false
+                            isFocusableInTouchMode = false
+                            isVerticalScrollBarEnabled = false
+                            isHorizontalScrollBarEnabled = false
+                            overScrollMode = View.OVER_SCROLL_NEVER
 
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            mediaPlaybackRequiresUserGesture = false
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
-                            cacheMode = WebSettings.LOAD_DEFAULT
-                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                safeBrowsingEnabled = false
-                            }
-                            userAgentString =
-                                "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-                        }
-
-                        addJavascriptInterface(
-                            object {
-                                @JavascriptInterface
-                                fun onStatePlaying() {
-                                    post { currentOnPlaying() }
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                mediaPlaybackRequiresUserGesture = false
+                                useWideViewPort = true
+                                loadWithOverviewMode = true
+                                cacheMode = WebSettings.LOAD_DEFAULT
+                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    safeBrowsingEnabled = false
                                 }
-                            },
-                            "SahabYtBridge",
-                        )
+                                userAgentString =
+                                    "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                            }
 
-                        webChromeClient = object : WebChromeClient() {}
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                pageLoaded = true
+                            addJavascriptInterface(
+                                object {
+                                    @JavascriptInterface
+                                    fun onStatePlaying() {
+                                        post { currentOnPlaying() }
+                                    }
+                                },
+                                "SahabYtBridge",
+                            )
+
+                            webChromeClient = object : WebChromeClient() {}
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    pageLoaded = true
+                                }
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?,
+                                ) {
+                                    // Ignore non-fatal subresource errors
+                                }
+                                override fun onRenderProcessGone(
+                                    view: WebView?,
+                                    detail: RenderProcessGoneDetail?,
+                                ): Boolean {
+                                    webViewRef = null
+                                    if (renderEpoch < MAX_WEBVIEW_RENDER_RETRIES) {
+                                        renderEpoch++
+                                    } else {
+                                        renderFailed = true
+                                    }
+                                    return true
+                                }
                             }
-                            override fun onReceivedError(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                                error: WebResourceError?,
-                            ) {
-                                // Ignore non-fatal subresource errors
-                            }
-                            override fun onRenderProcessGone(
-                                view: WebView?,
-                                detail: RenderProcessGoneDetail?,
-                            ): Boolean {
-                                webViewRef = null
-                                renderEpoch++
-                                return true
-                            }
+
+                            webViewRef = this
+                            loadDataWithBaseURL(
+                                "https://com.saydlawy.sahab",
+                                embedHtml,
+                                "text/html",
+                                "UTF-8",
+                                null,
+                            )
                         }
-
-                        webViewRef = this
-                        loadDataWithBaseURL(
-                            "https://com.saydlawy.sahab",
-                            embedHtml,
-                            "text/html",
-                            "UTF-8",
-                            null,
-                        )
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
     }
 }
+
+private const val MAX_WEBVIEW_RENDER_RETRIES = 1
 
 private fun buildYouTubeEmbedHtml(
     videoId: String,

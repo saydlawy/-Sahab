@@ -24,6 +24,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -54,7 +55,6 @@ data class BrowseUiState(
     val featuredHeroItems: List<Poster> = emptyList(),
     val top10Items: List<Poster> = emptyList(),
     val categoryGroups: List<CategoryPosterGroup> = emptyList(),
-    val focusedDetails: FocusedPosterDetails? = null,
     val organizationMode: VodOrganizationMode = VodOrganizationMode.DEFAULT,
     val customGrouping: VodCustomGrouping = VodCustomGrouping.GENRE,
 ) {
@@ -73,6 +73,9 @@ class BrowseViewModel(
     private val repo = container.repo
     private val _state = MutableStateFlow(BrowseUiState(query = initialQuery))
     val state = _state.asStateFlow()
+
+    private val _focusedDetails = MutableStateFlow<FocusedPosterDetails?>(null)
+    val focusedDetails: StateFlow<FocusedPosterDetails?> = _focusedDetails.asStateFlow()
 
     private var itemsJob: Job? = null
     private var searchJob: Job? = null
@@ -456,10 +459,17 @@ class BrowseViewModel(
                             featuredHeroItems = hero,
                             top10Items = top10,
                             categoryGroups = groups,
-                            focusedDetails = it.focusedDetails ?: hero.firstOrNull()?.let { p ->
-                                FocusedPosterDetails(poster = p, year = p.year, rating = cleanRating(p.rating), backdropUrl = p.image)
-                            },
                         )
+                    }
+                    if (_focusedDetails.value == null) {
+                        hero.firstOrNull()?.let { p ->
+                            _focusedDetails.value = FocusedPosterDetails(
+                                poster = p,
+                                year = p.year,
+                                rating = cleanRating(p.rating),
+                                backdropUrl = p.image,
+                            )
+                        }
                     }
                     if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
                         applyOrganization(enrichedAll, preferredCat = preferredCat)
@@ -512,7 +522,7 @@ class BrowseViewModel(
                         val counts = computeCounts(allItems)
                         defaultCounts = counts
                         val (hero, top10, groups) = buildLayoutCollections(categories, allItems)
-                        val hadDetails = _state.value.focusedDetails != null
+                        val hadDetails = _focusedDetails.value != null
                         _state.update { current ->
                             current.copy(
                                 totalCount = allItems.size,
@@ -522,10 +532,17 @@ class BrowseViewModel(
                                 featuredHeroItems = hero,
                                 top10Items = top10,
                                 categoryGroups = groups,
-                                focusedDetails = current.focusedDetails ?: hero.firstOrNull()?.let { p ->
-                                    FocusedPosterDetails(poster = p, year = p.year, rating = cleanRating(p.rating), backdropUrl = p.image)
-                                },
                             )
+                        }
+                        if (!hadDetails) {
+                            hero.firstOrNull()?.let { p ->
+                                _focusedDetails.value = FocusedPosterDetails(
+                                    poster = p,
+                                    year = p.year,
+                                    rating = cleanRating(p.rating),
+                                    backdropUrl = p.image,
+                                )
+                            }
                         }
                         if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
                             applyOrganization(allItems)
@@ -716,17 +733,13 @@ class BrowseViewModel(
     private fun cleanRating(raw: String): String = RatingSanitizer.format(raw)
 
     fun onPosterFocused(poster: Poster) {
-        if (_state.value.focusedDetails?.poster?.id == poster.id) return
-        _state.update {
-            it.copy(
-                focusedDetails = FocusedPosterDetails(
-                    poster = poster,
-                    year = poster.year,
-                    rating = cleanRating(poster.rating),
-                    backdropUrl = poster.image,
-                ),
-            )
-        }
+        if (_focusedDetails.value?.poster?.id == poster.id) return
+        _focusedDetails.value = FocusedPosterDetails(
+            poster = poster,
+            year = poster.year,
+            rating = cleanRating(poster.rating),
+            backdropUrl = poster.image,
+        )
         fetchDetailsForHero(poster)
     }
 
@@ -745,22 +758,18 @@ class BrowseViewModel(
                     .filter { line -> line.isNotEmpty() }
                     .toList()
                 val resolvedTrailer = cached.trailerUrl
-                _state.update {
-                    it.copy(
-                        focusedDetails = FocusedPosterDetails(
-                            poster = poster,
-                            plot = cached.plot,
-                            genre = cached.genre,
-                            year = cached.year.ifBlank { poster.year },
-                            rating = RatingSanitizer.format(cached.rating, cached.tmdbVoteCount)
-                                .ifBlank { cleanRating(poster.rating) },
-                            runtime = cached.runtime,
-                            backdropUrl = cached.backdropUrl.ifBlank { cached.posterUrl.ifBlank { poster.image } },
-                            trailerUrl = resolvedTrailer,
-                            posterUrls = cachedPosters,
-                        ),
-                    )
-                }
+                _focusedDetails.value = FocusedPosterDetails(
+                    poster = poster,
+                    plot = cached.plot,
+                    genre = cached.genre,
+                    year = cached.year.ifBlank { poster.year },
+                    rating = RatingSanitizer.format(cached.rating, cached.tmdbVoteCount)
+                        .ifBlank { cleanRating(poster.rating) },
+                    runtime = cached.runtime,
+                    backdropUrl = cached.backdropUrl.ifBlank { cached.posterUrl.ifBlank { poster.image } },
+                    trailerUrl = resolvedTrailer,
+                    posterUrls = cachedPosters,
+                )
                 return@launch
             }
 
@@ -778,21 +787,17 @@ class BrowseViewModel(
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
                     .toList()
-                _state.update {
-                    it.copy(
-                        focusedDetails = FocusedPosterDetails(
-                            poster = poster,
-                            plot = cloudItem.plot,
-                            genre = cloudItem.genre,
-                            year = cloudItem.year.ifBlank { poster.year },
-                            rating = cleanCloudRating.ifBlank { cleanRating(poster.rating) },
-                            runtime = cloudItem.runtime,
-                            backdropUrl = cloudItem.backdropUrl.ifBlank { cloudItem.posterUrl.ifBlank { poster.image } },
-                            trailerUrl = cloudItem.trailerUrl,
-                            posterUrls = cloudPosters,
-                        ),
-                    )
-                }
+                _focusedDetails.value = FocusedPosterDetails(
+                    poster = poster,
+                    plot = cloudItem.plot,
+                    genre = cloudItem.genre,
+                    year = cloudItem.year.ifBlank { poster.year },
+                    rating = cleanCloudRating.ifBlank { cleanRating(poster.rating) },
+                    runtime = cloudItem.runtime,
+                    backdropUrl = cloudItem.backdropUrl.ifBlank { cloudItem.posterUrl.ifBlank { poster.image } },
+                    trailerUrl = cloudItem.trailerUrl,
+                    posterUrls = cloudPosters,
+                )
                 withContext(Dispatchers.IO) {
                     runCatching {
                         val dao = container.catalogDb.movieDao()
@@ -868,20 +873,16 @@ class BrowseViewModel(
             }.onFailure { if (it is CancellationException) throw it }
 
             if (xtreamPlot.isNotBlank()) {
-                _state.update {
-                    it.copy(
-                        focusedDetails = FocusedPosterDetails(
-                            poster = poster,
-                            plot = xtreamPlot,
-                            genre = xtreamGenre,
-                            year = xtreamYear,
-                            rating = xtreamRating,
-                            runtime = xtreamRuntime,
-                            backdropUrl = xtreamBackdrop.ifBlank { poster.image },
-                            trailerUrl = xtreamTrailer,
-                        ),
-                    )
-                }
+                _focusedDetails.value = FocusedPosterDetails(
+                    poster = poster,
+                    plot = xtreamPlot,
+                    genre = xtreamGenre,
+                    year = xtreamYear,
+                    rating = xtreamRating,
+                    runtime = xtreamRuntime,
+                    backdropUrl = xtreamBackdrop.ifBlank { poster.image },
+                    trailerUrl = xtreamTrailer,
+                )
                 return@launch
             }
 
@@ -915,21 +916,17 @@ class BrowseViewModel(
                     val resolvedYear = tmdbItem.releaseDate.take(4).ifBlank { xtreamYear }
                     val resolvedRuntime = tmdbItem.runtime?.let { "${it}m" }?.ifBlank { xtreamRuntime } ?: xtreamRuntime
 
-                    _state.update {
-                        it.copy(
-                            focusedDetails = FocusedPosterDetails(
-                                poster = poster,
-                                plot = tmdbItem.overview.ifBlank { xtreamPlot },
-                                genre = resolvedGenre,
-                                year = resolvedYear,
-                                rating = resolvedRating,
-                                runtime = resolvedRuntime,
-                                backdropUrl = resolvedBackdrop,
-                                trailerUrl = tmdbItem.trailerUrl.ifBlank { xtreamTrailer },
-                                posterUrls = tmdbItem.posterUrls,
-                            ),
-                        )
-                    }
+                    _focusedDetails.value = FocusedPosterDetails(
+                        poster = poster,
+                        plot = tmdbItem.overview.ifBlank { xtreamPlot },
+                        genre = resolvedGenre,
+                        year = resolvedYear,
+                        rating = resolvedRating,
+                        runtime = resolvedRuntime,
+                        backdropUrl = resolvedBackdrop,
+                        trailerUrl = tmdbItem.trailerUrl.ifBlank { xtreamTrailer },
+                        posterUrls = tmdbItem.posterUrls,
+                    )
                     val resolvedCast = tmdbItem.credits?.cast?.take(5)?.joinToString(", ") { it.name }.orEmpty()
                     val resolvedDirector = tmdbItem.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty()
                     val resolvedCastJson = com.saydlawy.sahab.data.catalog.encodeTmdbCastJson(tmdbItem.credits?.cast)
@@ -998,20 +995,16 @@ class BrowseViewModel(
                 }
             }
 
-            _state.update {
-                it.copy(
-                    focusedDetails = FocusedPosterDetails(
-                        poster = poster,
-                        plot = xtreamPlot,
-                        genre = xtreamGenre,
-                        year = xtreamYear,
-                        rating = xtreamRating,
-                        runtime = xtreamRuntime,
-                        backdropUrl = xtreamBackdrop.ifBlank { poster.image },
-                        trailerUrl = xtreamTrailer,
-                    ),
-                )
-            }
+            _focusedDetails.value = FocusedPosterDetails(
+                poster = poster,
+                plot = xtreamPlot,
+                genre = xtreamGenre,
+                year = xtreamYear,
+                rating = xtreamRating,
+                runtime = xtreamRuntime,
+                backdropUrl = xtreamBackdrop.ifBlank { poster.image },
+                trailerUrl = xtreamTrailer,
+            )
         }
     }
 

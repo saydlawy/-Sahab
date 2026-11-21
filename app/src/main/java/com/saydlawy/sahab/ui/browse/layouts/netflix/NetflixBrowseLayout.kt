@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
@@ -32,6 +33,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +66,7 @@ import com.saydlawy.sahab.ui.components.PosterCard
 import com.saydlawy.sahab.ui.components.RemoteImage
 import com.saydlawy.sahab.ui.components.SkeletonGrid
 import com.saydlawy.sahab.ui.components.qualityOf
+import com.saydlawy.sahab.ui.focus.rememberRestorableLazyGridState
 import com.saydlawy.sahab.ui.focus.rememberRestorableLazyListState
 import com.saydlawy.sahab.ui.focus.restorableFocus
 import com.saydlawy.sahab.ui.theme.Palette
@@ -74,36 +78,29 @@ internal fun NetflixBrowseLayout(
     route: String,
     series: Boolean,
     state: BrowseUiState,
+    focusedDetailsFlow: StateFlow<FocusedPosterDetails?>,
     items: List<Poster>,
     favoriteIds: Set<String>,
     screenRecents: List<RecentItem> = emptyList(),
     listState: LazyListState = rememberRestorableLazyListState("${route}_netflix_feed"),
+    gridState: LazyGridState = rememberRestorableLazyGridState("${route}_nf_grid"),
     callbacks: BrowseLayoutCallbacks,
 ) {
     val displayMode = LocalDisplayMode.current
     val isPhone = displayMode == DisplayMode.PHONE_PORTRAIT
     val horizPad = if (isPhone) 12.dp else 24.dp
     val density = LocalDensity.current
-    val heroDetails = state.focusedDetails ?: state.featuredHeroItems.firstOrNull()?.let { p ->
-        FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
-    }
+    val fallbackHeroPoster = state.featuredHeroItems.firstOrNull()
     val showGrid = state.query.trim().length >= 2 ||
         (state.selectedId != null && state.selectedId != ALL_CAT_ID)
 
-    val backdropAlpha by remember(listState, showGrid) {
-        derivedStateOf {
-            if (showGrid) {
-                0.22f
-            } else if (listState.firstVisibleItemIndex > 0) {
-                0f
-            } else {
-                (1f - (listState.firstVisibleItemScrollOffset / 260f)).coerceIn(0f, 1f)
-            }
-        }
-    }
-
     Box(Modifier.fillMaxSize().background(Palette.CinematicBg)) {
-        NetflixBackdrop(details = heroDetails, scrollAlpha = backdropAlpha)
+        NetflixBackdropHost(
+            focusedDetailsFlow = focusedDetailsFlow,
+            fallbackPoster = fallbackHeroPoster,
+            listState = listState,
+            showGrid = showGrid,
+        )
 
         Column(
             modifier = Modifier
@@ -133,6 +130,7 @@ internal fun NetflixBrowseLayout(
                                 DisplayMode.PHONE_LANDSCAPE -> GridCells.Fixed(5)
                                 DisplayMode.PHONE_PORTRAIT -> GridCells.Adaptive(112.dp)
                             },
+                            state = gridState,
                             modifier = Modifier.fillMaxSize().focusRestorer(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -178,13 +176,14 @@ internal fun NetflixBrowseLayout(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 26.dp),
             ) {
-                if (heroDetails != null) {
+                if (fallbackHeroPoster != null) {
                     item(key = "nf_hero_header") {
-                        NetflixHeroInfo(
+                        NetflixHeroHeaderHost(
                             screenKey = route,
-                            details = heroDetails,
+                            focusedDetailsFlow = focusedDetailsFlow,
+                            fallbackPoster = fallbackHeroPoster,
                             series = series,
-                            isFavorite = heroDetails.poster.id in favoriteIds,
+                            favoriteIds = favoriteIds,
                             hasRecents = screenRecents.isNotEmpty(),
                             onOpen = callbacks.onOpenPoster,
                             onToggleFavorite = callbacks.onToggleFavorite,
@@ -348,5 +347,60 @@ internal fun NetflixPosterTile(
         onLongClick = onLongClick,
         onFocused = onFocused,
         modifier = modifier.restorableFocus(route, focusKey, isDefault),
+    )
+}
+
+@Composable
+private fun NetflixBackdropHost(
+    focusedDetailsFlow: StateFlow<FocusedPosterDetails?>,
+    fallbackPoster: Poster?,
+    listState: LazyListState,
+    showGrid: Boolean,
+) {
+    val focusedDetails by focusedDetailsFlow.collectAsStateWithLifecycle()
+    val rawDetails = focusedDetails ?: fallbackPoster?.let { p ->
+        FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+    }
+    val heroDetails = com.saydlawy.sahab.ui.browse.layouts.rememberDebouncedHero(rawDetails)
+    val backdropAlpha by remember(listState, showGrid) {
+        derivedStateOf {
+            if (showGrid) {
+                0.22f
+            } else if (listState.firstVisibleItemIndex > 0) {
+                0f
+            } else {
+                (1f - (listState.firstVisibleItemScrollOffset / 260f)).coerceIn(0f, 1f)
+            }
+        }
+    }
+    NetflixBackdrop(details = heroDetails, scrollAlpha = backdropAlpha)
+}
+
+@Composable
+private fun NetflixHeroHeaderHost(
+    screenKey: String,
+    focusedDetailsFlow: StateFlow<FocusedPosterDetails?>,
+    fallbackPoster: Poster?,
+    series: Boolean,
+    favoriteIds: Set<String>,
+    hasRecents: Boolean,
+    onOpen: (Poster) -> Unit,
+    onToggleFavorite: (Poster) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusedDetails by focusedDetailsFlow.collectAsStateWithLifecycle()
+    val rawDetails = focusedDetails ?: fallbackPoster?.let { p ->
+        FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+    }
+    val heroDetails = com.saydlawy.sahab.ui.browse.layouts.rememberDebouncedHero(rawDetails) ?: return
+    NetflixHeroInfo(
+        screenKey = screenKey,
+        details = heroDetails,
+        series = series,
+        isFavorite = heroDetails.poster.id in favoriteIds,
+        hasRecents = hasRecents,
+        onOpen = onOpen,
+        onToggleFavorite = onToggleFavorite,
+        modifier = modifier,
     )
 }

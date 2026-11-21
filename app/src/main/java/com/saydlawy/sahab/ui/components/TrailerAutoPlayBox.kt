@@ -33,6 +33,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.saydlawy.sahab.ui.LocalContainer
 import com.saydlawy.sahab.ui.LocalIsTv
+import com.saydlawy.sahab.ui.LocalLightEffects
 import com.saydlawy.sahab.ui.player.SahabPlayer
 import com.saydlawy.sahab.ui.theme.Palette
 import kotlinx.coroutines.delay
@@ -50,6 +51,7 @@ fun TrailerAutoPlayBox(
     val context = LocalContext.current
     val container = LocalContainer.current
     val isTv = LocalIsTv.current
+    val lightMode = LocalLightEffects.current
     val cleanUrl = trailerUrl.trim()
     val youtubeVideoId = remember(cleanUrl) { extractYouTubeVideoId(cleanUrl) }
     val playableUrl = cleanUrl.takeIf { url ->
@@ -63,17 +65,17 @@ fun TrailerAutoPlayBox(
     var muted by remember(cleanUrl) { mutableStateOf(startMuted) }
     var player by remember(cleanUrl) { mutableStateOf<ExoPlayer?>(null) }
 
-    LaunchedEffect(cleanUrl, isTv) {
+    LaunchedEffect(cleanUrl, isTv, lightMode) {
         shouldPlay = false
         videoReady = false
-        if (!hasMediaSource) return@LaunchedEffect
-        val effectiveDelayMs = if (isTv) maxOf(autoPlayDelayMs, 2_000L) else autoPlayDelayMs
-        delay(effectiveDelayMs)
+        // Never spawn heavy WebView / background video trailers on Android TV or Light Effects mode.
+        if (isTv || lightMode || !hasMediaSource) return@LaunchedEffect
+        delay(autoPlayDelayMs)
         shouldPlay = true
     }
 
-    LaunchedEffect(shouldPlay, playableUrl) {
-        if (!shouldPlay || playableUrl == null) {
+    LaunchedEffect(shouldPlay, playableUrl, isTv, lightMode) {
+        if (!shouldPlay || isTv || lightMode || playableUrl == null) {
             player?.let { existing ->
                 player = null
                 SahabPlayer.releasePlayer(existing)
@@ -135,7 +137,7 @@ fun TrailerAutoPlayBox(
             ),
     ) {
         val activePlayer = player
-        if (shouldPlay && activePlayer != null && playableUrl != null) {
+        if (!isTv && !lightMode && shouldPlay && activePlayer != null && playableUrl != null) {
             AndroidEmbeddedExternalSurface(
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -148,7 +150,7 @@ fun TrailerAutoPlayBox(
                     }
                 }
             }
-        } else if (shouldPlay && youtubeVideoId != null) {
+        } else if (!isTv && !lightMode && shouldPlay && youtubeVideoId != null) {
             YouTubeEmbedPlayer(
                 videoId = youtubeVideoId,
                 muted = muted,

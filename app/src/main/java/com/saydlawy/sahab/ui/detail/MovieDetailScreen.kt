@@ -341,9 +341,11 @@ private fun MovieHeroBackdrop(
                     .fillMaxHeight(if (compact) 0.42f else 0.72f)
                     .graphicsLayer { alpha = clampedAlpha },
             ) {
+                val isTv = com.saydlawy.sahab.ui.LocalIsTv.current
+                val lightMode = com.saydlawy.sahab.ui.LocalLightEffects.current
                 val primaryImage = backdropUrl.ifBlank { fallbackPoster }
                 val isPortraitOnly = backdropUrl.isBlank() || backdropUrl == fallbackPoster
-                if (trailerUrl.isNotBlank() || !isPortraitOnly) {
+                if (!isTv && !lightMode && trailerUrl.isNotBlank()) {
                     TrailerAutoPlayBox(
                         trailerUrl = trailerUrl,
                         posterUrl = primaryImage,
@@ -357,7 +359,7 @@ private fun MovieHeroBackdrop(
                         url = primaryImage,
                         fallbackText = title,
                         contentScale = ContentScale.Crop,
-                        alignment = Alignment.TopCenter,
+                        alignment = if (isPortraitOnly) Alignment.TopCenter else Alignment.Center,
                         targetWidthPx = 1280,
                         targetHeightPx = 720,
                         modifier = Modifier.fillMaxSize(),

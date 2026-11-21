@@ -209,10 +209,14 @@ internal fun CinematicNavTab(
             modifier = Modifier
                 .width(indicatorWidth)
                 .height(3.dp)
-                .shadow(
-                    elevation = if (selected || focused) 6.dp else 0.dp,
-                    shape = RoundedCornerShape(50),
-                    spotColor = Palette.FocusCyan,
+                .then(
+                    if ((selected || focused) && !com.saydlawy.sahab.ui.LocalIsTv.current) {
+                        Modifier.shadow(
+                            elevation = 6.dp,
+                            shape = RoundedCornerShape(50),
+                            spotColor = Palette.FocusCyan,
+                        )
+                    } else Modifier,
                 )
                 .clip(RoundedCornerShape(50))
                 .background(
@@ -240,7 +244,11 @@ internal fun TopBarProfileButton(
         modifier = Modifier
             .size(size)
             .scale(scale)
-            .shadow(if (focused || active) 8.dp else 0.dp, CircleShape, spotColor = Palette.FocusCyan)
+            .then(
+                if ((focused || active) && !com.saydlawy.sahab.ui.LocalIsTv.current) {
+                    Modifier.shadow(8.dp, CircleShape, spotColor = Palette.FocusCyan)
+                } else Modifier,
+            )
             .clip(CircleShape)
             .background(
                 Brush.linearGradient(

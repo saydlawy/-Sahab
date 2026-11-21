@@ -409,7 +409,7 @@ internal fun VodEpisodesDrawer(
         ) {
             if (seasonEpisodes.isNotEmpty()) {
                 val anchorEpIdx = seasonEpisodes.indexOfFirst { it.id == currentItem.id }.let { if (it >= 0) it else 0 }
-                itemsIndexed(seasonEpisodes, key = { _, ep -> ep.id }) { epIdx, ep ->
+                itemsIndexed(seasonEpisodes, key = { idx, ep -> "ep_${ep.id}_$idx" }) { epIdx, ep ->
                     val isCurrent = ep.id == currentItem.id
                     val isFocusAnchor = epIdx == anchorEpIdx
                     val isWatched = currentEpisodeObj != null &&
@@ -418,24 +418,38 @@ internal fun VodEpisodesDrawer(
                     val isNext = currentEpisodeObj != null &&
                         ep.season == currentEpisodeObj.season &&
                         ep.number == currentEpisodeObj.number + 1
-                    val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
-                    val curPos = progState?.position ?: 0L
-                    val curDur = progState?.duration ?: 0L
+                    val imageUrl = ep.image.ifBlank { seriesDetails?.cover.orEmpty() }.ifBlank { currentItem.icon }
+                    val plotText = ep.plot.ifBlank { "حلقة كاملة بجودة عالية من ${currentItem.title}" }
 
-                    EpisodeDrawerCard(
-                        number = ep.number,
-                        title = ep.title,
-                        plot = ep.plot.ifBlank { "حلقة كاملة بجودة عالية من ${currentItem.title}" },
-                        imageUrl = ep.image.ifBlank { seriesDetails?.cover.orEmpty() }.ifBlank { currentItem.icon },
-                        durationText = ep.duration,
-                        isCurrent = isCurrent,
-                        isWatched = isWatched,
-                        isNext = isNext,
-                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
-                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
-                        modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
-                        onClick = { onSelectEpisode(ep) },
-                    )
+                    if (isCurrent) {
+                        ActiveEpisodeDrawerCard(
+                            number = ep.number,
+                            title = ep.title,
+                            plot = plotText,
+                            imageUrl = imageUrl,
+                            durationText = ep.duration,
+                            isWatched = isWatched,
+                            isNext = isNext,
+                            progressFlow = progressFlow,
+                            modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
+                            onClick = { onSelectEpisode(ep) },
+                        )
+                    } else {
+                        EpisodeDrawerCard(
+                            number = ep.number,
+                            title = ep.title,
+                            plot = plotText,
+                            imageUrl = imageUrl,
+                            durationText = ep.duration,
+                            isCurrent = false,
+                            isWatched = isWatched,
+                            isNext = isNext,
+                            progressFraction = if (isWatched) 1f else 0f,
+                            remainingMinutes = 0,
+                            modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
+                            onClick = { onSelectEpisode(ep) },
+                        )
+                    }
                 }
             } else {
                 val anchorPlayIdx = currentIndex.takeIf { it in playlist.indices } ?: 0
@@ -444,28 +458,73 @@ internal fun VodEpisodesDrawer(
                     val isFocusAnchor = idx == anchorPlayIdx
                     val isWatched = idx < currentIndex
                     val isNext = idx == currentIndex + 1
-                    val progState = if (isCurrent) progressFlow.collectAsStateWithLifecycle().value else null
-                    val curPos = progState?.position ?: 0L
-                    val curDur = progState?.duration ?: 0L
 
-                    EpisodeDrawerCard(
-                        number = idx + 1,
-                        title = p.subtitle.ifBlank { p.title },
-                        plot = p.title,
-                        imageUrl = p.icon,
-                        durationText = if (isCurrent && curDur > 0L) formatDuration(curDur) else "",
-                        isCurrent = isCurrent,
-                        isWatched = isWatched,
-                        isNext = isNext,
-                        progressFraction = if (isCurrent && curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else if (isWatched) 1f else 0f,
-                        remainingMinutes = if (isCurrent && curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
-                        modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
-                        onClick = { onSelectPlaylistIndex(idx) },
-                    )
+                    if (isCurrent) {
+                        ActiveEpisodeDrawerCard(
+                            number = idx + 1,
+                            title = p.subtitle.ifBlank { p.title },
+                            plot = p.title,
+                            imageUrl = p.icon,
+                            durationText = "",
+                            isWatched = isWatched,
+                            isNext = isNext,
+                            progressFlow = progressFlow,
+                            modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
+                            onClick = { onSelectPlaylistIndex(idx) },
+                        )
+                    } else {
+                        EpisodeDrawerCard(
+                            number = idx + 1,
+                            title = p.subtitle.ifBlank { p.title },
+                            plot = p.title,
+                            imageUrl = p.icon,
+                            durationText = "",
+                            isCurrent = false,
+                            isWatched = isWatched,
+                            isNext = isNext,
+                            progressFraction = if (isWatched) 1f else 0f,
+                            remainingMinutes = 0,
+                            modifier = if (isFocusAnchor) Modifier.focusRequester(drawerFocus) else Modifier,
+                            onClick = { onSelectPlaylistIndex(idx) },
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ActiveEpisodeDrawerCard(
+    number: Int,
+    title: String,
+    plot: String,
+    imageUrl: String,
+    durationText: String,
+    isWatched: Boolean,
+    isNext: Boolean,
+    progressFlow: StateFlow<PlaybackProgress>,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val progState by progressFlow.collectAsStateWithLifecycle()
+    val curPos = progState.position
+    val curDur = progState.duration
+    val resolvedDuration = durationText.ifBlank { if (curDur > 0L) formatDuration(curDur) else "" }
+    EpisodeDrawerCard(
+        number = number,
+        title = title,
+        plot = plot,
+        imageUrl = imageUrl,
+        durationText = resolvedDuration,
+        isCurrent = true,
+        isWatched = isWatched,
+        isNext = isNext,
+        progressFraction = if (curDur > 0L) (curPos.toFloat() / curDur).coerceIn(0.05f, 1f) else 0.05f,
+        remainingMinutes = if (curDur > curPos) ((curDur - curPos) / 60_000L).toInt().coerceAtLeast(1) else 0,
+        modifier = modifier,
+        onClick = onClick,
+    )
 }
 
 @Composable

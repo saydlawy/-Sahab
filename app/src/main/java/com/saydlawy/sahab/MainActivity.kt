@@ -55,15 +55,15 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             val themeSettings by container.prefs.themePreferences.collectAsStateWithLifecycle(initialValue = ThemePreferences())
-            SahabTheme(settings = themeSettings) {
-                LaunchedEffect(Unit) {
-                    delay(15_000L)
-                    checkForUpdates()
-                }
-                CompositionLocalProvider(
-                    LocalContainer provides container,
-                    LocalIsTv provides tv,
-                ) {
+            LaunchedEffect(Unit) {
+                delay(15_000L)
+                checkForUpdates()
+            }
+            CompositionLocalProvider(
+                LocalContainer provides container,
+                LocalIsTv provides tv,
+            ) {
+                SahabTheme(settings = themeSettings) {
                     AppRoot(container = container, onReady = { isAppReady = true })
                 }
             }

@@ -33,6 +33,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,6 +82,7 @@ import com.saydlawy.sahab.util.Ar
 internal fun PrimeBrowseLayout(
     route: String,
     state: BrowseUiState,
+    focusedDetailsFlow: StateFlow<FocusedPosterDetails?>,
     items: List<Poster>,
     favoriteIds: Set<String>,
     screenRecents: List<RecentItem>,
@@ -95,13 +98,7 @@ internal fun PrimeBrowseLayout(
             DisplayMode.PHONE_PORTRAIT -> GridCells.Adaptive(112.dp)
         }
     }
-    val rawHeroDetails = state.focusedDetails ?: state.featuredHeroItems.firstOrNull()?.let { p ->
-        FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
-    }
-    val heroDetails = rememberDebouncedHero(rawHeroDetails)
-    val rank = heroDetails?.poster?.id?.let { id ->
-        state.top10Items.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1)
-    }
+    val fallbackHeroPoster = state.featuredHeroItems.firstOrNull()
     val hPad = if (isPhone) 12.dp else 24.dp
     val homeMode = (state.selectedId == null || state.selectedId == ALL_CAT_ID) &&
         state.searchResults == null && state.query.isBlank() &&
@@ -120,7 +117,10 @@ internal fun PrimeBrowseLayout(
     }
 
     Box(Modifier.fillMaxSize().background(Palette.CinematicBg)) {
-        PrimeBackdrop(heroDetails)
+        PrimeBackdropHost(
+            focusedDetailsFlow = focusedDetailsFlow,
+            fallbackPoster = fallbackHeroPoster,
+        )
 
         Column(
             modifier = Modifier
@@ -152,12 +152,13 @@ internal fun PrimeBrowseLayout(
                 if (homeMode) {
                     item(key = "prime_hero_info", span = { GridItemSpan(maxLineSpan) }) {
                         Box(Modifier.fillMaxWidth()) {
-                            PrimeHeroInfo(
-                                details = heroDetails,
-                                rank = rank,
+                            PrimeHeroHeaderHost(
+                                focusedDetailsFlow = focusedDetailsFlow,
+                                fallbackPoster = fallbackHeroPoster,
+                                top10Items = state.top10Items,
                                 modifier = Modifier
                                     .fillMaxWidth(if (isPhone) 1f else 0.54f)
-                                    .padding(top = 4.dp, bottom = 4.dp),
+                                    .padding(top = 12.dp, bottom = 4.dp),
                             )
                         }
                     }
@@ -433,7 +434,14 @@ private fun PrimeTile(
         label = "primeTileScale",
     )
     val shape = RoundedCornerShape(8.dp)
-    BoxWithConstraints(
+    val isPhone = LocalDisplayMode.current == DisplayMode.PHONE_PORTRAIT
+    val density = LocalDensity.current
+    val tileW = if (isPhone) 172.dp else 232.dp
+    val tileWPx = remember(density, tileW) { with(density) { tileW.roundToPx() }.takeIf { it > 0 } }
+    val tileHPx = remember(tileWPx, landscape) {
+        tileWPx?.let { w -> if (landscape) (w * 9) / 16 else (w * 3) / 2 }
+    }
+    Box(
         modifier
             .aspectRatio(if (landscape) 16f / 9f else 2f / 3f)
             .graphicsLayer {
@@ -450,9 +458,6 @@ private fun PrimeTile(
             .combinedClickable(onClick = onOpen, onLongClick = onLongClick)
             .border(if (focused) 3.dp else 0.dp, Color.White, shape),
     ) {
-        val density = LocalDensity.current
-        val tileWPx = with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
-        val tileHPx = with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
         RemoteImage(
             url = poster.image,
             fallbackText = poster.name,
@@ -525,4 +530,39 @@ private fun PrimeTile(
             }
         }
     }
+}
+
+@Composable
+private fun PrimeBackdropHost(
+    focusedDetailsFlow: StateFlow<FocusedPosterDetails?>,
+    fallbackPoster: Poster?,
+) {
+    val focusedDetails by focusedDetailsFlow.collectAsStateWithLifecycle()
+    val rawDetails = focusedDetails ?: fallbackPoster?.let { p ->
+        FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+    }
+    val heroDetails = rememberDebouncedHero(rawDetails)
+    PrimeBackdrop(heroDetails)
+}
+
+@Composable
+private fun PrimeHeroHeaderHost(
+    focusedDetailsFlow: StateFlow<FocusedPosterDetails?>,
+    fallbackPoster: Poster?,
+    top10Items: List<Poster>,
+    modifier: Modifier = Modifier,
+) {
+    val focusedDetails by focusedDetailsFlow.collectAsStateWithLifecycle()
+    val rawDetails = focusedDetails ?: fallbackPoster?.let { p ->
+        FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
+    }
+    val heroDetails = rememberDebouncedHero(rawDetails)
+    val rank = heroDetails?.poster?.id?.let { id ->
+        top10Items.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1)
+    }
+    PrimeHeroInfo(
+        details = heroDetails,
+        rank = rank,
+        modifier = modifier,
+    )
 }

@@ -80,10 +80,12 @@ internal fun NetflixBackdrop(
                     .graphicsLayer { alpha = clampedAlpha },
             ) {
                 if (details != null) {
+                    val isTv = LocalIsTv.current
+                    val lightMode = com.saydlawy.sahab.ui.LocalLightEffects.current
                     val primaryImage = details.backdropUrl.ifBlank { details.poster.image }
                     val isLikelyPortraitPoster = details.backdropUrl.isBlank() ||
                         details.backdropUrl == details.poster.image
-                    if (details.trailerUrl.isNotBlank() || !isLikelyPortraitPoster) {
+                    if (!isTv && !lightMode && details.trailerUrl.isNotBlank()) {
                         TrailerAutoPlayBox(
                             trailerUrl = details.trailerUrl,
                             posterUrl = primaryImage,
@@ -91,12 +93,11 @@ internal fun NetflixBackdrop(
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
-                        // بوستر طولي بدون خلفية عرضية: نعرضه بمحاذاة علوية تمنع قصّ رؤوس الممثلين
                         RemoteImage(
                             url = primaryImage,
                             fallbackText = details.poster.name,
                             contentScale = ContentScale.Crop,
-                            alignment = Alignment.TopCenter,
+                            alignment = if (isLikelyPortraitPoster) Alignment.TopCenter else Alignment.Center,
                             targetWidthPx = 1280,
                             targetHeightPx = 720,
                             modifier = Modifier.fillMaxSize(),

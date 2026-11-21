@@ -96,10 +96,15 @@ fun BrandLogo(
     icon: ImageVector = Ic.Cloud,
 ) {
     val shape = RoundedCornerShape(size * 0.28f)
+    val isTv = com.saydlawy.sahab.ui.LocalIsTv.current
     Box(
         modifier = Modifier
             .size(size)
-            .shadow(12.dp, shape, ambientColor = Palette.Royal, spotColor = Palette.FocusCyan)
+            .then(
+                if (!isTv) {
+                    Modifier.shadow(12.dp, shape, ambientColor = Palette.Royal, spotColor = Palette.FocusCyan)
+                } else Modifier,
+            )
             .clip(shape)
             .background(
                 if (bright) {

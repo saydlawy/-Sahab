@@ -169,7 +169,6 @@ internal fun UnifiedFullscreenPlayerOsd(
     onOpenSubtitleTracks: () -> Unit = onOpenTracks,
     onToggleDrawer: () -> Unit,
 ) {
-    val nowTime = formatNowMillis(rememberNow(), "hh:mm a", Locale.US)
     val subtitleText = if (isLive) {
         currentProgram?.title?.takeIf { it.isNotBlank() } ?: item.subtitle
     } else {
@@ -254,13 +253,7 @@ internal fun UnifiedFullscreenPlayerOsd(
                 if (!activeBitrateText.isNullOrBlank()) {
                     FormatChip(label = activeBitrateText, textColor = OsdCyan)
                 }
-                Text(
-                    nowTime,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OsdOnSurface,
-                    maxLines = 1,
-                )
+                OsdClockText()
             }
         }
 
@@ -510,6 +503,7 @@ internal fun GradientTimelineBar(
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val shown = (dragFraction ?: progress).coerceIn(0f, 1f)
     val bufShown = buffered.coerceIn(shown, 1f)
+    val progressBrush = rememberTimelineProgressBrush()
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Canvas(
@@ -579,7 +573,7 @@ internal fun GradientTimelineBar(
 
             val activeWidth = (size.width * shown).coerceAtLeast(trackHeight)
             drawRoundRect(
-                brush = TimelineProgressBrush,
+                brush = progressBrush,
                 topLeft = Offset(0f, top),
                 size = Size(activeWidth, trackHeight),
                 cornerRadius = radius,
@@ -743,6 +737,19 @@ internal fun OsdPillButton(
             Icon(trailingIcon, contentDescription = null, tint = activeIconTint, modifier = Modifier.size(16.dp))
         }
     }
+}
+
+@Composable
+private fun OsdClockText() {
+    val now = rememberNow()
+    val nowTime = remember(now) { formatNowMillis(now, "hh:mm a", Locale.forLanguageTag("ar")) }
+    Text(
+        nowTime,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = OsdOnSurface,
+        maxLines = 1,
+    )
 }
 
 @Composable

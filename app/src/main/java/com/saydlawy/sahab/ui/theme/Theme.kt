@@ -7,6 +7,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -202,13 +203,12 @@ fun SahabTheme(
     content: @Composable () -> Unit,
 ) {
     val customization = remember(settings) { settings.customization() }
-    val colors = remember(settings) {
-        val resolved = resolvedColors(settings)
-        Palette.install(resolved)
-        resolved
+    val colors = remember(settings) { resolvedColors(settings) }
+    SideEffect {
+        Palette.install(colors)
     }
     val sourceDensity = LocalDensity.current
-    val tvFontBoost = if (com.saydlawy.sahab.ui.LocalIsTv.current) 1.06f else 1f
+    val tvFontBoost = if (com.saydlawy.sahab.ui.LocalIsTv.current) 1.08f else 1f
     val scaledDensity = remember(sourceDensity, customization.fontScale, tvFontBoost) {
         Density(density = sourceDensity.density, fontScale = (sourceDensity.fontScale * customization.fontScale * tvFontBoost).coerceIn(0.7f, 1.65f))
     }
@@ -220,32 +220,44 @@ fun SahabTheme(
             else -> CairoFamily
         }
     }
-    val scheme = darkColorScheme(
-        primary = colors["Royal"] ?: Color(0xFF8E45FF),
-        secondary = colors["Glow"] ?: Color(0xFF7DC4FF),
-        background = colors["DeepBlue"] ?: Color(0xFF0B0F24),
-        surface = colors["CardSurface"] ?: Color(0xFF161A29),
-        onSurface = colors["Text"] ?: Color.White,
-        onBackground = colors["Text"] ?: Color.White,
-    )
-    val base = Typography()
-    val typography = base.copy(
-        displayLarge = base.displayLarge.copy(fontFamily = selectedFont),
-        displayMedium = base.displayMedium.copy(fontFamily = selectedFont),
-        displaySmall = base.displaySmall.copy(fontFamily = selectedFont),
-        headlineLarge = base.headlineLarge.copy(fontFamily = selectedFont),
-        headlineMedium = base.headlineMedium.copy(fontFamily = selectedFont),
-        headlineSmall = base.headlineSmall.copy(fontFamily = selectedFont),
-        titleLarge = base.titleLarge.copy(fontFamily = selectedFont),
-        titleMedium = base.titleMedium.copy(fontFamily = selectedFont),
-        titleSmall = base.titleSmall.copy(fontFamily = selectedFont),
-        bodyLarge = base.bodyLarge.copy(fontFamily = selectedFont),
-        bodyMedium = base.bodyMedium.copy(fontFamily = selectedFont),
-        bodySmall = base.bodySmall.copy(fontFamily = selectedFont),
-        labelLarge = base.labelLarge.copy(fontFamily = selectedFont),
-        labelMedium = base.labelMedium.copy(fontFamily = selectedFont),
-        labelSmall = base.labelSmall.copy(fontFamily = selectedFont),
-    )
+    val scheme = remember(colors) {
+        darkColorScheme(
+            primary = colors["Royal"] ?: Color(0xFF8E45FF),
+            secondary = colors["Glow"] ?: Color(0xFF7DC4FF),
+            background = colors["DeepBlue"] ?: Color(0xFF0B0F24),
+            surface = colors["CardSurface"] ?: Color(0xFF161A29),
+            onSurface = colors["Text"] ?: Color.White,
+            onBackground = colors["Text"] ?: Color.White,
+        )
+    }
+    val typography = remember(selectedFont) {
+        val base = Typography()
+        base.copy(
+            displayLarge = base.displayLarge.copy(fontFamily = selectedFont),
+            displayMedium = base.displayMedium.copy(fontFamily = selectedFont),
+            displaySmall = base.displaySmall.copy(fontFamily = selectedFont),
+            headlineLarge = base.headlineLarge.copy(fontFamily = selectedFont),
+            headlineMedium = base.headlineMedium.copy(fontFamily = selectedFont),
+            headlineSmall = base.headlineSmall.copy(fontFamily = selectedFont),
+            titleLarge = base.titleLarge.copy(fontFamily = selectedFont),
+            titleMedium = base.titleMedium.copy(fontFamily = selectedFont),
+            titleSmall = base.titleSmall.copy(fontFamily = selectedFont),
+            bodyLarge = base.bodyLarge.copy(fontFamily = selectedFont),
+            bodyMedium = base.bodyMedium.copy(fontFamily = selectedFont),
+            bodySmall = base.bodySmall.copy(fontFamily = selectedFont),
+            labelLarge = base.labelLarge.copy(fontFamily = selectedFont),
+            labelMedium = base.labelMedium.copy(fontFamily = selectedFont),
+            labelSmall = base.labelSmall.copy(fontFamily = selectedFont),
+        )
+    }
+    val textColor = colors["Text"] ?: Color.White
+    val defaultTextStyle = remember(selectedFont, textColor) {
+        TextStyle(
+            fontFamily = selectedFont,
+            color = textColor,
+            fontSize = 16.sp,
+        )
+    }
     CompositionLocalProvider(
         LocalSahabColors provides colors,
         LocalThemePreferences provides settings,
@@ -255,12 +267,8 @@ fun SahabTheme(
         MaterialTheme(colorScheme = scheme, typography = typography) {
             CompositionLocalProvider(
                 LocalLayoutDirection provides LayoutDirection.Rtl,
-                LocalTextStyle provides TextStyle(
-                    fontFamily = selectedFont,
-                    color = colors["Text"] ?: Color.White,
-                    fontSize = 16.sp,
-                ),
-                LocalContentColor provides (colors["Text"] ?: Color.White),
+                LocalTextStyle provides defaultTextStyle,
+                LocalContentColor provides textColor,
             ) {
                 content()
             }

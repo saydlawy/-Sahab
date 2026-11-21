@@ -237,46 +237,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                         }
                     }
 
-                    val repoSyncing by container.repo.syncing.collectAsStateWithLifecycle()
-                    val catalogSyncing by container.catalogSync.syncing.collectAsStateWithLifecycle()
-                    val firebaseSyncing by container.catalogSync.firebaseSyncing.collectAsStateWithLifecycle()
-                    val firebaseSyncMessage by container.catalogSync.firebaseSyncMessage.collectAsStateWithLifecycle()
-                    val channelSyncing by container.channelSync.syncing.collectAsStateWithLifecycle()
-                    val epgSyncing by container.epgSync.syncing.collectAsStateWithLifecycle()
-                    val switchingAccount by container.switchingAccount.collectAsStateWithLifecycle()
-                    val syncing = repoSyncing || catalogSyncing || firebaseSyncing || channelSyncing || epgSyncing || switchingAccount
-                    if (switchingAccount && !onPlayer) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.58f))
-                                .pointerInput(Unit) { detectTapGestures { } },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            GlassPanel(shape = RoundedCornerShape(24.dp), strong = true, padding = 28.dp) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator(color = Palette.FocusCyan)
-                                    Spacer(Modifier.height(14.dp))
-                                    Text(
-                                        text = "جاري تبديل الاشتراك وتحديث القنوات والأفلام...",
-                                        color = Palette.Text,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.BottomCenter,
-                    ) {
-                        SyncOverlay(
-                            visible = syncing && !switchingAccount && !onPlayer,
-                            message = firebaseSyncMessage ?: "جارٍ تحديث البيانات...",
-                            modifier = Modifier.padding(bottom = 24.dp),
-                        )
-                    }
+                    RootSyncStatusOverlay(container = container, onPlayer = onPlayer)
 
                     NotificationPermissionPrompt(
                         currentRoute = currentRoute,
@@ -288,9 +249,12 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                             container = container,
                             nav = nav,
                         )
-
-                        GithubUpdatePrompt(container = container)
                     }
+
+                    GithubUpdatePrompt(
+                        container = container,
+                        visible = !onPlayer,
+                    )
                 }
             }
         }
@@ -631,7 +595,58 @@ private fun SyncPinUnlockDialog(
 }
 
 @Composable
-private fun GithubUpdatePrompt(container: AppContainer) {
+private fun RootSyncStatusOverlay(
+    container: AppContainer,
+    onPlayer: Boolean,
+) {
+    val repoSyncing by container.repo.syncing.collectAsStateWithLifecycle()
+    val catalogSyncing by container.catalogSync.syncing.collectAsStateWithLifecycle()
+    val firebaseSyncing by container.catalogSync.firebaseSyncing.collectAsStateWithLifecycle()
+    val firebaseSyncMessage by container.catalogSync.firebaseSyncMessage.collectAsStateWithLifecycle()
+    val channelSyncing by container.channelSync.syncing.collectAsStateWithLifecycle()
+    val epgSyncing by container.epgSync.syncing.collectAsStateWithLifecycle()
+    val switchingAccount by container.switchingAccount.collectAsStateWithLifecycle()
+    val syncing = repoSyncing || catalogSyncing || firebaseSyncing || channelSyncing || epgSyncing || switchingAccount
+
+    if (switchingAccount && !onPlayer) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.58f))
+                .pointerInput(Unit) { detectTapGestures { } },
+            contentAlignment = Alignment.Center,
+        ) {
+            GlassPanel(shape = RoundedCornerShape(24.dp), strong = true, padding = 28.dp) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Palette.FocusCyan)
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        text = "جاري تبديل الاشتراك وتحديث القنوات والأفلام...",
+                        color = Palette.Text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+    Box(
+        Modifier.fillMaxSize(),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        SyncOverlay(
+            visible = syncing && !switchingAccount && !onPlayer,
+            message = firebaseSyncMessage ?: "جارٍ تحديث البيانات...",
+            modifier = Modifier.padding(bottom = 24.dp),
+        )
+    }
+}
+
+@Composable
+private fun GithubUpdatePrompt(
+    container: AppContainer,
+    visible: Boolean = true,
+) {
     val context = LocalContext.current
     var pendingUpdate by remember { mutableStateOf<com.saydlawy.sahab.data.GithubReleaseUpdate?>(null) }
 
@@ -640,6 +655,7 @@ private fun GithubUpdatePrompt(container: AppContainer) {
         pendingUpdate = com.saydlawy.sahab.data.GithubReleaseUpdater.checkForUpdate(container.client)
     }
 
+    if (!visible) return
     val update = pendingUpdate ?: return
     androidx.compose.ui.window.Dialog(onDismissRequest = { pendingUpdate = null }) {
         com.saydlawy.sahab.ui.components.GlassPanel(

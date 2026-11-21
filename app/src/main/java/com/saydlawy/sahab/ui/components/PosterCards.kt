@@ -84,16 +84,23 @@ fun SkeletonGrid(
     modifier: Modifier = Modifier,
     itemCount: Int = 12,
 ) {
-    val transition = rememberInfiniteTransition(label = "skeleton")
-    val alpha by transition.animateFloat(
-        initialValue = 0.10f,
-        targetValue = 0.24f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "skeletonAlpha",
-    )
+    val isTv = LocalIsTv.current
+    val light = LocalLightEffects.current
+    val alpha: Float = if (isTv || light) {
+        0.16f
+    } else {
+        val transition = rememberInfiniteTransition(label = "skeleton")
+        val animated by transition.animateFloat(
+            initialValue = 0.10f,
+            targetValue = 0.24f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "skeletonAlpha",
+        )
+        animated
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(columnWidth),
         modifier = modifier.fillMaxSize(),
@@ -141,6 +148,12 @@ fun PosterCard(
     onFocused: (() -> Unit)? = null,
 ) {
     val cleanBadge = remember(badge) { RatingSanitizer.format(badge) }
+    val density = LocalDensity.current
+    val isTv = LocalIsTv.current
+    val targetWidthPx = remember(density, isTv) {
+        with(density) { (if (isTv) 156.dp else 136.dp).roundToPx() }.takeIf { it > 0 }
+    }
+    val targetHeightPx = remember(targetWidthPx) { targetWidthPx?.let { (it * 3) / 2 } }
     GlassCard(
         onClick = onClick,
         modifier = modifier,
@@ -151,21 +164,13 @@ fun PosterCard(
         if (focused && onFocused != null) {
             LaunchedEffect(Unit) { onFocused() }
         }
-        val isTv = LocalIsTv.current
-        BoxWithConstraints(
+        Box(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Palette.CardSurface),
         ) {
-            val density = LocalDensity.current
-            val targetWidthPx = remember(density, maxWidth) {
-                with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
-            }
-            val targetHeightPx = remember(density, maxHeight) {
-                with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
-            }
             RemoteImage(
                 url = imageUrl,
                 fallbackText = title,
@@ -199,14 +204,6 @@ fun PosterCard(
                         },
                     ),
             )
-            // Focused inner cyan rim highlight matching reference "سيد الظلام" card
-            if (focused) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(14.dp)),
-                )
-            }
 
             // Top-left (in RTL: TopEnd) TMDB genre badge
             if (genre.isNotBlank()) {

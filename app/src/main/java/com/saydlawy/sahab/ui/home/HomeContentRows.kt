@@ -159,21 +159,25 @@ internal fun ContinueWatchingCard(
     val pct = (item.progress * 100).toInt().coerceIn(5, 99)
     val barColor = if (useRedBar) Palette.LiveBadgeRed else Palette.FocusCyan
 
+    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+    val cardWidth = if (isTvOrTablet) 232.dp else 198.dp
+    val cardHeight = if (isTvOrTablet) 114.dp else 102.dp
+    val density = LocalDensity.current
+    val imgWPx = remember(density, cardWidth) { with(density) { cardWidth.roundToPx() }.takeIf { it > 0 } }
+    val imgHPx = remember(density, cardHeight) { with(density) { cardHeight.roundToPx() }.takeIf { it > 0 } }
+
     GlassCard(
         onClick = item.onClick,
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
         focusScale = 1.04f,
     ) { focused ->
-        BoxWithConstraints(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(12.dp))
                 .background(Palette.CardSurface),
         ) {
-            val density = LocalDensity.current
-            val imgWPx = with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
-            val imgHPx = with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
             RemoteImage(
                 url = item.imageUrl,
                 fallbackText = item.title,

@@ -192,7 +192,7 @@ fun GlassCard(
                 scaleY = scale
             }
             .then(
-                if (focused) {
+                if (focused && !isTv && !light) {
                     Modifier.shadow(
                         elevation = 16.dp,
                         shape = resolvedShape,
@@ -249,13 +249,18 @@ fun GlassButton(
     autoFocus: Boolean = false,
     trailingIcon: ImageVector? = null,
 ) {
+    val isTv = LocalIsTv.current
+    val light = LocalLightEffects.current
     GlassCard(
         onClick = onClick,
         modifier = modifier
             .heightIn(min = 54.dp)
             .then(
-                if (primary) Modifier.shadow(14.dp, RoundedCornerShape(18.dp), ambientColor = Palette.Royal, spotColor = Palette.Royal)
-                else Modifier,
+                if (primary && !isTv && !light) {
+                    Modifier.shadow(14.dp, RoundedCornerShape(18.dp), ambientColor = Palette.Royal, spotColor = Palette.Royal)
+                } else {
+                    Modifier
+                },
             ),
         shape = RoundedCornerShape(18.dp),
         fill = if (primary) Palette.Accent else null,

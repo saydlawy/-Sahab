@@ -33,14 +33,19 @@ fun SahabIcon(
         }
         else -> modifier
     }
+    val scale = customization.iconScale.coerceIn(0.7f, 1.4f)
+    val scaledModifier = if (scale < 0.99f || scale > 1.01f) {
+        styled.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+    } else {
+        styled
+    }
     Icon(
         imageVector = imageVector,
         contentDescription = contentDescription,
-        modifier = styled.graphicsLayer {
-            val scale = customization.iconScale.coerceIn(0.7f, 1.4f)
-            scaleX = scale
-            scaleY = scale
-        },
+        modifier = scaledModifier,
         tint = tint,
     )
 }

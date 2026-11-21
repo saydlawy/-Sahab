@@ -2,11 +2,15 @@ package com.saydlawy.sahab
 
 import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.Channel
+import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.data.DiskCache
+import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.TmdbApi
 import com.saydlawy.sahab.data.XtreamApi
 import com.saydlawy.sahab.data.channel.ChannelSync
+import com.saydlawy.sahab.ui.browse.BrowseUiState
+import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
 import com.saydlawy.sahab.util.ServerUrl
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.builtins.ListSerializer
@@ -14,6 +18,8 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -72,5 +78,38 @@ class Phase2PerformanceAndUxRegressionTest {
         assertEquals("http://portal.tv:8080", ServerUrl.normalizeServer("  portal.tv:8080/c/ "))
         assertEquals("https://secure.tv", ServerUrl.normalizeServer("https://secure.tv/player_api.php?a=1"))
         assertNull(ServerUrl.normalizeServer("   "))
+    }
+
+    @Test
+    fun browseUiState_decouplesFocusedDetailsSoFocusTransitionsPreserveStructuralEquality() {
+        val fieldNames = BrowseUiState::class.java.declaredFields.map { it.name }
+        assertFalse(
+            "BrowseUiState must not hold focusedDetails directly (AUD-002)",
+            "focusedDetails" in fieldNames,
+        )
+
+        val categories = listOf(Category(id = "10", name = "أفلام أكشن"))
+        val posterA = Poster(id = "m1", name = "فيلم ١", year = "2024", rating = "8.1")
+        val posterB = Poster(id = "m2", name = "فيلم ٢", year = "2025", rating = "7.5")
+
+        val stateBeforeFocusMove = BrowseUiState(
+            categories = categories,
+            selectedId = "10",
+            items = listOf(posterA, posterB),
+            loadingCategories = false,
+        )
+        val stateAfterFocusMove = BrowseUiState(
+            categories = categories,
+            selectedId = "10",
+            items = listOf(posterA, posterB),
+            loadingCategories = false,
+        )
+
+        val focusA = FocusedPosterDetails(poster = posterA, year = "2024", rating = "8.1")
+        val focusB = FocusedPosterDetails(poster = posterB, year = "2025", rating = "7.5")
+
+        assertNotEquals(focusA, focusB)
+        assertEquals(stateBeforeFocusMove, stateAfterFocusMove)
+        assertEquals(stateBeforeFocusMove.visibleItems, stateAfterFocusMove.visibleItems)
     }
 }

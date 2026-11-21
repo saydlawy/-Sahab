@@ -13,7 +13,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saydlawy.sahab.data.Kind
@@ -128,8 +131,16 @@ fun BrowseScreen(
     }
 
     val rawItems = state.visibleItems
-    val items = remember(rawItems, state.selectedId, favoriteIds, state.searchResults, favorites, screenRecents) {
-        when {
+    val items by produceState(
+        initialValue = emptyList(),
+        rawItems,
+        state.selectedId,
+        favoriteIds,
+        state.searchResults,
+        favorites,
+        screenRecents,
+    ) {
+        value = when {
             state.selectedId == RECENTS_CAT_ID && state.searchResults == null -> {
                 screenRecents.map { r ->
                     Poster(
@@ -143,7 +154,11 @@ fun BrowseScreen(
                 }.distinctBy { it.id }
             }
             state.selectedId == FAV_CAT_ID && state.searchResults == null -> {
-                val fromPool = rawItems.filter { it.id in favoriteIds }
+                val fromPool = if (rawItems.size > 400) {
+                    withContext(Dispatchers.Default) { rawItems.filter { it.id in favoriteIds } }
+                } else {
+                    rawItems.filter { it.id in favoriteIds }
+                }
                 if (fromPool.isNotEmpty()) fromPool
                 else favorites.filter { it.kind == kind }.map {
                     Poster(id = it.id, name = it.name, image = it.icon, rating = "", ext = it.ext, year = "")
@@ -235,6 +250,7 @@ fun BrowseScreen(
                     VodLayoutStyle.PRIME -> PrimeBrowseLayout(
                         route = route,
                         state = state,
+                        focusedDetailsFlow = vm.focusedDetails,
                         items = items,
                         favoriteIds = favoriteIds,
                         screenRecents = screenRecents,
@@ -245,10 +261,12 @@ fun BrowseScreen(
                         route = route,
                         series = series,
                         state = state,
+                        focusedDetailsFlow = vm.focusedDetails,
                         items = items,
                         favoriteIds = favoriteIds,
                         screenRecents = screenRecents,
                         listState = netflixFeedState,
+                        gridState = gridState,
                         callbacks = callbacks,
                     )
                 }

@@ -284,12 +284,12 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    // Keep screen awake; hide system bars only in landscape / TV mode so portrait phone has normal status bar spacing.
-    DisposableEffect(displayMode) {
+    // Keep screen awake; hide system bars only in landscape / mobile mode so Android TV never flashes system chrome.
+    DisposableEffect(displayMode, isTv) {
         val activity = context.findActivity()
         val window = activity?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-        if (displayMode != DisplayMode.PHONE_PORTRAIT) {
+        if (isTv || displayMode != DisplayMode.PHONE_PORTRAIT) {
             controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller?.hide(WindowInsetsCompat.Type.systemBars())
         } else {
@@ -297,7 +297,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
         view.keepScreenOn = true
         onDispose {
-            controller?.show(WindowInsetsCompat.Type.systemBars())
+            if (!isTv) {
+                controller?.show(WindowInsetsCompat.Type.systemBars())
+            }
             view.keepScreenOn = false
         }
     }

@@ -272,6 +272,7 @@ internal fun ChannelRow(
     val program = programs.first
     val next = programs.second
     var focused by remember { mutableStateOf(false) }
+    val isTv = LocalIsTv.current
     val active = focused || isPreviewed
     val shape = RoundedCornerShape(appDp(16))
     val borderColor = when {
@@ -334,7 +335,7 @@ internal fun ChannelRow(
                 isDefaultEntry = isDefaultEntry,
             )
             .then(
-                if (active) {
+                if (active && !isTv) {
                     Modifier.shadow(
                         elevation = appDp(12),
                         shape = shape,

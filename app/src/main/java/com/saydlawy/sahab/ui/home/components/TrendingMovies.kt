@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,7 +95,7 @@ fun TrendingMoviesSection(
         ) {
             itemsIndexed(
                 items = movies,
-                key = { _, item -> "${rowKey}_${item.novaStreamId.ifEmpty { item.sahabId }}" },
+                key = { index, item -> "${rowKey}_${index}_${item.novaStreamId.ifEmpty { item.sahabId }}" },
             ) { index, movie ->
                 val itemFocusKey = "${rowKey}_${movie.novaStreamId.ifEmpty { movie.sahabId }}"
                 TrendingMovieCard(
@@ -132,21 +133,24 @@ private fun TrendingMovieCard(
         else -> ""
     }
 
+    val isTvOrTablet = LocalDisplayMode.current == DisplayMode.TABLET_OR_TV
+    val cardWidthDp = if (isTvOrTablet) 148.dp else 130.dp
+    val density = LocalDensity.current
+    val imgWPx = remember(density, cardWidthDp) { with(density) { cardWidthDp.roundToPx() }.takeIf { it > 0 } }
+    val imgHPx = remember(imgWPx) { imgWPx?.let { (it * 3) / 2 } }
+
     GlassCard(
         onClick = onClick,
         modifier = modifier.aspectRatio(2f / 3f),
         shape = RoundedCornerShape(14.dp),
         focusScale = 1.05f,
-    ) { focused ->
-        BoxWithConstraints(
+    ) { _ ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(14.dp))
                 .background(Palette.CardSurface),
         ) {
-            val density = LocalDensity.current
-            val imgWPx = with(density) { maxWidth.roundToPx() }.takeIf { it > 0 }
-            val imgHPx = with(density) { maxHeight.roundToPx() }.takeIf { it > 0 }
             RemoteImage(
                 url = movie.posterUrl,
                 fallbackText = movie.titleAr,
@@ -171,15 +175,6 @@ private fun TrendingMovieCard(
                         ),
                     ),
             )
-
-            // Focused glowing cyan border highlight matching reference image
-            if (focused) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .border(2.5.dp, Palette.FocusCyan, RoundedCornerShape(14.dp)),
-                )
-            }
 
             // Bottom metadata overlay
             Column(
