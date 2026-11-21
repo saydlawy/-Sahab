@@ -159,6 +159,8 @@ object Ar {
 
     fun itemsCount(count: Int) = "$count عنوان"
 
+    fun channelsCount(count: Int) = "$count قناة"
+
     fun subscriptionLine(date: String, daysLeft: Int) = "ينتهي الاشتراك في $date · متبقي $daysLeft يوماً"
 
     fun subscriptionEnded(date: String) = "انتهى الاشتراك في $date"

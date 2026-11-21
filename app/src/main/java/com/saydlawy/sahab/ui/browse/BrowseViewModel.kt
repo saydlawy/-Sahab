@@ -307,6 +307,10 @@ class BrowseViewModel(
         val hero = ranked.filter { it.image.isNotBlank() }.take(6).ifEmpty { allItems.take(6) }
         val top10 = ranked
             .filter { RatingSanitizer.parseValid(it.rating, facets[it.id]?.tmdbVoteCount) != null }
+            .distinctBy { poster ->
+                val facetTitle = facets[poster.id]?.titleEn?.ifBlank { facets[poster.id]?.titleAr } ?: poster.name
+                normalizeTitleKey(facetTitle).ifBlank { poster.id }
+            }
             .take(10)
         val byCat = allItems.groupBy { it.categoryId }
         val groups = categories.mapNotNull { cat ->
@@ -482,14 +486,11 @@ class BrowseViewModel(
                 }
 
                 val firstCatId = preferredCat ?: categories.firstOrNull()?.id ?: ALL_CAT_ID
-                val mediaType = if (series) "series" else "movie"
-                val initialRoomPage = if (preferredCat == null || preferredCat == ALL_CAT_ID) {
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            container.catalogDb.movieDao().getPaged(mediaType = mediaType, limit = 120, offset = 0)
-                                .map { it.toPoster() }
-                        }.getOrDefault(emptyList())
-                    }
+                val initialPageCategory = preferredCat?.takeIf { it != FAV_CAT_ID && it != RECENTS_CAT_ID }
+                val initialRoomPage = if (preferredCat != FAV_CAT_ID && preferredCat != RECENTS_CAT_ID) {
+                    runCatching {
+                        loadCatalogPage(categoryId = initialPageCategory, limit = 120, offset = 0)
+                    }.getOrDefault(emptyList())
                 } else {
                     emptyList()
                 }
@@ -497,7 +498,7 @@ class BrowseViewModel(
                     _state.update {
                         it.copy(
                             categories = categories,
-                            selectedId = ALL_CAT_ID,
+                            selectedId = initialPageCategory ?: ALL_CAT_ID,
                             items = initialRoomPage,
                             loadingCategories = false,
                             loadingItems = false,

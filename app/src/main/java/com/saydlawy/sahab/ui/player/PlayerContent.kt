@@ -178,7 +178,8 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     var trackSelectionParams by remember { mutableStateOf(exo.trackSelectionParameters) }
     var controlsVisible by remember { mutableStateOf(true) }
     var interactions by remember { mutableIntStateOf(0) }
-    var showTracks by remember { mutableStateOf(false) }
+    var activeTrackSection by remember { mutableStateOf<TrackSection?>(null) }
+    val showTracks = activeTrackSection != null
     var showGuide by remember { mutableStateOf(false) }
     var showQuickChannelsDrawer by remember { mutableStateOf(false) }
     var showEpisodesDrawer by remember { mutableStateOf(false) }
@@ -531,7 +532,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
     val handleBack: () -> Unit = {
         when {
             showTracks -> {
-                showTracks = false
+                activeTrackSection = null
                 interactions++
                 vm.bumpPlayFocusTick()
             }
@@ -626,7 +627,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                         }
                         Key.DirectionDown -> {
                             if (currentIsLive) zapPrevious() else {
-                                showTracks = true
+                                activeTrackSection = TrackSection.ALL
                             }
                             controlsVisible = true
                         }
@@ -747,7 +748,7 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                         vm.cycleResize(ResizeModes.size)
                         interactions++
                     },
-                    onOpenTracks = { showTracks = true },
+                    onOpenTracks = { activeTrackSection = TrackSection.ALL },
                     onOpenGuide = { showGuide = true },
                     onEnterLandscape = toggleOrientation,
                     onRetry = { vm.retry() },
@@ -862,7 +863,15 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                                 interactions++
                             },
                             onOpenTracks = {
-                                showTracks = true
+                                activeTrackSection = TrackSection.QUALITY
+                                interactions++
+                            },
+                            onOpenAudioTracks = {
+                                activeTrackSection = TrackSection.AUDIO
+                                interactions++
+                            },
+                            onOpenSubtitleTracks = {
+                                activeTrackSection = TrackSection.SUBTITLES
                                 interactions++
                             },
                             onToggleDrawer = {
@@ -968,9 +977,14 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
         }
     }
 
-    if (showTracks) {
-        TracksDialog(tracks, exo, trackSelectionParams) {
-            showTracks = false
+    activeTrackSection?.let { section ->
+        TracksDialog(
+            tracks = tracks,
+            exo = exo,
+            trackSelectionParams = trackSelectionParams,
+            initialSection = section,
+        ) {
+            activeTrackSection = null
             interactions++
             vm.bumpPlayFocusTick()
         }

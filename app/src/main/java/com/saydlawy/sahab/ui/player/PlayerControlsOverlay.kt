@@ -361,6 +361,12 @@ internal fun UnifiedFullscreenPlayerOsd(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         OsdIconSquareButton(
+                            icon = Ic.Tune,
+                            description = "${Ar.videoQuality} — الجودة",
+                            onClick = onOpenTracks,
+                            size = 38.dp,
+                        )
+                        OsdIconSquareButton(
                             icon = Ic.Equalizer,
                             description = "${Ar.audio} — المسارات الصوتية",
                             onClick = onOpenAudioTracks,

@@ -41,10 +41,11 @@ fun CompactTopBarInfo(modifier: Modifier = Modifier) {
 
     val (weatherIcon, weatherTint) = when (weather.condition) {
         WeatherCondition.CLEAR_DAY -> Ic.Sun to Color(0xFFFBBF24)
-        WeatherCondition.CLEAR_NIGHT -> Ic.Cloud to Palette.Glow
+        WeatherCondition.CLEAR_NIGHT -> Ic.Moon to Palette.Glow
         WeatherCondition.PARTLY_CLOUDY -> Ic.Sun to Color(0xFFFCD34D)
         WeatherCondition.CLOUDY, WeatherCondition.FOG -> Ic.Cloud to Palette.TextDim
-        WeatherCondition.RAIN, WeatherCondition.THUNDERSTORM -> Ic.Cloud to Palette.FocusCyan
+        WeatherCondition.RAIN -> Ic.Rain to Palette.FocusCyan
+        WeatherCondition.THUNDERSTORM -> Ic.Thunderstorm to Color(0xFFFBBF24)
         WeatherCondition.SNOW -> Ic.Cloud to Color.White
     }
 

@@ -186,7 +186,7 @@ internal fun ChannelColumn(
                 )
             }
             if (channels.isNotEmpty()) {
-                Tag(Ar.itemsCount(channels.size), Palette.FocusCyan, fontSize = appSp(10))
+                Tag(Ar.channelsCount(channels.size), Palette.FocusCyan, fontSize = appSp(10))
             }
         }
 

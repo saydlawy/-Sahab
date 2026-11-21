@@ -11,6 +11,7 @@ import com.saydlawy.sahab.data.XtreamApi
 import com.saydlawy.sahab.data.channel.ChannelSync
 import com.saydlawy.sahab.ui.browse.BrowseUiState
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
+import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.ServerUrl
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.builtins.ListSerializer
@@ -111,5 +112,11 @@ class Phase2PerformanceAndUxRegressionTest {
         assertNotEquals(focusA, focusB)
         assertEquals(stateBeforeFocusMove, stateAfterFocusMove)
         assertEquals(stateBeforeFocusMove.visibleItems, stateAfterFocusMove.visibleItems)
+    }
+
+    @Test
+    fun arabicLocalization_rendersChannelsCountDistinctlyFromVodItemsCount() {
+        assertEquals("1529 قناة", Ar.channelsCount(1529))
+        assertEquals("1529 عنوان", Ar.itemsCount(1529))
     }
 }

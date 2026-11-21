@@ -465,7 +465,7 @@ internal fun LiveChannelReferenceCard(
         Palette.FocusCyan,
     )
     val bottomAccent = accentColors[index % accentColors.size]
-    val circleSize = if (LocalDisplayMode.current == DisplayMode.TABLET_OR_TV) 54.dp else 46.dp
+    val circleSize = if (LocalDisplayMode.current == DisplayMode.TABLET_OR_TV) 46.dp else 40.dp
 
     val primaryLogoUrl = remember(channel.icon, channel.name) {
         ChannelLogoResolver.resolvePrimaryUrl(channel.icon, channel.name)
@@ -498,11 +498,11 @@ internal fun LiveChannelReferenceCard(
                 onClick = onClick,
             ),
     ) {
-        // Centered circular channel badge with automatic internet logo resolution
+        // Centered circular channel badge slightly lifted to make room for channel name label
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
-                .offset(y = (-2).dp)
+                .offset(y = (-8).dp)
                 .size(circleSize)
                 .clip(CircleShape)
                 .background(Color.White)
@@ -571,12 +571,27 @@ internal fun LiveChannelReferenceCard(
             )
         }
 
+        // Channel name label clearly visible above accent bar
+        Text(
+            text = channel.name,
+            color = if (focused) Color.White else Palette.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(start = 8.dp, end = 8.dp, bottom = 10.dp),
+        )
+
         // Subtle bottom progress/accent line matching reference image
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = 12.dp, vertical = 5.dp)
                 .height(2.5.dp)
                 .clip(RoundedCornerShape(50))
                 .background(Color.White.copy(alpha = 0.14f)),
