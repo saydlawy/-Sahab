@@ -345,10 +345,13 @@ class CatalogSync(
             return null
         }
 
-        // 1. البحث في السحابة (Firebase) أولاً (نتخطاه عند التحديث اليدوي force لإعادة المطابقة)
+        // 1. البحث في السحابة (Firebase) فقط إذا كان للعنصر tmdbId فعلي (تجنباً لاستنزاف القراءات بطلبات pending:)
         val cloudLookupId = existing.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
-            ?: existing.sahabId
-        val cloudData = if (!force) firebaseCatalog.getCatalogItem(cloudLookupId) else null
+        val cloudData = if (!force && cloudLookupId != null) {
+            runCatching { firebaseCatalog.getCatalogItem(cloudLookupId) }.getOrNull()
+        } else {
+            null
+        }
         if (cloudData != null && cloudData.plot.isNotBlank()) {
             dao.applyEnrichment(
                 streamId = streamId,
