@@ -118,8 +118,12 @@ class BrowseViewModel(
                     val changed = prev.organizationMode != mode || prev.customGrouping != grouping
                     _state.update { it.copy(organizationMode = mode, customGrouping = grouping) }
                     val pool = searchPool
-                    if (changed && !pool.isNullOrEmpty()) {
-                        applyOrganization(pool, mode, grouping)
+                    if (changed) {
+                        if (!pool.isNullOrEmpty()) {
+                            applyOrganization(pool, mode, grouping)
+                        } else {
+                            applyOrganizationFromRoom(mode, grouping)
+                        }
                     }
                 }
         }
@@ -264,24 +268,32 @@ class BrowseViewModel(
         if (items.isEmpty()) return items
         val facets = getFacetsMap()
         val byTitle = cachedFacetsByTitle
-        return withContext(Dispatchers.Default) {
-            items.map { p ->
+        val (enriched, resolved) = withContext(Dispatchers.Default) {
+            val resolvedMap = HashMap<String, CatalogFacetRow>(items.size)
+            val out = ArrayList<Poster>(items.size)
+            for (p in items) {
                 val f = resolveFacet(p, facets, byTitle)
+                if (f != null) resolvedMap[p.id] = f
                 val tmdbRating = RatingSanitizer.format(f?.rating, f?.tmdbVoteCount)
                 val finalRating = tmdbRating.ifBlank { RatingSanitizer.format(p.rating) }
                 val finalYear = VodCustomOrganizer.extractTmdbYear(f?.year).ifBlank { p.year }
                 val finalGenre = VodCustomOrganizer.primaryGenre(f?.genre).ifBlank { p.genre }
-                if (finalRating == p.rating && finalYear == p.year && finalGenre == p.genre) {
-                    p
-                } else {
-                    p.copy(
-                        rating = finalRating,
-                        year = finalYear,
-                        genre = finalGenre,
-                    )
-                }
+                out.add(
+                    if (finalRating == p.rating && finalYear == p.year && finalGenre == p.genre) {
+                        p
+                    } else {
+                        p.copy(
+                            rating = finalRating,
+                            year = finalYear,
+                            genre = finalGenre,
+                        )
+                    }
+                )
             }
+            out to resolvedMap
         }
+        cachedResolvedFacets = resolved
+        return enriched
     }
 
     private suspend fun ensureResolvedFacets(allItems: List<Poster>): Map<String, CatalogFacetRow> {
@@ -306,6 +318,107 @@ class BrowseViewModel(
             VodCustomOrganizer.prepareSortedItems(allItems, resolved)
         }.also { cachedPreSortedItems = it }
     }
+
+    private suspend fun applyOrganizationFromRoom(
+        mode: VodOrganizationMode = _state.value.organizationMode,
+        grouping: VodCustomGrouping = _state.value.customGrouping,
+        preferredCat: String? = null,
+    ) {
+        val mediaType = if (series) "series" else "movie"
+        if (mode == VodOrganizationMode.DEFAULT) {
+            customItemsByCategory = emptyMap()
+            val currentSel = preferredCat ?: _state.value.selectedId
+            val targetCat = if (currentSel == null || currentSel.startsWith(CUSTOM_CAT_PREFIX)) ALL_CAT_ID else currentSel
+            val queryCat = targetCat.takeIf { it != ALL_CAT_ID && it != FAV_CAT_ID && it != RECENTS_CAT_ID }
+            val page = runCatching { loadCatalogPage(queryCat, limit = 120, offset = 0) }.getOrDefault(emptyList())
+            val (hero, top10) = buildHeroAndTop10(page)
+            _state.update {
+                it.copy(
+                    categories = defaultCategories,
+                    selectedId = targetCat,
+                    items = page,
+                    categoryCounts = defaultCounts,
+                    featuredHeroItems = hero,
+                    top10Items = top10,
+                    loadingItems = false,
+                )
+            }
+            return
+        }
+
+        val (customCats, countsMap) = withContext(Dispatchers.IO) {
+            val dao = container.catalogDb.movieDao()
+            val counts = LinkedHashMap<String, Int>()
+            when (grouping) {
+                VodCustomGrouping.GENRE -> {
+                    for (raw in dao.getRawGenres(mediaType)) {
+                        for (part in raw.split(',', '/', '|', '،')) {
+                            val token = part.trim()
+                            if (token.length >= 2) counts[token] = (counts[token] ?: 0) + 1
+                        }
+                    }
+                }
+                VodCustomGrouping.YEAR -> {
+                    for (raw in dao.getRawYears(mediaType)) {
+                        val y = VodCustomOrganizer.extractTmdbYear(raw)
+                        if (y.length == 4) counts[y] = (counts[y] ?: 0) + 1
+                    }
+                }
+                VodCustomGrouping.CAST -> {
+                    for (raw in dao.getRawCasts(mediaType)) {
+                        for (part in raw.split(',', '،')) {
+                            val actor = part.trim()
+                            if (actor.length >= 2) counts[actor] = (counts[actor] ?: 0) + 1
+                        }
+                    }
+                }
+            }
+            val sortedEntries = when (grouping) {
+                VodCustomGrouping.YEAR -> counts.entries.sortedByDescending { it.key }
+                VodCustomGrouping.CAST -> counts.entries.sortedByDescending { it.value }.take(80)
+                VodCustomGrouping.GENRE -> counts.entries.sortedByDescending { it.value }.take(40)
+            }
+            val prefix = when (grouping) {
+                VodCustomGrouping.GENRE -> "${CUSTOM_CAT_PREFIX}genre:"
+                VodCustomGrouping.YEAR -> "${CUSTOM_CAT_PREFIX}year:"
+                VodCustomGrouping.CAST -> "${CUSTOM_CAT_PREFIX}cast:"
+            }
+            val cats = sortedEntries.map { Category(id = prefix + it.key, name = it.key) }
+            val catCounts = sortedEntries.associate { (prefix + it.key) to it.value }
+            cats to catCounts
+        }
+
+        customItemsByCategory = emptyMap()
+        val firstCat = preferredCat?.takeIf { id -> customCats.any { it.id == id } } ?: ALL_CAT_ID
+        val initialItems = if (firstCat == ALL_CAT_ID) {
+            runCatching { loadCatalogPage(null, limit = 120, offset = 0) }.getOrDefault(emptyList())
+        } else {
+            loadCustomRoomPage(firstCat, limit = 120, offset = 0)
+        }
+        _state.update {
+            it.copy(
+                categories = customCats,
+                selectedId = firstCat,
+                items = initialItems,
+                categoryCounts = countsMap,
+                loadingItems = false,
+            )
+        }
+    }
+
+    private suspend fun loadCustomRoomPage(categoryId: String, limit: Int = 120, offset: Int = 0): List<Poster> =
+        withContext(Dispatchers.IO) {
+            val mediaType = if (series) "series" else "movie"
+            val dao = container.catalogDb.movieDao()
+            val raw = categoryId.removePrefix(CUSTOM_CAT_PREFIX)
+            val entities = when {
+                raw.startsWith("genre:") -> dao.getPagedByGenre(raw.removePrefix("genre:"), mediaType, limit, offset)
+                raw.startsWith("year:") -> dao.getPagedByYear(raw.removePrefix("year:"), mediaType, limit, offset)
+                raw.startsWith("cast:") -> dao.getPagedByCast(raw.removePrefix("cast:"), mediaType, limit, offset)
+                else -> emptyList()
+            }
+            entities.map { it.toPoster() }
+        }
 
     private suspend fun applyOrganization(
         allItems: List<Poster>,
@@ -523,8 +636,64 @@ class BrowseViewModel(
             try {
                 val categories = fetchCategories()
                 defaultCategories = categories
-                val cachedAll = peekAllItems()
                 val preferredCat = initialCategoryId ?: _state.value.selectedId
+                val initialPageCategory = preferredCat?.takeIf { it != FAV_CAT_ID && it != RECENTS_CAT_ID }
+
+                // Render first page directly from Room immediately before any full-catalog work
+                val roomFirstPage = if (preferredCat != FAV_CAT_ID && preferredCat != RECENTS_CAT_ID) {
+                    runCatching {
+                        loadCatalogPage(categoryId = initialPageCategory, limit = 120, offset = 0)
+                    }.getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
+                if (roomFirstPage.isNotEmpty()) {
+                    val mediaType = if (series) "series" else "movie"
+                    val (roomTotal, roomCounts) = withContext(Dispatchers.IO) {
+                        val dao = container.catalogDb.movieDao()
+                        val total = runCatching { dao.countByType(mediaType) }.getOrDefault(roomFirstPage.size)
+                        val counts = runCatching {
+                            dao.getCategoryCounts(mediaType).associate { it.categoryId to it.cnt }
+                        }.getOrDefault(emptyMap())
+                        total to counts
+                    }
+                    defaultCounts = roomCounts
+                    val (roomHero, roomTop10) = buildHeroAndTop10(roomFirstPage)
+                    _state.update {
+                        it.copy(
+                            categories = categories,
+                            selectedId = initialPageCategory ?: ALL_CAT_ID,
+                            items = roomFirstPage,
+                            totalCount = roomTotal,
+                            categoryCounts = roomCounts,
+                            featuredHeroItems = roomHero,
+                            top10Items = roomTop10,
+                            loadingCategories = false,
+                            loadingItems = false,
+                        )
+                    }
+                    val heroFirst = roomHero.firstOrNull() ?: roomFirstPage.firstOrNull()
+                    if (_focusedDetails.value == null && heroFirst != null) {
+                        _focusedDetails.value = FocusedPosterDetails(
+                            poster = heroFirst,
+                            year = heroFirst.year,
+                            rating = cleanRating(heroFirst.rating),
+                            backdropUrl = heroFirst.image,
+                        )
+                    }
+                    heroFirst?.let { fetchDetailsForHero(it) }
+                    // Room is the single source of truth for both Default and Custom modes
+                    if (_state.value.organizationMode == VodOrganizationMode.CUSTOM) {
+                        applyOrganizationFromRoom(
+                            mode = VodOrganizationMode.CUSTOM,
+                            grouping = _state.value.customGrouping,
+                            preferredCat = preferredCat,
+                        )
+                    }
+                    return@launch
+                }
+
+                val cachedAll = peekAllItems()
 
                 if (!cachedAll.isNullOrEmpty()) {
                     val enrichedAll = enrichWithTmdb(cachedAll)
@@ -742,16 +911,50 @@ class BrowseViewModel(
                 }
                 return
             }
+            _state.update { it.copy(selectedId = ALL_CAT_ID, loadingItems = true, error = null) }
+            itemsJob = viewModelScope.launch {
+                val roomItems = runCatching { loadCatalogPage(null, limit = 200, offset = 0) }.getOrDefault(emptyList())
+                if (roomItems.isNotEmpty()) {
+                    _state.update {
+                        it.copy(
+                            selectedId = ALL_CAT_ID,
+                            items = roomItems,
+                            loadingItems = false,
+                            error = null,
+                        )
+                    }
+                    return@launch
+                }
+                fetchCategoryItems(ALL_CAT_ID)
+            }
+            return
         }
         if (categoryId.startsWith(CUSTOM_CAT_PREFIX)) {
             val customList = customItemsByCategory[categoryId].orEmpty()
-            _state.update {
-                it.copy(
-                    selectedId = categoryId,
-                    items = customList,
-                    loadingItems = false,
-                    error = null,
-                )
+            if (customList.isNotEmpty()) {
+                _state.update {
+                    it.copy(
+                        selectedId = categoryId,
+                        items = customList,
+                        loadingItems = false,
+                        error = null,
+                    )
+                }
+                return
+            }
+            _state.update { it.copy(selectedId = categoryId, loadingItems = true, error = null) }
+            itemsJob = viewModelScope.launch {
+                val roomItems = runCatching {
+                    loadCustomRoomPage(categoryId, limit = 200, offset = 0)
+                }.getOrDefault(emptyList())
+                _state.update {
+                    it.copy(
+                        selectedId = categoryId,
+                        items = roomItems,
+                        loadingItems = false,
+                        error = null,
+                    )
+                }
             }
             return
         }
@@ -782,6 +985,18 @@ class BrowseViewModel(
 
         _state.update { it.copy(selectedId = categoryId, loadingItems = true, error = null) }
         itemsJob = viewModelScope.launch {
+            val roomItems = runCatching { loadCatalogPage(categoryId, limit = 200, offset = 0) }.getOrDefault(emptyList())
+            if (roomItems.isNotEmpty()) {
+                _state.update {
+                    it.copy(
+                        selectedId = categoryId,
+                        items = roomItems,
+                        loadingItems = false,
+                        error = null,
+                    )
+                }
+                return@launch
+            }
             fetchCategoryItems(categoryId)
         }
     }

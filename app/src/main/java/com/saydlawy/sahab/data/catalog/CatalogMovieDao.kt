@@ -236,6 +236,58 @@ interface CatalogMovieDao {
     suspend fun countByType(mediaType: String = "movie"): Int
 
     @Query(
+        "SELECT categoryId, COUNT(*) AS cnt FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND categoryId != '' " +
+            "GROUP BY categoryId"
+    )
+    suspend fun getCategoryCounts(mediaType: String = "movie"): List<CategoryCountRow>
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND genre LIKE '%' || :genre || '%' " +
+            "ORDER BY CAST(rating AS REAL) DESC, novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedByGenre(
+        genre: String,
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND year LIKE :year || '%' " +
+            "ORDER BY CAST(rating AS REAL) DESC, novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedByYear(
+        year: String,
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND `cast` LIKE '%' || :actor || '%' " +
+            "ORDER BY CAST(rating AS REAL) DESC, novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedByCast(
+        actor: String,
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
+    @Query("SELECT genre FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND genre != ''")
+    suspend fun getRawGenres(mediaType: String = "movie"): List<String>
+
+    @Query("SELECT year FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND year != ''")
+    suspend fun getRawYears(mediaType: String = "movie"): List<String>
+
+    @Query("SELECT `cast` FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND `cast` != ''")
+    suspend fun getRawCasts(mediaType: String = "movie"): List<String>
+
+    @Query(
         "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount, titleAr, titleEn, identifiedTitle, sahabId " +
             "FROM catalog_movies " +
             "WHERE deleted = 0 AND mediaType = :mediaType " +
@@ -338,3 +390,5 @@ data class CatalogFacetRow(
     val identifiedTitle: String = "",
     val sahabId: String = "",
 )
+
+data class CategoryCountRow(val categoryId: String, val cnt: Int)

@@ -94,30 +94,63 @@ internal object VodCustomOrganizer {
         val scores = DoubleArray(count)
         val addedTimes = LongArray(count)
         val sanitizedItems = ArrayList<Poster>(count)
-        val indices = arrayOfNulls<Int>(count)
+        val indices = IntArray(count)
 
         for (i in 0 until count) {
             val item = allItems[i]
             val f = facetsByStreamId[item.id]
-            val clean = RatingSanitizer.format(f?.rating, f?.tmdbVoteCount)
-                .ifBlank { RatingSanitizer.format(item.rating) }
+            val clean = if (f != null && f.rating.isNotBlank()) {
+                RatingSanitizer.format(f.rating, f.tmdbVoteCount)
+                    .ifBlank { RatingSanitizer.format(item.rating) }
+            } else {
+                RatingSanitizer.format(item.rating)
+            }
             sanitizedItems.add(if (clean == item.rating) item else item.copy(rating = clean))
-            val facetScore = RatingSanitizer.rankingScore(f?.rating, f?.tmdbVoteCount)
+            val facetScore = if (f != null && f.rating.isNotBlank()) {
+                RatingSanitizer.rankingScore(f.rating, f.tmdbVoteCount)
+            } else {
+                0.0
+            }
             scores[i] = if (facetScore > 0.0) facetScore else RatingSanitizer.rankingScore(clean)
             addedTimes[i] = maxOf(f?.novaAdded ?: 0L, item.added)
             indices[i] = i
         }
 
-        indices.sortWith { a, b ->
-            val ia = a!!
-            val ib = b!!
-            val scoreCmp = scores[ib].compareTo(scores[ia])
-            if (scoreCmp != 0) scoreCmp else addedTimes[ib].compareTo(addedTimes[ia])
+        // Primitive bottom-up merge sort on IntArray (zero Integer boxing)
+        val scratch = IntArray(count)
+        var width = 1
+        while (width < count) {
+            var left = 0
+            while (left < count) {
+                val mid = minOf(left + width, count)
+                val right = minOf(left + width * 2, count)
+                var i = left
+                var j = mid
+                var k = left
+                while (i < mid && j < right) {
+                    val ia = indices[i]
+                    val ib = indices[j]
+                    val aFirst = scores[ia] > scores[ib] ||
+                        (scores[ia] == scores[ib] && addedTimes[ia] >= addedTimes[ib])
+                    if (aFirst) {
+                        scratch[k++] = ia
+                        i++
+                    } else {
+                        scratch[k++] = ib
+                        j++
+                    }
+                }
+                while (i < mid) scratch[k++] = indices[i++]
+                while (j < right) scratch[k++] = indices[j++]
+                System.arraycopy(scratch, left, indices, left, right - left)
+                left += width * 2
+            }
+            width = width shl 1
         }
 
         val sortedItems = ArrayList<Poster>(count)
         for (idx in indices) {
-            sortedItems.add(sanitizedItems[idx!!])
+            sortedItems.add(sanitizedItems[idx])
         }
         return sortedItems
     }
