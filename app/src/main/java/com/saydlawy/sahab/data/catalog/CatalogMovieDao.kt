@@ -71,8 +71,8 @@ interface CatalogMovieDao {
         }
     }
 
-    @Query("UPDATE catalog_movies SET deleted = 1 WHERE deleted = 0 AND lastSeen < :cutoff")
-    suspend fun softDeleteBefore(cutoff: Long): Int
+    @Query("UPDATE catalog_movies SET deleted = 1 WHERE deleted = 0 AND mediaType = :mediaType AND lastSeen < :cutoff")
+    suspend fun softDeleteBefore(cutoff: Long, mediaType: String = "movie"): Int
 
     @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND needsEnrichment = 1 ORDER BY novaAdded DESC LIMIT :limit")
     suspend fun pendingEnrichment(limit: Int, mediaType: String = "movie"): List<CatalogMovieEntity>
@@ -98,7 +98,8 @@ interface CatalogMovieDao {
             "plot = :plot, cast = :cast, castJson = :castJson, director = :director, genre = :genre, " +
             "runtime = :runtime, rating = :rating, backdropUrl = :backdropUrl, " +
             "postersJson = :postersJson, trailerUrl = :trailerUrl, " +
-            "tmdbVoteCount = :voteCount, needsEnrichment = :status, lastEnriched = :now " +
+            "tmdbVoteCount = :voteCount, needsEnrichment = :status, lastEnriched = :now, " +
+            "deleted = 0, lastSeen = :now " +
             "WHERE novaStreamId = :streamId AND mediaType = :mediaType"
     )
     suspend fun applyEnrichment(

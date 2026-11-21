@@ -68,7 +68,9 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                     details.cast.isBlank() ||
                     details.backdrop.isBlank()
 
-                if (needsMeta) {
+                val alreadyMatched = mergedMeta != null && (mergedMeta.tmdbId ?: 0) > 0 && mergedMeta.needsEnrichment == 0
+
+                if (needsMeta && (forceRefresh || !alreadyMatched)) {
                     // 1. البحث في Firebase السحابي بجميع صيغ المعرّفات (مطابقة مع بانر الهيرو)
                     if (forceRefresh || mergedMeta == null || mergedMeta.plot.isBlank() || mergedMeta.backdropUrl.isBlank()) {
                         val cloudCandidate = withContext(Dispatchers.IO) {
