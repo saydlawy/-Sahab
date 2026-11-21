@@ -22,7 +22,11 @@ class TmdbApi(
     private val diskCache: DiskCache? = null,
 ) {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        isLenient = true
+    }
     private val memoryCacheLock = Any()
     private val memoryCache = object : LinkedHashMap<String, TmdbCacheEnvelope>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TmdbCacheEnvelope>?): Boolean =
