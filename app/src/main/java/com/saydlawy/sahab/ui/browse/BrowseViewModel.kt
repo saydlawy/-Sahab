@@ -637,12 +637,12 @@ class BrowseViewModel(
                 val categories = fetchCategories()
                 defaultCategories = categories
                 val preferredCat = initialCategoryId ?: _state.value.selectedId
-                val initialPageCategory = preferredCat?.takeIf { it != FAV_CAT_ID && it != RECENTS_CAT_ID }
+                val roomInitialCat = preferredCat?.takeIf { it != FAV_CAT_ID && it != RECENTS_CAT_ID }
 
                 // Render first page directly from Room immediately before any full-catalog work
                 val roomFirstPage = if (preferredCat != FAV_CAT_ID && preferredCat != RECENTS_CAT_ID) {
                     runCatching {
-                        loadCatalogPage(categoryId = initialPageCategory, limit = 120, offset = 0)
+                        loadCatalogPage(categoryId = roomInitialCat, limit = 120, offset = 0)
                     }.getOrDefault(emptyList())
                 } else {
                     emptyList()
@@ -662,7 +662,7 @@ class BrowseViewModel(
                     _state.update {
                         it.copy(
                             categories = categories,
-                            selectedId = initialPageCategory ?: ALL_CAT_ID,
+                            selectedId = roomInitialCat ?: ALL_CAT_ID,
                             items = roomFirstPage,
                             totalCount = roomTotal,
                             categoryCounts = roomCounts,
