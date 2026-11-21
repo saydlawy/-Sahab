@@ -135,6 +135,24 @@ class DiskCache(
         estimatedCatalogBytes = totalBytes.coerceAtLeast(0L)
     }
 
+    data class CacheStats(
+        val catalogFiles: Int = 0,
+        val catalogBytes: Long = 0L,
+        val tmdbFiles: Int = 0,
+        val tmdbBytes: Long = 0L,
+    )
+
+    fun getCacheStats(): CacheStats = runCatching {
+        val catList = catalogDir.listFiles()?.filter { it.isFile }.orEmpty()
+        val tmdbList = tmdbDir.listFiles()?.filter { it.isFile }.orEmpty()
+        CacheStats(
+            catalogFiles = catList.size,
+            catalogBytes = catList.sumOf { it.length() },
+            tmdbFiles = tmdbList.size,
+            tmdbBytes = tmdbList.sumOf { it.length() },
+        )
+    }.getOrDefault(CacheStats())
+
     /** Clears IPTV catalog/EPG cache while keeping the TMDB quota cache intact. */
     fun clearCatalog() {
         runCatching {

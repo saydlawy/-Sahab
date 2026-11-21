@@ -240,6 +240,14 @@ fun SettingsScreen(
                         onClick = { selectCat("cloud") },
                     )
                     SettingsMenuItem(
+                        title = "مسارات البيانات والإحصائيات",
+                        subtitle = "السحابة، Room، الكاش، وحالة الاكتمال",
+                        icon = Ic.Cloud,
+                        isSelected = selectedCategory == "data_flow",
+                        itemKey = "settings_menu_data_flow",
+                        onClick = { selectCat("data_flow") },
+                    )
+                    SettingsMenuItem(
                         title = "الذكاء الاصطناعي (Gemini)",
                         subtitle = "إدارة مفاتيح توليد قصص الأفلام",
                         icon = Ic.Cloud,
@@ -314,6 +322,14 @@ fun SettingsScreen(
                         isSelected = false,
                         itemKey = "settings_menu_cloud",
                         onClick = { selectCat("cloud") },
+                    )
+                    SettingsMenuItem(
+                        title = "مسارات البيانات والإحصائيات",
+                        subtitle = "السحابة، Room، الكاش، وحالة الاكتمال",
+                        icon = Ic.Cloud,
+                        isSelected = false,
+                        itemKey = "settings_menu_data_flow",
+                        onClick = { selectCat("data_flow") },
                     )
                     SettingsMenuItem(
                         title = "الذكاء الاصطناعي (Gemini)",
@@ -490,6 +506,7 @@ private fun SettingsDetailContent(
             homeChannelsCategoryId = homeChannelsCategoryId,
             homeCustomChannelIds = homeCustomChannelIds,
         )
+        "data_flow" -> SettingsDataFlowPanel(container = container)
         "cloud" -> {
             val cloudScope = androidx.compose.runtime.rememberCoroutineScope()
             val cloudBgStatus by container.catalogSync.bgEnrichStatus.collectAsStateWithLifecycle()

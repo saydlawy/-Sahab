@@ -399,6 +399,11 @@ class FirebaseCatalogService {
     }
 
     suspend fun saveCatalogItem(entity: CatalogMovieEntity) = suspendCancellableCoroutine { cont ->
+        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        if (currentUid != com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID) {
+            if (cont.isActive) cont.resume(Unit)
+            return@suspendCancellableCoroutine
+        }
         val tmdbDocId = entity.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
         val targetDocId = tmdbDocId ?: entity.sahabId
         if (!targetDocId.startsWith("tmdb:")) {

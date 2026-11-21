@@ -11,8 +11,15 @@ import kotlin.coroutines.resumeWithException
 class AuthManager {
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 
+    companion object {
+        const val ADMIN_UID = "YttqqChnJwPvb6v5MD2wDA32Xcd2"
+    }
+
     val currentUser: FirebaseUser?
         get() = auth.currentUser
+
+    val isAdmin: Boolean
+        get() = currentUser?.uid == ADMIN_UID
 
     suspend fun signInWithEmail(email: String, pass: String): FirebaseUser? = suspendCancellableCoroutine { cont ->
         auth.signInWithEmailAndPassword(email, pass)

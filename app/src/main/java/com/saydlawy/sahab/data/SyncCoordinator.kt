@@ -253,7 +253,7 @@ class SyncCoordinator(private val container: AppContainer) {
             syncMutex.withLock {
                 val msg = runCatching {
                     container.repo.syncCatalog(force = true)
-                    container.catalogSync.syncAllFromFirebaseToRoom(force = true)
+                    container.catalogSync.syncAllFromFirebaseToRoom(force = false)
                     container.catalogSync.syncMovies(container.repo)
                     val chStats = container.channelSync.sync(container.repo, forceFullRefresh = true)
                     if (chStats.isSuccess) container.prefs.setLastChannelSyncTime(System.currentTimeMillis())

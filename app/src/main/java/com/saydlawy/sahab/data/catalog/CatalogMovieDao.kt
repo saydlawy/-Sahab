@@ -188,9 +188,30 @@ interface CatalogMovieDao {
     )
     fun observeFacetMetadata(mediaType: String): Flow<List<CatalogFacetRow>>
 
+    @Query(
+        "SELECT COUNT(*) AS total, " +
+            "COALESCE(SUM(CASE WHEN needsEnrichment = 0 THEN 1 ELSE 0 END), 0) AS enriched, " +
+            "COALESCE(SUM(CASE WHEN needsEnrichment = 1 THEN 1 ELSE 0 END), 0) AS pending, " +
+            "COALESCE(SUM(CASE WHEN needsEnrichment = -1 THEN 1 ELSE 0 END), 0) AS failed, " +
+            "COALESCE(SUM(CASE WHEN tmdbId IS NOT NULL AND tmdbId > 0 THEN 1 ELSE 0 END), 0) AS withTmdb " +
+            "FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType"
+    )
+    suspend fun getMediaFlowStats(mediaType: String): MediaFlowStats
+
+    @Query("UPDATE catalog_movies SET needsEnrichment = 1 WHERE deleted = 0 AND needsEnrichment = -1")
+    suspend fun resetFailedEnrichment(): Int
+
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()
 }
+
+data class MediaFlowStats(
+    val total: Int = 0,
+    val enriched: Int = 0,
+    val pending: Int = 0,
+    val failed: Int = 0,
+    val withTmdb: Int = 0,
+)
 
 data class CatalogFacetRow(
     val novaStreamId: String,
