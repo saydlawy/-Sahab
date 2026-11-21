@@ -528,11 +528,11 @@ private fun SettingsDetailContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "الرفع التلقائي للسحابة أثناء الإثراء",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
                         )
                         Text(
                             text = "أوقفه لحفظ حصة Firebase اليومية وارفع يدوياً عند الحاجة",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                         )
                     }
                     androidx.compose.material3.Switch(
