@@ -89,6 +89,9 @@ interface CatalogMovieDao {
     @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND needsEnrichment = 0")
     suspend fun countEnriched(): Int
 
+    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND tmdbId IS NOT NULL AND tmdbId > 0")
+    suspend fun getAllEnriched(): List<CatalogMovieEntity>
+
     @Query(
         "UPDATE catalog_movies SET " +
             "tmdbId = :tmdbId, titleEn = :titleEn, year = :year, " +

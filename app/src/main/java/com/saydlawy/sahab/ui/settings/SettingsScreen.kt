@@ -2,6 +2,7 @@ package com.saydlawy.sahab.ui.settings
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -490,14 +491,31 @@ private fun SettingsDetailContent(
             homeCustomChannelIds = homeCustomChannelIds,
         )
         "cloud" -> {
-            CloudAccountPanel(
-                email = cloudUser?.email,
-                onLogin = onOpenCloudLogin,
-                onLogout = {
-                    container.authManager.signOut()
-                    onLoggedOut()
+            val cloudScope = androidx.compose.runtime.rememberCoroutineScope()
+            val cloudBgStatus by container.catalogSync.bgEnrichStatus.collectAsStateWithLifecycle()
+            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                CloudAccountPanel(
+                    email = cloudUser?.email,
+                    onLogin = onOpenCloudLogin,
+                    onLogout = {
+                        container.authManager.signOut()
+                        onLoggedOut()
+                    }
+                )
+                androidx.compose.material3.Button(
+                    onClick = {
+                        cloudScope.launch {
+                            container.catalogSync.pushLocalEnrichedToCloud()
+                        }
+                    },
+                    enabled = !cloudBgStatus.active,
+                ) {
+                    Text(
+                        if (cloudBgStatus.active) "جارٍ رفع البيانات للسحابة..."
+                        else "رفع البيانات المحلية للسحابة (Room → Firebase)"
+                    )
                 }
-            )
+            }
         }
         "sources" -> {
             val appCtx = LocalContext.current.applicationContext

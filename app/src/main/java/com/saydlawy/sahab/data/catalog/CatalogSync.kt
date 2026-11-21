@@ -112,6 +112,49 @@ class CatalogSync(
     }
 
     /**
+     * يرفع جميع العناصر المكتملة محلياً في Room (التي لها tmdbId) إلى global_catalog في Firebase.
+     */
+    suspend fun pushLocalEnrichedToCloud(): Int = withContext(Dispatchers.IO) {
+        val uid = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        if (uid.isNullOrBlank()) {
+            reportBackgroundEnrichProgress(
+                done = 0,
+                total = 1,
+                active = false,
+                failed = 1,
+                lastError = "يلزم تسجيل الدخول للحساب السحابي أولاً لرفع البيانات",
+            )
+            return@withContext 0
+        }
+        val items = dao.getAllEnriched()
+        if (items.isEmpty()) return@withContext 0
+        val total = items.size
+        var done = 0
+        var failed = 0
+        var lastError = ""
+        reportBackgroundEnrichProgress(0, total, active = true, currentTitle = "بدء رفع البيانات المحلية...")
+        try {
+            for (item in items) {
+                val label = item.titleAr.ifBlank { item.titleEn }
+                reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
+                runCatching {
+                    firebaseCatalog.saveCatalogItem(item)
+                }.onFailure { err ->
+                    if (err is kotlinx.coroutines.CancellationException) throw err
+                    failed += 1
+                    lastError = err.message?.take(120) ?: err::class.java.simpleName
+                    android.util.Log.w("SAHAB_CLOUD", "pushLocalEnrichedToCloud failed [$label]: $lastError", err)
+                }
+                done += 1
+                reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
+            }
+        } finally {
+            reportBackgroundEnrichProgress(done, total, active = false, failed = failed, lastError = lastError)
+        }
+        (done - failed).coerceAtLeast(0)
+    }
+
+    /**
      * يسحب جميع بيانات كتالوج Firebase (`global_catalog`) إلى Room على دفعات
      * مع تحديث [firebaseSyncing] و[firebaseSyncMessage] ليظهر شعار دائم للمستخدم لحين الانتهاء.
      */
