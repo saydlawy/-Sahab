@@ -36,6 +36,7 @@ class FirebaseCatalogService {
     suspend fun fetchAllCatalogBatched(
         batchSize: Long = 400L,
         perBatchTimeoutMs: Long = 15_000L,
+        sinceMs: Long = 0L,
         onBatch: suspend (items: List<CatalogMovieEntity>, totalFetched: Int) -> Unit,
     ): Int {
         var lastDoc: DocumentSnapshot? = null
@@ -43,9 +44,16 @@ class FirebaseCatalogService {
         while (true) {
             val snapshot = withTimeoutOrNull(perBatchTimeoutMs) {
                 suspendCancellableCoroutine<com.google.firebase.firestore.QuerySnapshot?> { cont ->
-                    var query = collection
-                        .orderBy(FieldPath.documentId())
-                        .limit(batchSize)
+                    var query = if (sinceMs > 0L) {
+                        collection
+                            .whereGreaterThan("updatedAt", sinceMs)
+                            .orderBy("updatedAt")
+                            .limit(batchSize)
+                    } else {
+                        collection
+                            .orderBy(FieldPath.documentId())
+                            .limit(batchSize)
+                    }
                     if (lastDoc != null) {
                         query = query.startAfter(lastDoc!!)
                     }
@@ -440,7 +448,7 @@ class FirebaseCatalogService {
                 if (!snap.exists()) {
                     val createPayload = data.filterValues { v ->
                         v != null && (v !is String || v.isNotBlank())
-                    }
+                    } + ("updatedAt" to System.currentTimeMillis())
                     docRef.set(createPayload, SetOptions.merge())
                         .addOnFailureListener { e ->
                             android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem create failed [$targetDocId]: ${e.message}", e)
@@ -462,6 +470,7 @@ class FirebaseCatalogService {
                     if (delta.isEmpty()) {
                         if (cont.isActive) cont.resume(Unit)
                     } else {
+                        delta["updatedAt"] = System.currentTimeMillis()
                         docRef.set(delta, SetOptions.merge())
                             .addOnFailureListener { e ->
                                 android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem update failed [$targetDocId]: ${e.message}", e)

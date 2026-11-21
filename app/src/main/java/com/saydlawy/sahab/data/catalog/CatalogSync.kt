@@ -29,6 +29,7 @@ class CatalogSync(
     private val dao: CatalogMovieDao,
     private val firebaseCatalog: FirebaseCatalogService,
     private val appContext: Context? = null,
+    private val prefs: com.saydlawy.sahab.data.Prefs? = null,
 ) {
     data class Stats(
         val total: Int = 0,
@@ -161,12 +162,20 @@ class CatalogSync(
     suspend fun syncAllFromFirebaseToRoom(force: Boolean = false): Int = withContext(Dispatchers.IO) {
         if (!force && dao.countEnriched() >= 200) return@withContext 0
         if (!_firebaseSyncing.compareAndSet(expect = false, update = true)) return@withContext 0
-        _firebaseSyncMessage.value = "جارٍ تحميل مكتبة سحاب..."
+        val lastDeltaMs = if (dao.countEnriched() >= 200) {
+            runCatching { prefs?.lastCloudDeltaSyncTime?.first() ?: 0L }.getOrDefault(0L)
+        } else {
+            0L
+        }
+        val syncStartMs = System.currentTimeMillis()
+        _firebaseSyncMessage.value = if (lastDeltaMs > 0L) "جارٍ سحب التحديثات السحابية..." else "جارٍ تحميل مكتبة سحاب..."
         try {
-            firebaseCatalog.fetchAllCatalogBatched(batchSize = 400L) { batch, totalFetched ->
+            val fetched = firebaseCatalog.fetchAllCatalogBatched(batchSize = 400L, sinceMs = lastDeltaMs) { batch, totalFetched ->
                 dao.upsertAll(batch)
                 _firebaseSyncMessage.value = "جارٍ مزامنة مكتبة سحاب... ($totalFetched عنصر)"
             }
+            runCatching { prefs?.setLastCloudDeltaSyncTime(syncStartMs) }
+            fetched
         } catch (e: Exception) {
             android.util.Log.w("SahabFirebaseSync", "syncAllFromFirebaseToRoom failed: ${e.message}")
             0
@@ -435,9 +444,12 @@ class CatalogSync(
             if (existing.sahabId.startsWith("pending:")) {
                 runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr) }
             }
-            runCatching {
-                dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
-                    firebaseCatalog.saveCatalogItem(enrichedEntity)
+            val autoUpload = runCatching { prefs?.cloudAutoUploadEnabled?.first() ?: true }.getOrDefault(true)
+            if (autoUpload) {
+                runCatching {
+                    dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
+                        firebaseCatalog.saveCatalogItem(enrichedEntity)
+                    }
                 }
             }
         } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {

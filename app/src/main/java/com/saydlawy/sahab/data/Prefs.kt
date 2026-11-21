@@ -90,6 +90,8 @@ class Prefs @JvmOverloads constructor(
         val LastCatalogSyncTime = longPreferencesKey("last_catalog_sync_time")
         val LastChannelSyncTime = longPreferencesKey("last_channel_sync_time")
         val EpgLastSyncTime = longPreferencesKey("epg_last_sync_time")
+        val CloudAutoUploadEnabled = booleanPreferencesKey("cloud_auto_upload_enabled")
+        val LastCloudDeltaSyncTime = longPreferencesKey("last_cloud_delta_sync_time")
     }
 
     private val accountMutex = Mutex()
@@ -414,6 +416,22 @@ class Prefs @JvmOverloads constructor(
         store.edit { it[Keys.LastCatalogSyncTime] = ms }
     }
 
+    val cloudAutoUploadEnabled: Flow<Boolean> = store.data.map {
+        it[Keys.CloudAutoUploadEnabled] ?: true
+    }.distinctUntilChanged()
+
+    suspend fun setCloudAutoUploadEnabled(enabled: Boolean) {
+        store.edit { it[Keys.CloudAutoUploadEnabled] = enabled }
+    }
+
+    val lastCloudDeltaSyncTime: Flow<Long> = store.data.map {
+        it[Keys.LastCloudDeltaSyncTime] ?: 0L
+    }.distinctUntilChanged()
+
+    suspend fun setLastCloudDeltaSyncTime(ms: Long) {
+        store.edit { it[Keys.LastCloudDeltaSyncTime] = ms }
+    }
+
     val lastChannelSyncTime: Flow<Long> = store.data.map { it[Keys.LastChannelSyncTime] ?: 0L }.distinctUntilChanged()
 
     suspend fun setLastChannelSyncTime(ms: Long) {
@@ -447,6 +465,7 @@ class Prefs @JvmOverloads constructor(
             p.remove(Keys.LastCatalogSyncTime)
             p.remove(Keys.LastChannelSyncTime)
             p.remove(Keys.EpgLastSyncTime)
+            p.remove(Keys.LastCloudDeltaSyncTime)
         }
     }
 

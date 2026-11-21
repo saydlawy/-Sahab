@@ -510,6 +510,7 @@ private fun SettingsDetailContent(
         "cloud" -> {
             val cloudScope = androidx.compose.runtime.rememberCoroutineScope()
             val cloudBgStatus by container.catalogSync.bgEnrichStatus.collectAsStateWithLifecycle()
+            val cloudAutoUpload by container.prefs.cloudAutoUploadEnabled.collectAsStateWithLifecycle(initialValue = true)
             Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 CloudAccountPanel(
                     email = cloudUser?.email,
@@ -519,6 +520,30 @@ private fun SettingsDetailContent(
                         onLoggedOut()
                     }
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "الرفع التلقائي للسحابة أثناء الإثراء",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "أوقفه لحفظ حصة Firebase اليومية وارفع يدوياً عند الحاجة",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = cloudAutoUpload,
+                        onCheckedChange = { enabled ->
+                            cloudScope.launch {
+                                container.prefs.setCloudAutoUploadEnabled(enabled)
+                            }
+                        },
+                    )
+                }
                 androidx.compose.material3.Button(
                     onClick = {
                         cloudScope.launch {

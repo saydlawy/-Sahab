@@ -127,7 +127,7 @@ service cloud.firestore {
         'novaStreamId', 'titleAr', 'titleEn', 'year', 'plot', 'plotSource',
         'plotConfidence', 'identifiedTitle', 'mediaType', 'cast', 'director',
         'genre', 'runtime', 'rating', 'posterUrl', 'backdropUrl',
-        'tmdbId', 'imdbId', 'tmdbVoteCount', 'aliases', 'redirectTo'
+        'tmdbId', 'imdbId', 'tmdbVoteCount', 'aliases', 'redirectTo', 'updatedAt'
       ];
     }
 
@@ -154,7 +154,8 @@ service cloud.firestore {
              isValidOptionalString('imdbId', 0, 32) &&
              isValidOptionalInt('tmdbVoteCount', 0, 999999999) &&
              isValidStringList('aliases', 10, 64) &&
-             isValidOptionalString('redirectTo', 1, 64);
+             isValidOptionalString('redirectTo', 1, 64) &&
+             isValidOptionalInt('updatedAt', 0, 9999999999999);
     }
 
 
