@@ -307,9 +307,26 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
         val q = query.trim()
         if (q.isBlank() || !container.tmdb.hasApiKey()) return emptyList()
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val directId = q.toIntOrNull()?.takeIf { it > 0 }
+                ?: Regex("(?:movie|tv)/(\\d+)").find(q)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            val direct = directId?.let { id ->
+                runCatching { container.tmdb.getTvDetailsById(id) }.getOrNull()?.let { m ->
+                    listOf(
+                        com.saydlawy.sahab.data.TmdbSearchResult(
+                            id = m.id,
+                            title = m.title,
+                            releaseDate = m.releaseDate,
+                            voteCount = m.voteCount,
+                            popularity = m.popularity,
+                            posterPath = m.posterPath,
+                            voteAverage = m.voteAverage,
+                        )
+                    )
+                }
+            }.orEmpty()
             val ar = (container.tmdb.searchTvOutcome(q, null, "ar-SA") as? com.saydlawy.sahab.data.TmdbApi.SearchOutcome.Ok)?.results.orEmpty()
             val en = (container.tmdb.searchTvOutcome(q, null, "en-US") as? com.saydlawy.sahab.data.TmdbApi.SearchOutcome.Ok)?.results.orEmpty()
-            (ar + en).distinctBy { it.id }.take(15)
+            (direct + ar + en).distinctBy { it.id }.take(15)
         }
     }
 

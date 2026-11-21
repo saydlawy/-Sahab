@@ -103,7 +103,7 @@ fun TmdbMatchPickerDialog(
                     GlassTextField(
                         value = query,
                         onValueChange = { query = it },
-                        placeholder = "ابحث بالاسم الإنجليزي أو العربي",
+                        placeholder = "ابحث بالاسم أو رقم TMDB",
                         leading = Ic.Search,
                         imeAction = ImeAction.Search,
                         onImeAction = { runSearch(query) },
