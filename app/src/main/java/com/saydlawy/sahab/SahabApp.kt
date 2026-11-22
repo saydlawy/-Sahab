@@ -9,7 +9,14 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache as CoilDiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.allowRgb565
 import coil3.request.crossfade
+import coil3.svg.SvgDecoder
+import okhttp3.Dispatcher
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import java.util.concurrent.ConcurrentHashMap
 import okio.Path.Companion.toOkioPath
 import com.saydlawy.sahab.data.DiskCache
 import com.saydlawy.sahab.data.Account
@@ -85,16 +92,52 @@ class AppContainer(context: Context) {
         .addInterceptor(RetryInterceptor())
         .build()
 
-    fun newImageHttpClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectionPool(client.connectionPool)
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .callTimeout(18, TimeUnit.SECONDS)
-        .addInterceptor(CleartextGuardInterceptor())
-        .addInterceptor { chain ->
-            chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
+    private val failedImageUrls = ConcurrentHashMap<String, Long>()
+
+    fun newImageHttpClient(): OkHttpClient {
+        val imageDispatcher = Dispatcher().apply {
+            maxRequests = 48
+            maxRequestsPerHost = 16
         }
-        .build()
+        return OkHttpClient.Builder()
+            .dispatcher(imageDispatcher)
+            .connectionPool(client.connectionPool)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val url = req.url.toString()
+                val now = System.currentTimeMillis()
+                val failedAt = failedImageUrls[url]
+                if (failedAt != null && now - failedAt < 5L * 60L * 1000L) {
+                    return@addInterceptor Response.Builder()
+                        .request(req)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(404)
+                        .message("Cached image failure")
+                        .body(ByteArray(0).toResponseBody(null))
+                        .build()
+                }
+                try {
+                    val resp = chain.proceed(req)
+                    if (resp.code == 404 || resp.code == 410) {
+                        if (failedImageUrls.size > 500) failedImageUrls.clear()
+                        failedImageUrls[url] = now
+                    }
+                    resp
+                } catch (e: Exception) {
+                    if (failedImageUrls.size > 500) failedImageUrls.clear()
+                    failedImageUrls[url] = now
+                    throw e
+                }
+            }
+            .addInterceptor(CleartextGuardInterceptor())
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
+            }
+            .build()
+    }
 
     val tmdb by lazy { TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache) }
     val repo by lazy { Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao(), okHttpClient = client) }
@@ -459,10 +502,12 @@ class SahabApp : Application(), SingletonImageLoader.Factory {
         ImageLoader.Builder(context)
             .components {
                 add(OkHttpNetworkFetcherFactory(callFactory = { coilClient }))
+                add(SvgDecoder.Factory())
             }
+            .allowRgb565(true)
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.15)
+                    .maxSizePercent(context, 0.22)
                     .strongReferencesEnabled(true)
                     .build()
             }

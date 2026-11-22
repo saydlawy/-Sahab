@@ -8,10 +8,8 @@
 -keepclasseswithmembers class com.saydlawy.sahab.data.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keep @kotlinx.serialization.Serializable class * { *; }
 
 # Keep Room entities & DAOs
--keep class * extends androidx.room.RoomDatabase { *; }
 -keep @androidx.room.Entity class * { *; }
 -keep @androidx.room.Dao interface * { *; }
 -dontwarn androidx.room.paging.**
@@ -25,7 +23,6 @@
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 
 # AndroidX Security Crypto / Tink
--keep class com.google.crypto.tink.** { *; }
 -dontwarn com.google.crypto.tink.**
 -dontwarn com.google.errorprone.annotations.**
 
@@ -40,8 +37,6 @@
 -dontwarn androidx.appcompat.**
 
 # Consolidated DataStore & Firebase DataStorage keep rules
--keep class androidx.datastore.preferences.** { *; }
--keep class androidx.datastore.core.** { *; }
 -keep class com.google.firebase.datastorage.** { *; }
 -dontwarn androidx.datastore.**
 -dontwarn com.google.firebase.datastorage.**

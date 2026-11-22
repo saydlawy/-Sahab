@@ -146,14 +146,16 @@ fun PosterCard(
     genre: String = "",
     progress: Float? = null,
     onFocused: (() -> Unit)? = null,
+    targetWidthPx: Int? = null,
+    targetHeightPx: Int? = null,
 ) {
     val cleanBadge = remember(badge) { RatingSanitizer.format(badge) }
     val density = LocalDensity.current
     val isTv = LocalIsTv.current
-    val targetWidthPx = remember(density, isTv) {
+    val resolvedWidthPx = targetWidthPx ?: remember(density, isTv) {
         with(density) { (if (isTv) 156.dp else 136.dp).roundToPx() }.takeIf { it > 0 }
     }
-    val targetHeightPx = remember(targetWidthPx) { targetWidthPx?.let { (it * 3) / 2 } }
+    val resolvedHeightPx = targetHeightPx ?: remember(resolvedWidthPx) { resolvedWidthPx?.let { (it * 3) / 2 } }
     GlassCard(
         onClick = onClick,
         modifier = modifier,
@@ -176,8 +178,8 @@ fun PosterCard(
                 fallbackText = title,
                 modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
                 contentScale = contentScale,
-                targetWidthPx = targetWidthPx,
-                targetHeightPx = targetHeightPx,
+                targetWidthPx = resolvedWidthPx,
+                targetHeightPx = resolvedHeightPx,
             )
             // Deep bottom gradient matching reference movie cards (simplified on TV for fast D-pad scroll)
             Box(

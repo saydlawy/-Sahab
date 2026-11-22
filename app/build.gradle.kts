@@ -127,6 +127,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil3.compose)
     implementation(libs.coil3.network.okhttp)
+    implementation(libs.coil3.svg)
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)

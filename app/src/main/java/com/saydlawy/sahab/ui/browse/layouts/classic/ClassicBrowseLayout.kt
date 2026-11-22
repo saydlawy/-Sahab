@@ -24,7 +24,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalContext
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import coil3.size.Precision
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -329,6 +336,44 @@ private fun ClassicPosterGrid(
                 }
             }
             Spacer(Modifier.height(4.dp))
+        }
+
+        val context = LocalContext.current
+        val density = LocalDensity.current
+        val isTv = LocalIsTv.current
+        val prefetchWidthPx = remember(density, isTv) {
+            with(density) { (if (isTv) 156.dp else 136.dp).roundToPx() }.takeIf { it > 0 }
+        }
+        val prefetchHeightPx = remember(prefetchWidthPx) { prefetchWidthPx?.let { (it * 3) / 2 } }
+        val hasRecentsHeader = recents.isNotEmpty()
+        LaunchedEffect(gridState, items, hasRecentsHeader, prefetchWidthPx, prefetchHeightPx) {
+            if (items.isEmpty()) return@LaunchedEffect
+            val imageLoader = SingletonImageLoader.get(context)
+            val headerOffset = if (hasRecentsHeader) 1 else 0
+            snapshotFlow {
+                gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            }
+                .distinctUntilChanged()
+                .collect { lastVisible ->
+                    if (lastVisible < 0) return@collect
+                    val start = (lastVisible - headerOffset + 1).coerceAtLeast(0)
+                    val end = (start + 8).coerceAtMost(items.size)
+                    for (i in start until end) {
+                        val url = items[i].image.trim()
+                        if (url.isNotBlank()) {
+                            val req = ImageRequest.Builder(context)
+                                .data(url)
+                                .precision(Precision.INEXACT)
+                                .apply {
+                                    if (prefetchWidthPx != null && prefetchHeightPx != null) {
+                                        size(prefetchWidthPx, prefetchHeightPx)
+                                    }
+                                }
+                                .build()
+                            imageLoader.enqueue(req)
+                        }
+                    }
+                }
         }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {

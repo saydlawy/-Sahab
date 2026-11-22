@@ -332,7 +332,7 @@ class TmdbApi(
                 .mapNotNull { it.filePath?.takeIf { p -> p.isNotBlank() } }
                 .forEach { add(it) }
         }.distinct().take(10)
-        return paths.map { "https://image.tmdb.org/t/p/w500$it" }
+        return paths.map { "https://image.tmdb.org/t/p/w342$it" }
     }
 
     private fun extractTrailerUrl(videos: TmdbVideosResponse?): String {

@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -469,38 +470,34 @@ fun RemoteImage(
     Box(modifier.background(Palette.CardSurface)) {
         if (primaryUrl.isNotBlank()) {
             val context = LocalContext.current
-            var activeUrl by remember(primaryUrl, secondaryUrl) { mutableStateOf(primaryUrl) }
-            var showFallback by remember(primaryUrl, secondaryUrl) { mutableStateOf(false) }
-            if (showFallback) {
+            // 0 = primary, 1 = secondary fallback, 2 = failed
+            var loadStage by remember(primaryUrl, secondaryUrl) { mutableIntStateOf(0) }
+            if (loadStage == 2) {
                 FallbackLetter(fallbackText)
-            }
-            val request = remember<ImageRequest>(context, activeUrl, targetWidthPx, targetHeightPx) {
-                ImageRequest.Builder(context)
-                    .data(activeUrl)
-                    .precision(Precision.INEXACT)
-                    .apply {
-                        if (targetWidthPx != null && targetHeightPx != null && targetWidthPx > 0 && targetHeightPx > 0) {
-                            size(targetWidthPx, targetHeightPx)
+            } else {
+                val activeUrl = if (loadStage == 1 && secondaryUrl != null) secondaryUrl else primaryUrl
+                val request = remember<ImageRequest>(context, activeUrl, targetWidthPx, targetHeightPx) {
+                    ImageRequest.Builder(context)
+                        .data(activeUrl)
+                        .precision(Precision.INEXACT)
+                        .apply {
+                            if (targetWidthPx != null && targetHeightPx != null && targetWidthPx > 0 && targetHeightPx > 0) {
+                                size(targetWidthPx, targetHeightPx)
+                            }
                         }
-                    }
-                    .build()
+                        .build()
+                }
+                AsyncImage(
+                    model = request,
+                    contentDescription = null,
+                    contentScale = contentScale,
+                    alignment = alignment,
+                    onError = {
+                        loadStage = if (loadStage == 0 && secondaryUrl != null) 1 else 2
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
-            AsyncImage(
-                model = request,
-                contentDescription = null,
-                contentScale = contentScale,
-                alignment = alignment,
-                onSuccess = { showFallback = false },
-                onError = {
-                    if (secondaryUrl != null && activeUrl != secondaryUrl) {
-                        activeUrl = secondaryUrl
-                        showFallback = false
-                    } else {
-                        showFallback = true
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
         } else {
             FallbackLetter(fallbackText)
         }

@@ -606,7 +606,7 @@ class Repository(
                 null
             }
             if (tmdbData == null) base else base.copy(
-                image = base.image.ifBlank { tmdbData.posterPath?.let { "https://image.tmdb.org/t/p/w500$it" }.orEmpty() },
+                image = base.image.ifBlank { tmdbData.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" }.orEmpty() },
                 backdrop = base.backdrop.ifBlank { tmdbData.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }.orEmpty() },
                 plot = base.plot.ifBlank { tmdbData.overview },
                 year = base.year.ifBlank { tmdbData.releaseDate.take(4) },

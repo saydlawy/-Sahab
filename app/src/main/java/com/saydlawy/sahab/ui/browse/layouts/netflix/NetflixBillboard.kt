@@ -98,8 +98,8 @@ internal fun NetflixBackdrop(
                             fallbackText = details.poster.name,
                             contentScale = ContentScale.Crop,
                             alignment = if (isLikelyPortraitPoster) Alignment.TopCenter else Alignment.Center,
-                            targetWidthPx = 1280,
-                            targetHeightPx = 720,
+                            targetWidthPx = 960,
+                            targetHeightPx = 540,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }

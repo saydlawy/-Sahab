@@ -360,8 +360,8 @@ private fun MovieHeroBackdrop(
                         fallbackText = title,
                         contentScale = ContentScale.Crop,
                         alignment = if (isPortraitOnly) Alignment.TopCenter else Alignment.Center,
-                        targetWidthPx = 1280,
-                        targetHeightPx = 720,
+                        targetWidthPx = 960,
+                        targetHeightPx = 540,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

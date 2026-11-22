@@ -70,8 +70,8 @@ internal fun PrimeBackdrop(details: FocusedPosterDetails?, modifier: Modifier = 
                 RemoteImage(
                     url = primaryImageUrl,
                     fallbackText = details.poster.name,
-                    targetWidthPx = 1280,
-                    targetHeightPx = 720,
+                    targetWidthPx = 960,
+                    targetHeightPx = 540,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
