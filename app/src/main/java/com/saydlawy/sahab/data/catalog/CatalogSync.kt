@@ -177,7 +177,7 @@ class CatalogSync(
                     } else {
                         failed += 1
                         batchFailed += 1
-                        if (lastError.isBlank()) lastError = "فشل الكتابة في Firestore (قد يكون الحد اليومي نفد)"
+                        if (lastError.isBlank()) lastError = firebaseCatalog.lastWriteError.ifBlank { "فشل الكتابة في Firestore (قد يكون الحد اليومي نفد)" }
                     }
                     done += 1
                     reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
@@ -237,7 +237,7 @@ class CatalogSync(
                         pushed += 1
                     } else {
                         failed += 1
-                        if (lastError.isBlank()) lastError = "فشل الكتابة في Firestore"
+                        if (lastError.isBlank()) lastError = firebaseCatalog.lastWriteError.ifBlank { "فشل الكتابة في Firestore" }
                     }
                     done += 1
                     reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)

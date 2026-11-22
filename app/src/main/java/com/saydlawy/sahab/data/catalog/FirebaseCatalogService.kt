@@ -357,15 +357,26 @@ class FirebaseCatalogService {
      * Writes an enriched/edited catalog item to Firestore and returns true ONLY on confirmed success.
      * Used by the local push queue so needsCloudPush is never cleared on quota/network failure.
      */
+    @Volatile
+    var lastWriteError: String = ""
+        private set
+
     suspend fun saveCatalogItemVerified(
         entity: CatalogMovieEntity,
         bumpMeta: Boolean = true,
     ): Boolean {
+        lastWriteError = ""
         val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-        if (currentUid != com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID) return false
+        if (currentUid != com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID) {
+            lastWriteError = "الحساب الحالي ليس حساب الأدمن (uid=${currentUid ?: "null"})"
+            return false
+        }
         val tmdbDocId = entity.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
         val targetDocId = tmdbDocId ?: entity.sahabId
-        if (!targetDocId.startsWith("tmdb:")) return false
+        if (!targetDocId.startsWith("tmdb:")) {
+            lastWriteError = "العنصر غير مرتبط بـ TMDB ($targetDocId)"
+            return false
+        }
         val writeTs = System.currentTimeMillis()
         val ok = suspendCancellableCoroutine<Boolean> { cont ->
         val aliases = aliasesFor(entity).take(10)
@@ -405,6 +416,7 @@ class FirebaseCatalogService {
                     docRef.set(createPayload, SetOptions.merge())
                         .addOnSuccessListener { if (cont.isActive) cont.resume(true) }
                         .addOnFailureListener { e ->
+                            lastWriteError = "create [$targetDocId]: ${e.message ?: e::class.java.simpleName}"
                             android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem create failed [$targetDocId]: ${e.message}", e)
                             if (cont.isActive) cont.resume(false)
                         }
@@ -428,6 +440,7 @@ class FirebaseCatalogService {
                         docRef.set(delta, SetOptions.merge())
                             .addOnSuccessListener { if (cont.isActive) cont.resume(true) }
                             .addOnFailureListener { e ->
+                                lastWriteError = "update [$targetDocId]: ${e.message ?: e::class.java.simpleName}"
                                 android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem update failed [$targetDocId]: ${e.message}", e)
                                 if (cont.isActive) cont.resume(false)
                             }
@@ -435,6 +448,7 @@ class FirebaseCatalogService {
                 }
             }
             .addOnFailureListener { e ->
+                lastWriteError = "get [$targetDocId]: ${e.message ?: e::class.java.simpleName}"
                 android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem get failed [$targetDocId]: ${e.message}", e)
                 if (cont.isActive) cont.resume(false)
             }
