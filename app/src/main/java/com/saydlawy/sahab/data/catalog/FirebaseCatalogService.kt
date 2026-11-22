@@ -462,7 +462,7 @@ class FirebaseCatalogService {
                     for ((k, v) in data) {
                         if (k == "aliases") continue
                         val cleanVal = sanitizeField(k, v) ?: continue
-                        if (k !in merged) {
+                        if (merged[k] != cleanVal) {
                             merged[k] = cleanVal
                             changed = true
                         }
