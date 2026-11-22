@@ -171,13 +171,6 @@ service cloud.firestore {
              isValidOptionalInt('updatedAt', 0, 9999999999999);
     }
 
-    function isValidGlobalCatalogRedirect(data) {
-      return !('redirectTo' in data) ||
-             data.redirectTo == null ||
-             (data.redirectTo is string &&
-              data.redirectTo.matches('^tmdb:[0-9]+$'));
-    }
-
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create, update: if isOwner(uid) &&
@@ -201,28 +194,12 @@ service cloud.firestore {
 
     match /global_catalog/{docId} {
       allow read: if true;
-      allow create: if isAdmin() &&
-                    docId.matches('^tmdb:[0-9]+$') &&
-                    isValidCatalogPayload(request.resource.data) &&
-                    isValidGlobalCatalogRedirect(request.resource.data);
-      allow update: if isAdmin() &&
-                    docId.matches('^tmdb:[0-9]+$') &&
-                    isValidCatalogPayload(request.resource.data) &&
-                    isValidGlobalCatalogRedirect(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /meta/catalog {
       allow read: if true;
-      allow create, update: if isAdmin() &&
-                            request.resource.data.keys()
-                              .hasOnly(['lastUpdatedAt', 'updatedBy']) &&
-                            isValidOptionalInt(
-                              'lastUpdatedAt',
-                              0,
-                              9999999999999
-                            ) &&
-                            isValidOptionalString('updatedBy', 0, 128);
+      allow create, update: if isAdmin();
       allow delete: if false;
     }
 
