@@ -3,16 +3,24 @@ package com.saydlawy.sahab.data.catalog
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.saydlawy.sahab.data.Episode
+import com.saydlawy.sahab.util.normalizeForSearch
 import java.security.MessageDigest
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+
+internal const val CLOUD_REF_STREAM_PREFIX = "__cloud__:"
 
 /**
- * Unified movie catalog — Nova (Xtream) metadata + TMDB enrichment merged.
+ * Unified catalog entity — IPTV provider fields (navigation & playback) merged with
+ * cloud / TMDB enrichment metadata and locally cached series episodes.
  *
  * sahabId states:
- *   "pending:{novaStreamId}"  → not yet enriched
- *   "tmdb:{tmdbId}"           → successfully matched with TMDB
- *   "local:{hash}"            → TMDB match failed after retries
+ *   "pending:{novaStreamId}"         → movie not yet enriched
+ *   "series_pending:{novaStreamId}"  → series not yet enriched
+ *   "tmdb:{tmdbId}"                  → matched/reference TMDB document
+ *   "local:{hash}"                   → TMDB match failed after retries
  *
  * needsEnrichment:
  *   1  = pending (will be tried)
@@ -24,15 +32,12 @@ import kotlinx.serialization.Serializable
     tableName = "catalog_movies",
     indices = [
         Index(value = ["mediaType", "novaStreamId"], unique = true),
-        Index(value = ["categoryId", "novaAdded"]),
-        Index(value = ["needsEnrichment", "novaAdded"]),
+        Index(value = ["mediaType", "deleted", "providerOrder", "sahabId"]),
+        Index(value = ["mediaType", "deleted", "categoryId", "providerOrder", "sahabId"]),
+        Index(value = ["mediaType", "deleted", "needsEnrichment", "providerOrder"]),
         Index(value = ["tmdbId"]),
-        Index(value = ["lastSeen"]),
-        Index(value = ["deleted"]),
         Index(value = ["needsCloudPush", "updatedAt"]),
-        Index(value = ["mediaType", "deleted", "novaAdded"]),
-        Index(value = ["mediaType", "deleted", "rating"]),
-        Index(value = ["mediaType", "deleted", "year"]),
+        Index(value = ["mediaType", "deleted", "lastSeen"]),
     ],
 )
 data class CatalogMovieEntity(
@@ -69,20 +74,63 @@ data class CatalogMovieEntity(
     val deleted: Int = 0,
     val needsCloudPush: Int = 0,
     val updatedAt: Long = 0L,
+    val providerOrder: Int = Int.MAX_VALUE,
+    val episodesJson: String = "",
+    val searchTitle: String = "",
 ) {
     val displayTitle: String
         get() = titleAr.ifBlank { titleEn }
+
+    val isProviderItem: Boolean
+        get() = novaStreamId.isNotBlank() && !novaStreamId.startsWith(CLOUD_REF_STREAM_PREFIX)
 
     companion object {
         fun idPending(streamId: String, mediaType: String = "movie"): String =
             if (mediaType.equals("series", ignoreCase = true)) "series_pending:$streamId" else "pending:$streamId"
         fun idFromTmdb(tmdbId: Int): String = "tmdb:$tmdbId"
+        fun cloudRefStreamId(sahabId: String): String = "$CLOUD_REF_STREAM_PREFIX$sahabId"
         fun idLocal(name: String, year: String): String {
             val raw = "${name.lowercase().trim()}|${year.trim()}"
             val digest = MessageDigest.getInstance("SHA-256")
                 .digest(raw.toByteArray(Charsets.UTF_8))
             return "local:" + digest.take(8).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         }
+    }
+}
+
+private val catalogEpisodeJson = Json { ignoreUnknownKeys = true; encodeDefaults = false }
+private val SEARCH_BRACKETS_REGEX = Regex("""\[.*?]|\(.*?\)""")
+private val SEARCH_MULTI_SPACE_REGEX = Regex("""\s+""")
+
+fun encodeEpisodesJson(episodes: List<Episode>): String {
+    if (episodes.isEmpty()) return ""
+    return runCatching {
+        catalogEpisodeJson.encodeToString(ListSerializer(Episode.serializer()), episodes)
+    }.getOrDefault("")
+}
+
+fun parseEpisodesJson(raw: String): List<Episode> {
+    if (raw.isBlank()) return emptyList()
+    return runCatching {
+        catalogEpisodeJson.decodeFromString(ListSerializer(Episode.serializer()), raw)
+    }.getOrDefault(emptyList())
+}
+
+fun buildCatalogSearchTitle(vararg parts: String): String {
+    val combined = parts.asSequence()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .joinToString(" ")
+    if (combined.isBlank()) return ""
+    val normalizedRaw = combined.normalizeForSearch().replace(SEARCH_MULTI_SPACE_REGEX, " ").trim()
+    val strippedBrackets = combined.replace(SEARCH_BRACKETS_REGEX, " ").normalizeForSearch()
+        .replace(SEARCH_MULTI_SPACE_REGEX, " ")
+        .trim()
+    return if (strippedBrackets.isNotBlank() && strippedBrackets != normalizedRaw) {
+        "$normalizedRaw $strippedBrackets"
+    } else {
+        normalizedRaw
     }
 }
 

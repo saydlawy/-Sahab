@@ -102,7 +102,7 @@ internal fun PrimeBrowseLayout(
     val hPad = if (isPhone) 12.dp else 24.dp
     val homeMode = (state.selectedId == null || state.selectedId == ALL_CAT_ID) &&
         state.searchResults == null && state.query.isBlank() &&
-        (state.top10Items.isNotEmpty() || state.categoryGroups.isNotEmpty())
+        (state.categoryGroups.isNotEmpty() || fallbackHeroPoster != null)
     val showMessage = !homeMode && items.isEmpty()
     val tabs: @Composable () -> Unit = {
         PrimeCategoryTabs(
@@ -157,7 +157,6 @@ internal fun PrimeBrowseLayout(
                             PrimeHeroHeaderHost(
                                 focusedDetailsFlow = focusedDetailsFlow,
                                 fallbackPoster = fallbackHeroPoster,
-                                top10Items = state.top10Items,
                                 modifier = Modifier
                                     .fillMaxWidth(if (isPhone) 1f else 0.54f)
                                     .padding(top = 12.dp, bottom = 4.dp),
@@ -167,11 +166,6 @@ internal fun PrimeBrowseLayout(
                     if (screenRecents.isNotEmpty()) {
                         item(key = "prime_recents", span = { GridItemSpan(maxLineSpan) }) {
                             PrimeContinueWatchingShelf(route, screenRecents, callbacks, isPhone)
-                        }
-                    }
-                    if (state.top10Items.isNotEmpty()) {
-                        item(key = "prime_top10", span = { GridItemSpan(maxLineSpan) }) {
-                            PrimeTop10Shelf(route, state.top10Items, callbacks, isPhone)
                         }
                     }
                     items(
@@ -205,57 +199,6 @@ internal fun PrimeBrowseLayout(
             }
                 }
         }
-        }
-    }
-}
-
-@Composable
-private fun PrimeTop10Shelf(
-    route: String,
-    posters: List<Poster>,
-    callbacks: BrowseLayoutCallbacks,
-    isPhone: Boolean,
-) {
-    val rowState = rememberRestorableLazyListState("${route}_prime_top10")
-    val cardW: Dp = if (isPhone) 96.dp else 132.dp
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            text = "الأعلى 10",
-            color = Color.White,
-            fontSize = if (isPhone) 14.sp else 18.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        LazyRow(
-            state = rowState,
-            modifier = Modifier.fillMaxWidth().focusRestorer(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-        ) {
-            itemsIndexed(posters.take(10), key = { _, p -> "prime_top10_${p.id}" }) { index, poster ->
-                val rank = index + 1
-                val focusKey = "prime_top10_${poster.id}"
-                Box(Modifier.width(cardW + if (rank >= 10) 76.dp else 48.dp)) {
-                    Text(
-                        text = "$rank",
-                        color = Color.White.copy(alpha = 0.92f),
-                        fontSize = if (isPhone) 64.sp else 92.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        modifier = Modifier.align(Alignment.BottomStart),
-                    )
-                    PrimeTile(
-                        poster = poster,
-                        route = route,
-                        focusKey = focusKey,
-                        isDefault = false,
-                        landscape = false,
-                        onOpen = { callbacks.onOpenPosterWithKey(poster, focusKey) },
-                        onLongClick = { callbacks.onToggleFavorite(poster) },
-                        onFocused = { callbacks.onPosterFocused(poster) },
-                        modifier = Modifier.width(cardW).align(Alignment.CenterEnd),
-                    )
-                }
-            }
         }
     }
 }
@@ -555,7 +498,6 @@ private fun PrimeBackdropHost(
 private fun PrimeHeroHeaderHost(
     focusedDetailsFlow: StateFlow<FocusedPosterDetails?>,
     fallbackPoster: Poster?,
-    top10Items: List<Poster>,
     modifier: Modifier = Modifier,
 ) {
     val focusedDetails by focusedDetailsFlow.collectAsStateWithLifecycle()
@@ -563,12 +505,9 @@ private fun PrimeHeroHeaderHost(
         FocusedPosterDetails(poster = p, year = p.year, rating = p.rating, backdropUrl = p.image)
     }
     val heroDetails = rememberDebouncedHero(rawDetails)
-    val rank = heroDetails?.poster?.id?.let { id ->
-        top10Items.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1)
-    }
     PrimeHeroInfo(
         details = heroDetails,
-        rank = rank,
+        rank = null,
         modifier = modifier,
     )
 }

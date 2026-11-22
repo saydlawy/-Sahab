@@ -1,0 +1,268 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "e8ca8f03369fa702d305624f4871a3f4",
+    "entities": [
+      {
+        "tableName": "catalog_movies",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sahabId` TEXT NOT NULL, `novaStreamId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `titleAr` TEXT NOT NULL, `titleEn` TEXT NOT NULL, `year` TEXT NOT NULL, `plot` TEXT NOT NULL, `plotSource` TEXT NOT NULL, `plotConfidence` TEXT NOT NULL, `identifiedTitle` TEXT NOT NULL, `mediaType` TEXT NOT NULL, `cast` TEXT NOT NULL, `castJson` TEXT NOT NULL, `director` TEXT NOT NULL, `genre` TEXT NOT NULL, `runtime` TEXT NOT NULL, `rating` TEXT NOT NULL, `posterUrl` TEXT NOT NULL, `backdropUrl` TEXT NOT NULL, `postersJson` TEXT NOT NULL, `trailerUrl` TEXT NOT NULL, `imdbId` TEXT NOT NULL, `novaAdded` INTEGER NOT NULL, `containerExtension` TEXT NOT NULL, `isAdult` INTEGER NOT NULL, `tmdbId` INTEGER, `tmdbVoteCount` INTEGER, `needsEnrichment` INTEGER NOT NULL, `lastEnriched` INTEGER NOT NULL, `lastSeen` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`sahabId`))",
+        "fields": [
+          {
+            "fieldPath": "sahabId",
+            "columnName": "sahabId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "novaStreamId",
+            "columnName": "novaStreamId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleAr",
+            "columnName": "titleAr",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titleEn",
+            "columnName": "titleEn",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plot",
+            "columnName": "plot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plotSource",
+            "columnName": "plotSource",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plotConfidence",
+            "columnName": "plotConfidence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identifiedTitle",
+            "columnName": "identifiedTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cast",
+            "columnName": "cast",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "castJson",
+            "columnName": "castJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "director",
+            "columnName": "director",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genre",
+            "columnName": "genre",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "runtime",
+            "columnName": "runtime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "posterUrl",
+            "columnName": "posterUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "backdropUrl",
+            "columnName": "backdropUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "postersJson",
+            "columnName": "postersJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trailerUrl",
+            "columnName": "trailerUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imdbId",
+            "columnName": "imdbId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "novaAdded",
+            "columnName": "novaAdded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "containerExtension",
+            "columnName": "containerExtension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAdult",
+            "columnName": "isAdult",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tmdbVoteCount",
+            "columnName": "tmdbVoteCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "needsEnrichment",
+            "columnName": "needsEnrichment",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastEnriched",
+            "columnName": "lastEnriched",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeen",
+            "columnName": "lastSeen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sahabId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_catalog_movies_mediaType_novaStreamId",
+            "unique": true,
+            "columnNames": [
+              "mediaType",
+              "novaStreamId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_novaStreamId` ON `${TABLE_NAME}` (`mediaType`, `novaStreamId`)"
+          },
+          {
+            "name": "index_catalog_movies_categoryId_novaAdded",
+            "unique": false,
+            "columnNames": [
+              "categoryId",
+              "novaAdded"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_catalog_movies_categoryId_novaAdded` ON `${TABLE_NAME}` (`categoryId`, `novaAdded`)"
+          },
+          {
+            "name": "index_catalog_movies_needsEnrichment_novaAdded",
+            "unique": false,
+            "columnNames": [
+              "needsEnrichment",
+              "novaAdded"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_catalog_movies_needsEnrichment_novaAdded` ON `${TABLE_NAME}` (`needsEnrichment`, `novaAdded`)"
+          },
+          {
+            "name": "index_catalog_movies_tmdbId",
+            "unique": false,
+            "columnNames": [
+              "tmdbId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_catalog_movies_tmdbId` ON `${TABLE_NAME}` (`tmdbId`)"
+          },
+          {
+            "name": "index_catalog_movies_lastSeen",
+            "unique": false,
+            "columnNames": [
+              "lastSeen"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_catalog_movies_lastSeen` ON `${TABLE_NAME}` (`lastSeen`)"
+          },
+          {
+            "name": "index_catalog_movies_deleted",
+            "unique": false,
+            "columnNames": [
+              "deleted"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_catalog_movies_deleted` ON `${TABLE_NAME}` (`deleted`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e8ca8f03369fa702d305624f4871a3f4')"
+    ]
+  }
+}

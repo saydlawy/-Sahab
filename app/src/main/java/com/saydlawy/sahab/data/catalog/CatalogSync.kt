@@ -1,29 +1,24 @@
 package com.saydlawy.sahab.data.catalog
 
+import android.content.Context
 import com.saydlawy.sahab.data.DEFAULT_VOD_EXT
-
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.Repository
+import com.saydlawy.sahab.util.RatingSanitizer
+import com.saydlawy.sahab.util.normalizeForSearch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.withContext
-import android.content.Context
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import com.saydlawy.sahab.util.RatingSanitizer
+import java.util.Locale
 import java.util.zip.GZIPInputStream
 
 /**
- * Syncs Nova (Xtream) movies into the local Room catalog.
- *
- * Design:
- *  - Reads posters via Repository.movies(null) (respects existing cache/network logic)
- *  - Reads categories via Repository.movieCategories() (for year extraction)
- *  - Batches upserts (500 rows) to avoid memory spikes
- *  - Preserves existing enrichment (does not overwrite titleEn/plot/cast/etc.)
- *  - Soft-deletes movies that disappeared from Nova
- *  - Tracks its own `syncing` StateFlow (separate from Repository)
+ * Syncs IPTV movies and series into local Room (`catalog_movies`) preserving provider order,
+ * manages Firebase `global_catalog` delta sync, unifies enrichment (Room -> Firebase -> TMDB),
+ * and gates cloud uploads through [maybeAutoUploadToCloud].
  */
 class CatalogSync(
     private val dao: CatalogMovieDao,
@@ -102,7 +97,7 @@ class CatalogSync(
             .setContentTitle("سحاب — إكمال بيانات المكتبة")
             .setContentText(
                 if (currentTitle.isNotBlank()) "($done/$total) $currentTitle"
-                else "تم تحديث $done من $total عمل"
+                else "تم تحديث $done من $total عمل",
             )
             .setProgress(total, done.coerceAtMost(total), false)
             .setOngoing(true)
@@ -112,9 +107,6 @@ class CatalogSync(
         runCatching { nm.notify(notifId, notif) }
     }
 
-    /**
-     * يرفع جميع العناصر المكتملة محلياً في Room (التي لها tmdbId) إلى global_catalog في Firebase.
-     */
     /**
      * Pushes only locally modified/enriched items flagged with needsCloudPush = 1.
      * Clears needsCloudPush ONLY after verified Firestore write success, then bumps meta/catalog once.
@@ -169,7 +161,6 @@ class CatalogSync(
                 if (succeededIds.isNotEmpty()) {
                     dao.markCloudPushed(succeededIds)
                 }
-                // Stop retrying immediately if an entire batch failed (e.g. quota exhausted or offline).
                 if (batchFailed == batch.size || batch.size < batchLimit) break
             }
             if (pushed > 0) {
@@ -244,10 +235,27 @@ class CatalogSync(
     }
 
     /**
+     * Unified upload gate respecting admin permission, `cloudAutoUploadEnabled`, and valid `tmdb:` ID.
+     * Returns true only if Firestore write succeeded and `needsCloudPush` was cleared.
+     */
+    suspend fun maybeAutoUploadToCloud(entity: CatalogMovieEntity): Boolean = withContext(Dispatchers.IO) {
+        if ((entity.tmdbId ?: 0) <= 0) return@withContext false
+        val autoUpload = runCatching { prefs?.cloudAutoUploadEnabled?.first() ?: true }.getOrDefault(true)
+        if (!autoUpload) return@withContext false
+        val ok = runCatching {
+            firebaseCatalog.saveCatalogItemVerified(entity, bumpMeta = true)
+        }.getOrDefault(false)
+        if (ok) {
+            runCatching { dao.markCloudPushed(listOf(entity.sahabId)) }
+        }
+        ok
+    }
+
+    /**
      * Free-tier safe catalog sync:
      * 1. Reads meta/catalog (1 Firestore read) when force == false; exits immediately if unchanged.
      * 2. Never auto-pulls the full catalog on launch (prevents Spark Plan quota exhaustion).
-     * 3. Pulls only delta documents with updatedAt > localLastSync and merges into Room.
+     * 3. Pulls only delta documents with updatedAt > localLastSync and merges into Room preserving IPTV fields.
      */
     suspend fun syncAllFromFirebaseToRoom(force: Boolean = false): Int = withContext(Dispatchers.IO) {
         if (!_firebaseSyncing.compareAndSet(expect = false, update = true)) return@withContext 0
@@ -260,28 +268,32 @@ class CatalogSync(
             if (!force) {
                 val remoteLastUpdatedAt = firebaseCatalog.getCatalogLastUpdatedAt()
                 if (remoteLastUpdatedAt < 0L) {
-                    // Network or quota error on gate read: abort safely with 0 extra reads.
                     return@withContext 0
                 }
                 if (lastDeltaMs == 0L) {
-                    // Never auto-pull full catalog on first run; anchor delta cursor for future incremental updates.
                     val anchorTs = if (remoteLastUpdatedAt > 0L) remoteLastUpdatedAt else System.currentTimeMillis()
                     runCatching { prefs?.setLastCloudDeltaSyncTime(anchorTs) }
                     return@withContext 0
                 }
                 if (remoteLastUpdatedAt <= lastDeltaMs) {
-                    // Local catalog is already up to date (cost: 1 read total).
                     return@withContext 0
                 }
             }
             val syncStartMs = System.currentTimeMillis()
+            var maxRemoteUpdatedAt = 0L
             _firebaseSyncMessage.value = if (lastDeltaMs > 0L) "جارٍ سحب التحديثات السحابية..." else "جارٍ تحميل مكتبة سحاب..."
             val outcome = firebaseCatalog.fetchAllCatalogBatchedOutcome(batchSize = 400L, sinceMs = lastDeltaMs) { batch, totalFetched ->
+                for (item in batch) {
+                    if (item.updatedAt > maxRemoteUpdatedAt) {
+                        maxRemoteUpdatedAt = item.updatedAt
+                    }
+                }
                 dao.mergeCloudBatchPreservingLocal(batch)
                 _firebaseSyncMessage.value = "جارٍ مزامنة مكتبة سحاب... ($totalFetched عنصر)"
             }
             if (outcome.completedCleanly) {
-                runCatching { prefs?.setLastCloudDeltaSyncTime(syncStartMs) }
+                val cursorTs = maxRemoteUpdatedAt.takeIf { it > 0L } ?: syncStartMs
+                runCatching { prefs?.setLastCloudDeltaSyncTime(cursorTs) }
             }
             outcome.fetched
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -295,52 +307,94 @@ class CatalogSync(
         }
     }
 
-    suspend fun syncMovies(repo: Repository): Stats = withContext(Dispatchers.IO) {
+    suspend fun syncMovies(repo: Repository): Stats = syncMedia(repo, mediaType = "movie")
+
+    suspend fun syncSeries(repo: Repository): Stats = syncMedia(repo, mediaType = "series")
+
+    private suspend fun syncMedia(repo: Repository, mediaType: String): Stats = withContext(Dispatchers.IO) {
         if (!_syncing.compareAndSet(expect = false, update = true)) return@withContext Stats()
         val start = System.currentTimeMillis()
+        val isSeries = mediaType.equals("series", ignoreCase = true)
+        val normalizedType = if (isSeries) "series" else "movie"
         try {
             val now = System.currentTimeMillis()
 
-            // 1. Fetch categories (for year extraction from category name)
             val categories: Map<String, String> = runCatching {
-                repo.movieCategories().associate { it.id to it.name }
+                val cats = if (isSeries) repo.seriesCategories() else repo.movieCategories()
+                cats.associate { it.id to it.name }
             }.getOrElse { emptyMap() }
 
-            // 2. Fetch posters (uses Repository cache; goes to Nova only if needed)
             val posters: List<Poster> = runCatching {
-                repo.movies(null)
+                if (isSeries) repo.seriesList(null) else repo.movies(null)
             }.getOrElse { emptyList() }
 
             if (posters.isEmpty()) {
                 return@withContext Stats(durationMs = System.currentTimeMillis() - start)
             }
 
-            // 3. Existing stream IDs — to decide upsert vs touch
-            val existing: Set<String> = dao.allStreamIds().toHashSet()
+            val existing = dao.loadAllProviderSyncSnapshot(normalizedType)
 
             var inserted = 0
             var updated = 0
 
-            // 4. Process in batches of 500 (SQLite parameter limit ~999)
-            posters.chunked(BATCH_SIZE).forEach { batch ->
+            val indexedPosters = posters.mapIndexed { idx, poster -> idx to poster }
+            indexedPosters.chunked(BATCH_SIZE).forEach { batch ->
                 val newEntities = mutableListOf<CatalogMovieEntity>()
-                val existingInBatch = mutableListOf<String>()
+                val unchangedIds = mutableListOf<String>()
+                val updatedFields = mutableListOf<ProviderSyncUpdate>()
 
-                batch.forEach { p ->
-                    if (p.id in existing) {
-                        existingInBatch.add(p.id)
+                batch.forEach { (providerOrder, p) ->
+                    val prev = existing[p.id]
+                    val resolvedExt = if (isSeries) {
+                        ""
+                    } else {
+                        p.ext.ifBlank { prev?.containerExtension.orEmpty() }.ifBlank { DEFAULT_VOD_EXT }
+                    }
+                    if (prev != null) {
+                        val expectedSearch = buildCatalogSearchTitle(p.name, prev.titleEn, prev.identifiedTitle)
+                        val changed = prev.categoryId != p.categoryId ||
+                            prev.titleAr != p.name ||
+                            prev.posterUrl != p.image ||
+                            prev.containerExtension != resolvedExt ||
+                            prev.providerOrder != providerOrder ||
+                            prev.searchTitle != expectedSearch ||
+                            prev.deleted != 0
+                        if (changed) {
+                            updatedFields.add(
+                                ProviderSyncUpdate(
+                                    streamId = p.id,
+                                    categoryId = p.categoryId,
+                                    titleAr = p.name,
+                                    posterUrl = p.image,
+                                    containerExtension = resolvedExt,
+                                    added = p.added,
+                                    providerOrder = providerOrder,
+                                    searchTitle = expectedSearch,
+                                ),
+                            )
+                        } else {
+                            unchangedIds.add(p.id)
+                        }
                         updated++
                     } else {
-                        newEntities.add(buildEntity(p, categories[p.categoryId] ?: "", now))
+                        newEntities.add(
+                            buildEntity(
+                                p = p,
+                                categoryName = categories[p.categoryId] ?: "",
+                                now = now,
+                                mediaType = normalizedType,
+                                providerOrder = providerOrder,
+                                resolvedExt = resolvedExt,
+                            ),
+                        )
                         inserted++
                     }
                 }
 
-                dao.applySyncBatch(existingInBatch, newEntities, now, "movie")
+                dao.applySyncBatch(unchangedIds, updatedFields, newEntities, now, normalizedType)
             }
 
-            // 5. Soft-delete stale (movies not seen for >24h)
-            val deleted = dao.softDeleteBefore(cutoff = now - STALE_CUTOFF_MS)
+            val deleted = dao.softDeleteBefore(cutoff = now - STALE_CUTOFF_MS, mediaType = normalizedType)
 
             Stats(
                 total = posters.size,
@@ -354,10 +408,6 @@ class CatalogSync(
         }
     }
 
-    /**
-     * Enriches a single movie. Fetches from TMDB via TmdbMatcher, applies to Room.
-     * Safe to call from ViewModel. Does nothing if already enriched or marked failed.
-     */
     data class SeedStats(
         val total: Int = 0,
         val loaded: Int = 0,
@@ -365,12 +415,6 @@ class CatalogSync(
         val wasSkipped: Boolean = false,
     )
 
-    /**
-     * Reads catalog_seed.json.gz from assets and populates Room.
-     * Skips if DB already has enrichment (dbCount > 1000 AND enrichedCount > 100).
-     * Uses batched upserts (500) to stay under SQLite limits.
-     * Sets _syncing flag so SyncOverlay shows the operation.
-     */
     suspend fun populateFromSeed(context: Context): SeedStats = withContext(Dispatchers.IO) {
         if (!_syncing.compareAndSet(expect = false, update = true)) return@withContext SeedStats(wasSkipped = true)
         val start = System.currentTimeMillis()
@@ -390,9 +434,6 @@ class CatalogSync(
             var loaded = 0
 
             try {
-                // AAPT2/workflow may unpack .gz during build, producing
-                // "catalog_seed.json" (uncompressed) inside the APK.
-                // Try .json first, fall back to original .gz name.
                 val stream: java.io.InputStream = runCatching {
                     context.assets.open("databases/catalog_seed.json")
                 }.getOrElse {
@@ -408,7 +449,13 @@ class CatalogSync(
                             try {
                                 val decoded = json.decodeFromString<CatalogMovieEntity>(trimmed)
                                 val entity = decoded.copy(
+                                    novaStreamId = CatalogMovieEntity.cloudRefStreamId(decoded.sahabId),
+                                    categoryId = "",
+                                    providerOrder = Int.MAX_VALUE,
+                                    episodesJson = "",
+                                    needsCloudPush = 0,
                                     rating = RatingSanitizer.format(decoded.rating, decoded.tmdbVoteCount),
+                                    searchTitle = buildCatalogSearchTitle(decoded.titleAr, decoded.titleEn, decoded.identifiedTitle),
                                 )
                                 batch.add(entity)
                                 if (batch.size >= 500) {
@@ -445,6 +492,11 @@ class CatalogSync(
         }
     }
 
+    /**
+     * Unified enrichment pipeline:
+     * 1) Local Room cloud reference -> 2) Firebase `global_catalog` -> 3) TMDB match -> merge into Room
+     * without overwriting user IPTV provider fields (`novaStreamId`, `categoryId`, `providerOrder`, `episodesJson`).
+     */
     suspend fun enrichOne(
         repo: Repository,
         tmdb: com.saydlawy.sahab.data.TmdbApi,
@@ -452,19 +504,50 @@ class CatalogSync(
         force: Boolean = false,
         mediaType: String = "movie",
     ): com.saydlawy.sahab.data.catalog.TmdbMatcher.EnrichResult? {
-        val normalizedType = mediaType.ifBlank { "movie" }
+        val normalizedType = if (mediaType.equals("series", ignoreCase = true)) "series" else "movie"
         val existing = dao.findByStreamId(streamId, normalizedType) ?: return null
-        if (!force && (existing.needsEnrichment == 0 || existing.needsEnrichment == -1)) return null
+        if (!force && (existing.needsEnrichment == 0 || existing.needsEnrichment == -1) && existing.plot.isNotBlank()) {
+            return null
+        }
 
         val now = System.currentTimeMillis()
-        // WEAK match retry gate: if we tried in the last 24h, skip (avoid re-hitting TMDB on every reopen)
         if (!force && existing.needsEnrichment == 1 && existing.lastEnriched > 0L &&
             (now - existing.lastEnriched) < 24L * 3600_000L
         ) {
             return null
         }
 
-        // 1. البحث في السحابة (Firebase) فقط إذا كان للعنصر tmdbId فعلي (تجنباً لاستنزاف القراءات بطلبات pending:)
+        // 1. Check already-synced local Room cloud references first (0 network calls)
+        if (!force) {
+            val localCloudRef = findLocalCloudMatch(existing, normalizedType)
+            if (localCloudRef != null && localCloudRef.plot.isNotBlank()) {
+                dao.applyEnrichment(
+                    streamId = streamId,
+                    tmdbId = localCloudRef.tmdbId,
+                    titleEn = localCloudRef.titleEn,
+                    year = localCloudRef.year.ifBlank { existing.year },
+                    plot = localCloudRef.plot,
+                    cast = localCloudRef.cast,
+                    director = localCloudRef.director,
+                    genre = localCloudRef.genre,
+                    runtime = localCloudRef.runtime,
+                    rating = RatingSanitizer.format(localCloudRef.rating, localCloudRef.tmdbVoteCount),
+                    backdropUrl = localCloudRef.backdropUrl,
+                    voteCount = localCloudRef.tmdbVoteCount,
+                    status = 0,
+                    now = now,
+                    mediaType = normalizedType,
+                    postersJson = localCloudRef.postersJson,
+                    trailerUrl = localCloudRef.trailerUrl,
+                    castJson = localCloudRef.castJson,
+                    searchTitle = buildCatalogSearchTitle(existing.titleAr, localCloudRef.titleEn, localCloudRef.identifiedTitle),
+                    needsCloudPush = 0,
+                )
+                return null
+            }
+        }
+
+        // 2. Query Firebase `global_catalog` only when a concrete tmdbId exists (avoids pending: read storms)
         val cloudLookupId = existing.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
         val cloudData = if (!force && cloudLookupId != null) {
             runCatching { firebaseCatalog.getCatalogItem(cloudLookupId) }.getOrNull()
@@ -476,7 +559,7 @@ class CatalogSync(
                 streamId = streamId,
                 tmdbId = cloudData.tmdbId,
                 titleEn = cloudData.titleEn,
-                year = cloudData.year,
+                year = cloudData.year.ifBlank { existing.year },
                 plot = cloudData.plot,
                 cast = cloudData.cast,
                 director = cloudData.director,
@@ -491,23 +574,22 @@ class CatalogSync(
                 postersJson = cloudData.postersJson,
                 trailerUrl = cloudData.trailerUrl,
                 castJson = cloudData.castJson,
+                searchTitle = buildCatalogSearchTitle(existing.titleAr, cloudData.titleEn, cloudData.identifiedTitle),
+                needsCloudPush = 0,
             )
-            return null // تم الإثراء من Firebase بنجاح دون استدعاء TMDB
+            return null
         }
+
         if (!tmdb.hasApiKey()) return null
 
         val catName = runCatching {
-            val cats = if (normalizedType.equals("series", ignoreCase = true)) {
-                repo.seriesCategories()
-            } else {
-                repo.movieCategories()
-            }
+            val cats = if (normalizedType == "series") repo.seriesCategories() else repo.movieCategories()
             cats.firstOrNull { it.id == existing.categoryId }?.name ?: ""
         }.getOrElse { "" }
 
         val serverYear = if (force || existing.year.isBlank()) {
             runCatching {
-                val rawYear = if (normalizedType.equals("series", ignoreCase = true)) {
+                val rawYear = if (normalizedType == "series") {
                     repo.seriesDetails(streamId).year
                 } else {
                     repo.movieDetails(streamId).year
@@ -530,40 +612,45 @@ class CatalogSync(
 
         val movie = result.movie
         if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG && movie != null) {
+            val localByMatchedTmdb = runCatching { dao.findBestEnrichedByTmdbId(movie.id, normalizedType) }.getOrNull()
+                ?.takeIf { it.sahabId != existing.sahabId }
+            val resolvedPlot = movie.overview.ifBlank { localByMatchedTmdb?.plot.orEmpty() }
+            val resolvedPosters = movie.posterUrls.joinToString("\n").ifBlank { localByMatchedTmdb?.postersJson.orEmpty() }
+            val resolvedTrailer = movie.trailerUrl.ifBlank { localByMatchedTmdb?.trailerUrl.orEmpty() }
+            val resolvedRating = RatingSanitizer.format(movie.voteAverage, movie.voteCount)
+                .ifBlank { RatingSanitizer.format(localByMatchedTmdb?.rating, localByMatchedTmdb?.tmdbVoteCount) }
             val newId = CatalogMovieEntity.idFromTmdb(movie.id)
             dao.applyEnrichment(
                 streamId = streamId,
                 tmdbId = movie.id,
                 titleEn = movie.title,
                 year = movie.releaseDate.take(4),
-                plot = movie.overview,
+                plot = resolvedPlot,
                 cast = movie.credits?.cast?.take(5)?.joinToString(", ") { it.name } ?: "",
                 director = movie.credits?.crew?.firstOrNull { it.job == "Director" }?.name ?: "",
                 genre = movie.genres.joinToString(", ") { it.name },
                 runtime = movie.runtime?.let { "${it}m" } ?: "",
-                rating = RatingSanitizer.format(movie.voteAverage, movie.voteCount),
+                rating = resolvedRating,
                 backdropUrl = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: "",
                 voteCount = movie.voteCount,
                 status = 0,
                 now = now,
                 mediaType = normalizedType,
-                postersJson = movie.posterUrls.joinToString("\n"),
-                trailerUrl = movie.trailerUrl,
+                postersJson = resolvedPosters,
+                trailerUrl = resolvedTrailer,
                 castJson = encodeTmdbCastJson(movie.credits?.cast),
+                searchTitle = buildCatalogSearchTitle(existing.titleAr, movie.title, existing.identifiedTitle),
+                needsCloudPush = 1,
             )
             if (existing.sahabId.startsWith("pending:") || existing.sahabId.startsWith("series_pending:")) {
                 runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr, normalizedType) }
             }
-            val autoUpload = runCatching { prefs?.cloudAutoUploadEnabled?.first() ?: true }.getOrDefault(true)
-            if (autoUpload) {
-                runCatching {
-                    dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
-                        firebaseCatalog.saveCatalogItem(enrichedEntity)
-                    }
+            runCatching {
+                dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
+                    maybeAutoUploadToCloud(enrichedEntity)
                 }
             }
         } else if (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK && movie != null) {
-            // Weak match — store in local Room only (keep needsEnrichment=1), never pollute shared Firebase catalog
             dao.applyEnrichment(
                 streamId = streamId,
                 tmdbId = movie.id,
@@ -583,17 +670,56 @@ class CatalogSync(
                 postersJson = movie.posterUrls.joinToString("\n"),
                 trailerUrl = movie.trailerUrl,
                 castJson = encodeTmdbCastJson(movie.credits?.cast),
+                searchTitle = buildCatalogSearchTitle(existing.titleAr, movie.title, existing.identifiedTitle),
+                needsCloudPush = 0,
             )
         } else if (
             result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.NETWORK_ERROR ||
             (movie == null && (result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.STRONG ||
                 result.level == com.saydlawy.sahab.data.catalog.TmdbMatcher.Level.WEAK))
         ) {
-            // Transient network/key error or details fetch failed — keep needsEnrichment=1 to retry later.
+            // Transient network/key error — keep needsEnrichment=1 to retry later.
         } else {
             dao.markFailed(streamId, now, normalizedType)
         }
         return result
+    }
+
+    private suspend fun findLocalCloudMatch(
+        existing: CatalogMovieEntity,
+        normalizedType: String,
+    ): CatalogMovieEntity? {
+        existing.tmdbId?.takeIf { it > 0 }?.let { tid ->
+            val byTmdb = runCatching { dao.findBestEnrichedByTmdbId(tid, normalizedType) }.getOrNull()
+            if (byTmdb != null && byTmdb.sahabId != existing.sahabId && byTmdb.plot.isNotBlank()) {
+                return byTmdb
+            }
+        }
+        val cleaned = cleanNormalizedLookupTitle(existing.titleAr.ifBlank { existing.titleEn })
+        if (cleaned.length < 4) return null
+        val candidates = runCatching { dao.findEnrichedCandidatesBySearchTitle(cleaned, normalizedType) }.getOrNull().orEmpty()
+        if (candidates.isEmpty()) return null
+        val itemYear = RatingSanitizer.extractFourDigitYear(existing.year.ifBlank { existing.titleAr })
+        return candidates.firstOrNull { candidate ->
+            if (candidate.sahabId == existing.sahabId || candidate.plot.isBlank()) return@firstOrNull false
+            val candYear = RatingSanitizer.extractFourDigitYear(candidate.year)
+            if (itemYear.isNotBlank() && candYear.isNotBlank() && itemYear != candYear) return@firstOrNull false
+            val candAr = cleanNormalizedLookupTitle(candidate.titleAr)
+            val candEn = cleanNormalizedLookupTitle(candidate.titleEn)
+            val candIdentified = cleanNormalizedLookupTitle(candidate.identifiedTitle)
+            cleaned == candAr || cleaned == candEn || cleaned == candIdentified
+        }
+    }
+
+    private fun cleanNormalizedLookupTitle(raw: String): String {
+        if (raw.isBlank()) return ""
+        return raw.lowercase(Locale.ROOT)
+            .replace(LOOKUP_PREFIX_PIPE_REGEX, "")
+            .replace(LOOKUP_BRACKETS_REGEX, " ")
+            .normalizeForSearch()
+            .replace(LOOKUP_NOISE_REGEX, " ")
+            .replace(LOOKUP_NON_ALNUM_REGEX, " ")
+            .trim()
     }
 
     suspend fun applyManualTmdbMatch(
@@ -602,9 +728,9 @@ class CatalogSync(
         tmdbId: Int,
         mediaType: String = "movie",
     ): Boolean {
-        val normalizedType = mediaType.ifBlank { "movie" }
+        val normalizedType = if (mediaType.equals("series", ignoreCase = true)) "series" else "movie"
         val existing = dao.findByStreamId(streamId, normalizedType)
-        val movie = if (normalizedType.equals("series", ignoreCase = true)) {
+        val movie = if (normalizedType == "series") {
             tmdb.getTvDetailsById(tmdbId)
         } else {
             tmdb.getMovieDetailsById(tmdbId)
@@ -620,6 +746,11 @@ class CatalogSync(
         val backdropStr = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" } ?: ""
         val postersStr = movie.posterUrls.joinToString("\n")
         val castJsonStr = encodeTmdbCastJson(movie.credits?.cast)
+        val updatedSearch = buildCatalogSearchTitle(
+            existing?.titleAr.orEmpty().ifBlank { movie.title },
+            movie.title,
+            existing?.identifiedTitle.orEmpty(),
+        )
 
         if (existing != null) {
             dao.applyEnrichment(
@@ -641,6 +772,8 @@ class CatalogSync(
                 postersJson = postersStr,
                 trailerUrl = movie.trailerUrl,
                 castJson = castJsonStr,
+                searchTitle = updatedSearch,
+                needsCloudPush = 1,
             )
             if (existing.sahabId.startsWith("pending:") || existing.sahabId.startsWith("series_pending:")) {
                 runCatching { firebaseCatalog.linkPendingAliasToTmdb(streamId, newId, existing.titleAr, normalizedType) }
@@ -648,7 +781,7 @@ class CatalogSync(
         } else {
             dao.upsert(
                 CatalogMovieEntity(
-                    sahabId = newId,
+                    sahabId = CatalogMovieEntity.idPending(streamId, normalizedType),
                     novaStreamId = streamId,
                     mediaType = normalizedType,
                     titleAr = movie.title,
@@ -672,15 +805,13 @@ class CatalogSync(
                     lastSeen = now,
                     needsCloudPush = 1,
                     updatedAt = now,
-                )
+                    searchTitle = updatedSearch,
+                ),
             )
         }
         runCatching {
             dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
-                val pushed = firebaseCatalog.saveCatalogItemVerified(enrichedEntity, bumpMeta = true)
-                if (pushed) {
-                    dao.markCloudPushed(listOf(enrichedEntity.sahabId))
-                }
+                maybeAutoUploadToCloud(enrichedEntity)
             }
         }
         return true
@@ -690,27 +821,29 @@ class CatalogSync(
         p: Poster,
         categoryName: String,
         now: Long,
+        mediaType: String,
+        providerOrder: Int,
+        resolvedExt: String,
     ): CatalogMovieEntity {
         val year = extractYear(p.name, categoryName)
         return CatalogMovieEntity(
-            sahabId = CatalogMovieEntity.idPending(p.id),
+            sahabId = CatalogMovieEntity.idPending(p.id, mediaType),
             novaStreamId = p.id,
             categoryId = p.categoryId,
             titleAr = p.name,
             year = year,
+            mediaType = mediaType,
             posterUrl = p.image,
             novaAdded = p.added,
-            containerExtension = p.ext.ifBlank { DEFAULT_VOD_EXT },
+            containerExtension = resolvedExt,
             needsEnrichment = 1,
             lastSeen = now,
             deleted = 0,
+            providerOrder = providerOrder,
+            searchTitle = buildCatalogSearchTitle(p.name),
         )
     }
 
-    /**
-     * Prefer trailing year (avoids extracting 1917 from title "1917").
-     * Falls back to category name, then empty.
-     */
     private fun extractYear(name: String, categoryName: String): String {
         val matches = YEAR_REGEX.findAll(name).toList()
         if (matches.isNotEmpty()) {
@@ -725,5 +858,9 @@ class CatalogSync(
         private const val BATCH_SIZE = 500
         private const val STALE_CUTOFF_MS = 24L * 3600_000L
         private val YEAR_REGEX = Regex("""\b(19[2-9]\d|20[0-3]\d)\b""")
+        private val LOOKUP_PREFIX_PIPE_REGEX = Regex("""^[^|]{1,20}\|\s*""")
+        private val LOOKUP_BRACKETS_REGEX = Regex("""\[.*?]|\(.*?\)""")
+        private val LOOKUP_NOISE_REGEX = Regex("""\b(19\d\d|20\d\d|4k|uhd|fhd|hd|1080p|720p|bluray|web-dl|webrip|hdtv|vod|ar|en|sub|dub|s\d{1,2}|season\s*\d{1,2}|فيلم|مسلسل|انمي|كرتون|كارتون|الموسم|موسم|مدبلج|مترجم)\b""")
+        private val LOOKUP_NON_ALNUM_REGEX = Regex("""[^\p{L}\p{N}]+""")
     }
 }

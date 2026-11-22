@@ -7,6 +7,7 @@ import com.saydlawy.sahab.data.auth.AuthManager
 import com.saydlawy.sahab.data.catalog.CatalogMovieDao
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
 import com.saydlawy.sahab.data.forAccount
+import com.saydlawy.sahab.util.normalizeForSearch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -36,7 +37,13 @@ class LocalRoomCentralCatalogAdapter(
         val entities = if (cleanQuery.isBlank()) {
             dao.getPaged(mediaType = mediaType, limit = limit, offset = offset)
         } else {
-            dao.searchCatalogPaged(query = cleanQuery, mediaType = mediaType, limit = limit, offset = offset)
+            dao.searchCatalogPaged(
+                query = cleanQuery,
+                normalizedQuery = cleanQuery.normalizeForSearch(),
+                mediaType = mediaType,
+                limit = limit,
+                offset = offset,
+            )
         }
         entities.map { it.toCentralItem() }
     }

@@ -45,9 +45,7 @@ import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.HomeChannelsLayout
 import com.saydlawy.sahab.data.ThemeCustomization
 import com.saydlawy.sahab.data.ThemePreferences
-import com.saydlawy.sahab.data.VodCustomGrouping
 import com.saydlawy.sahab.data.VodLayoutStyle
-import com.saydlawy.sahab.data.VodOrganizationMode
 import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassCard
@@ -74,8 +72,6 @@ internal fun SettingsAppearancePanel(container: AppContainer) {
     val saved by prefs.themePreferences.collectAsStateWithLifecycle(initialValue = ThemePreferences())
     val moviesLayout by prefs.moviesLayoutStyle.collectAsStateWithLifecycle(initialValue = VodLayoutStyle.CLASSIC)
     val seriesLayout by prefs.seriesLayoutStyle.collectAsStateWithLifecycle(initialValue = VodLayoutStyle.CLASSIC)
-    val vodOrgMode by prefs.vodOrganizationMode.collectAsStateWithLifecycle(initialValue = VodOrganizationMode.DEFAULT)
-    val vodCustomGrouping by prefs.vodCustomGrouping.collectAsStateWithLifecycle(initialValue = VodCustomGrouping.GENRE)
     val light by prefs.lightEffects.collectAsStateWithLifecycle(initialValue = false)
 
     val showRecents by prefs.showRecents.collectAsStateWithLifecycle(initialValue = true)
@@ -88,50 +84,6 @@ internal fun SettingsAppearancePanel(container: AppContainer) {
     val customization = saved.customization(activeThemeId)
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        GlassPanel(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            strong = true,
-            padding = 20.dp,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                DotTitle("ترتيب الأفلام والمسلسلات", Palette.FocusCyan, fontSize = 18.sp)
-                Text(
-                    text = "اختر بين باقات السيرفر الافتراضية أو التصنيف المخصص الموحد (النوع، السنة، الممثل)",
-                    color = Palette.TextDim,
-                    fontSize = 12.sp,
-                )
-                AppearanceChoiceRow(
-                    title = "وضع الترتيب",
-                    options = listOf(
-                        VodOrganizationMode.DEFAULT.name to "الوضع الافتراضي",
-                        VodOrganizationMode.CUSTOM.name to "الوضع المخصص",
-                    ),
-                    selected = vodOrgMode.name,
-                    onSelect = { raw ->
-                        val mode = runCatching { VodOrganizationMode.valueOf(raw) }.getOrDefault(VodOrganizationMode.DEFAULT)
-                        scope.launch { prefs.setVodOrganizationMode(mode) }
-                    },
-                )
-                if (vodOrgMode == VodOrganizationMode.CUSTOM) {
-                    AppearanceChoiceRow(
-                        title = "تصنيف الأفلام والمسلسلات حسب",
-                        options = listOf(
-                            VodCustomGrouping.GENRE.name to "النوع (أكشن، دراما...)",
-                            VodCustomGrouping.YEAR.name to "السنة",
-                            VodCustomGrouping.CAST.name to "الممثل",
-                            VodCustomGrouping.RATING.name to "التقييم",
-                        ),
-                        selected = vodCustomGrouping.name,
-                        onSelect = { raw ->
-                            val grouping = runCatching { VodCustomGrouping.valueOf(raw) }.getOrDefault(VodCustomGrouping.GENRE)
-                            scope.launch { prefs.setVodCustomGrouping(grouping) }
-                        },
-                    )
-                }
-            }
-        }
-
         VodLayoutSelectorPanel(
             title = "تخطيط شاشة الأفلام",
             subtitle = "اختر التصميم الخاص بقسم الأفلام بشكل مستقل",

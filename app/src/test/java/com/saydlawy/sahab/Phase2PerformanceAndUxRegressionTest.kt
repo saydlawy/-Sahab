@@ -4,19 +4,21 @@ import com.saydlawy.sahab.data.Account
 import com.saydlawy.sahab.data.Channel
 import com.saydlawy.sahab.data.Category
 import com.saydlawy.sahab.data.DiskCache
+import com.saydlawy.sahab.data.Episode
 import com.saydlawy.sahab.data.Poster
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.TmdbApi
 import com.saydlawy.sahab.data.XtreamApi
-import com.saydlawy.sahab.data.catalog.CATALOG_FACET_PAGE_SIZE
-import com.saydlawy.sahab.data.catalog.CatalogFacetRow
-import com.saydlawy.sahab.data.catalog.CatalogMovieDao
-import com.saydlawy.sahab.data.catalog.loadAllFacetsByPage
+import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.data.catalog.buildCatalogSearchTitle
+import com.saydlawy.sahab.data.catalog.encodeEpisodesJson
+import com.saydlawy.sahab.data.catalog.parseEpisodesJson
 import com.saydlawy.sahab.data.channel.ChannelSync
 import com.saydlawy.sahab.ui.browse.BrowseUiState
 import com.saydlawy.sahab.ui.browse.FocusedPosterDetails
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.ServerUrl
+import com.saydlawy.sahab.util.normalizeForSearch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.builtins.ListSerializer
 import okhttp3.OkHttpClient
@@ -125,41 +127,30 @@ class Phase2PerformanceAndUxRegressionTest {
     }
 
     @Test
-    fun facetPagination_walksAllPagesSafelyAndDiskCacheCapsAreBoundedForTv() = runTest {
-        val totalRows = CATALOG_FACET_PAGE_SIZE * 2 + 15
-        val rows = (1..totalRows).map { idx ->
-            val key = "tmdb:%05d".format(idx)
-            CatalogFacetRow(
-                novaStreamId = idx.toString(),
-                year = "2024",
-                genre = "Action",
-                cast = "",
-                rating = "8.0",
-                novaAdded = idx.toLong(),
-                sahabId = key,
-            )
-        }
-        val recordedCursors = mutableListOf<String>()
-        val fakeDao = java.lang.reflect.Proxy.newProxyInstance(
-            CatalogMovieDao::class.java.classLoader,
-            arrayOf(CatalogMovieDao::class.java),
-        ) { _, method, args ->
-            when (method.name) {
-                "getFacetMetadataPage" -> {
-                    val afterCursor = args?.getOrNull(1) as? String ?: ""
-                    val limit = args?.getOrNull(2) as? Int ?: CATALOG_FACET_PAGE_SIZE
-                    recordedCursors.add(afterCursor)
-                    rows.filter { it.sahabId > afterCursor }.take(limit)
-                }
-                else -> null
-            }
-        } as CatalogMovieDao
+    fun roomArabicSearchNormalizationAndEpisodesSerialization_roundtripSafely() {
+        val searchTitle = buildCatalogSearchTitle("[4K] أحمد [مترجم] في الإسكندرية", "Ahmad in Alexandria")
+        assertTrue(searchTitle.contains("احمد في الاسكندريه"))
+        assertTrue(searchTitle.contains("احمد".normalizeForSearch()))
+        assertTrue(searchTitle.contains("alexandria"))
 
-        val loaded = fakeDao.loadAllFacetsByPage("movie", CATALOG_FACET_PAGE_SIZE)
-        assertEquals(totalRows, loaded.size)
-        assertEquals("tmdb:00001", loaded.first().sahabId)
-        assertEquals("tmdb:%05d".format(totalRows), loaded.last().sahabId)
-        assertEquals(3, recordedCursors.size)
+        val episodes = listOf(
+            Episode(id = "e1", season = 1, number = 1, title = "الحلقة الأولى", ext = "mp4", duration = "45m"),
+            Episode(id = "e2", season = 1, number = 2, title = "الحلقة الثانية", ext = "mkv", duration = "48m"),
+        )
+        val encoded = encodeEpisodesJson(episodes)
+        assertTrue(encoded.isNotBlank())
+        assertEquals(episodes, parseEpisodesJson(encoded))
+        assertEquals(emptyList<Episode>(), parseEpisodesJson(""))
+
+        val entity = CatalogMovieEntity(
+            sahabId = CatalogMovieEntity.idPending("55", "series"),
+            novaStreamId = "55",
+            mediaType = "series",
+            providerOrder = 0,
+            episodesJson = encoded,
+            searchTitle = searchTitle,
+        )
+        assertTrue(entity.isProviderItem)
         assertEquals(120L * 1024L * 1024L, DiskCache.MAX_CATALOG_BYTES)
         assertEquals(60L * 1024L * 1024L, DiskCache.MAX_TMDB_BYTES)
     }

@@ -244,4 +244,36 @@ class RepositoryTest {
             syncServer.shutdown()
         }
     }
+
+    @Test
+    fun moviesAndSeriesStreams_preserveOriginalProviderOrderWithoutSortingByAdded() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"stream_id":"10","name":"First From Provider","category_id":"1","added":"100"},
+                  {"stream_id":"20","name":"Second From Provider","category_id":"1","added":"999"},
+                  {"stream_id":"30","name":"Third From Provider","category_id":"1","added":"50"}
+                ]
+                """.trimIndent(),
+            ),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                [
+                  {"series_id":"s1","name":"Series One","category_id":"2","last_modified":"100"},
+                  {"series_id":"s2","name":"Series Two","category_id":"2","last_modified":"999"},
+                  {"series_id":"s3","name":"Series Three","category_id":"2","last_modified":"50"}
+                ]
+                """.trimIndent(),
+            ),
+        )
+
+        val movies = repo.movies(null, forceNetwork = true)
+        val series = repo.seriesList(null, forceNetwork = true)
+
+        assertEquals(listOf("10", "20", "30"), movies.map { it.id })
+        assertEquals(listOf("s1", "s2", "s3"), series.map { it.id })
+    }
 }

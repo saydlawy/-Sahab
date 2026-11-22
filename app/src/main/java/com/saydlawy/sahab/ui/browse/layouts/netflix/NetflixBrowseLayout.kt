@@ -281,18 +281,6 @@ internal fun NetflixBrowseLayout(
                     }
                 }
 
-                if (state.top10Items.isNotEmpty()) {
-                    item(key = "nf_top10") {
-                        NetflixTop10Row(
-                            screenKey = route,
-                            top10 = state.top10Items,
-                            onOpenPoster = { poster, focusKey -> callbacks.onOpenPosterWithKey(poster, focusKey) },
-                            onToggleFavorite = callbacks.onToggleFavorite,
-                            onFocusedPoster = callbacks.onPosterFocused,
-                        )
-                    }
-                }
-
                 items(state.categoryGroups, key = { "nf_group_${it.category.id}" }) { group ->
                     val rowState = rememberRestorableLazyListState("${route}_nf_row_${group.category.id}")
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

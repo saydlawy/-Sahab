@@ -491,4 +491,69 @@ class DatabaseMigrationRegressionTest {
         assertEquals("custom_1", db.tableRows["channel_lists"]!![0]["listId"])
         assertEquals("أخبار", db.tableRows["channel_lists"]!![0]["name"])
     }
+
+    @Test
+    fun catalogDatabase_migrations6To8_preservesDataAddsProviderOrderEpisodesSearchTitleAndDropsFilterIndices() {
+        val db = RecordingSqliteDatabase()
+        db.defineTable(
+            name = "catalog_movies",
+            columns = listOf(
+                "sahabId", "novaStreamId", "categoryId", "titleAr", "titleEn", "year",
+                "plot", "plotSource", "plotConfidence", "identifiedTitle", "mediaType",
+                "cast", "castJson", "director", "genre", "runtime", "rating", "posterUrl",
+                "backdropUrl", "postersJson", "trailerUrl", "imdbId", "novaAdded",
+                "containerExtension", "isAdult", "tmdbId", "tmdbVoteCount",
+                "needsEnrichment", "lastEnriched", "lastSeen", "deleted",
+            ),
+            rows = listOf(
+                mapOf(
+                    "sahabId" to "pending:9902",
+                    "novaStreamId" to "9902",
+                    "mediaType" to "movie",
+                    "titleAr" to "ماتريكس",
+                    "titleEn" to "The Matrix",
+                    "plot" to "قصة محفوظة محلياً",
+                    "tmdbId" to 603,
+                ),
+            ),
+        )
+        db.indices["index_catalog_movies_mediaType_novaStreamId"] = true
+        db.indices["index_catalog_movies_categoryId_novaAdded"] = false
+        db.indices["index_catalog_movies_needsEnrichment_novaAdded"] = false
+        db.indices["index_catalog_movies_tmdbId"] = false
+        db.indices["index_catalog_movies_lastSeen"] = false
+        db.indices["index_catalog_movies_deleted"] = false
+
+        CatalogDatabase.MIGRATION_6_7.migrate(db)
+        CatalogDatabase.MIGRATION_7_8.migrate(db)
+
+        val cols = db.tables["catalog_movies"]!!
+        assertTrue(cols.containsAll(listOf("needsCloudPush", "updatedAt", "providerOrder", "episodesJson", "searchTitle")))
+
+        // Dropped legacy filter/added indices
+        assertFalse(db.indices.containsKey("index_catalog_movies_categoryId_novaAdded"))
+        assertFalse(db.indices.containsKey("index_catalog_movies_needsEnrichment_novaAdded"))
+        assertFalse(db.indices.containsKey("index_catalog_movies_lastSeen"))
+        assertFalse(db.indices.containsKey("index_catalog_movies_deleted"))
+        assertFalse(db.indices.containsKey("index_catalog_movies_mediaType_deleted_novaAdded"))
+        assertFalse(db.indices.containsKey("index_catalog_movies_mediaType_deleted_rating"))
+        assertFalse(db.indices.containsKey("index_catalog_movies_mediaType_deleted_year"))
+
+        // Retained + new provider-order indices
+        assertEquals(true, db.indices["index_catalog_movies_mediaType_novaStreamId"])
+        assertTrue(db.indices.containsKey("index_catalog_movies_tmdbId"))
+        assertTrue(db.indices.containsKey("index_catalog_movies_needsCloudPush_updatedAt"))
+        assertTrue(db.indices.containsKey("index_catalog_movies_mediaType_deleted_providerOrder_sahabId"))
+        assertTrue(db.indices.containsKey("index_catalog_movies_mediaType_deleted_categoryId_providerOrder_sahabId"))
+        assertTrue(db.indices.containsKey("index_catalog_movies_mediaType_deleted_needsEnrichment_providerOrder"))
+        assertTrue(db.indices.containsKey("index_catalog_movies_mediaType_deleted_lastSeen"))
+
+        // Existing user row & TMDB enrichment preserved intact
+        assertEquals(1, db.tableRows["catalog_movies"]!!.size)
+        val preserved = db.tableRows["catalog_movies"]!![0]
+        assertEquals("pending:9902", preserved["sahabId"])
+        assertEquals("9902", preserved["novaStreamId"])
+        assertEquals(603, preserved["tmdbId"])
+        assertEquals("قصة محفوظة محلياً", preserved["plot"])
+    }
 }

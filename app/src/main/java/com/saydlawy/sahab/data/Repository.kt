@@ -3,9 +3,6 @@ package com.saydlawy.sahab.data
 import android.util.Log
 import com.saydlawy.sahab.util.Ar
 import com.saydlawy.sahab.util.RatingSanitizer
-import com.saydlawy.sahab.data.catalog.TmdbMatcher
-import com.saydlawy.sahab.data.catalog.encodeTmdbCastJson
-import com.saydlawy.sahab.data.catalog.parseCastMembersJson
 import com.saydlawy.sahab.data.channel.ChannelDao
 import java.net.URLEncoder
 import kotlinx.coroutines.CancellationException
@@ -587,38 +584,7 @@ class Repository(
     suspend fun movieDetails(id: String): MovieDetails =
         cachedPersistent("vod_info:$id", MovieDetails.serializer(), DETAILS_TTL_MS) {
             val json = request("get_vod_info", mapOf("vod_id" to id))
-            val base = parseMovieDetails(id, json)
-            val tmdbData = try {
-                if (tmdb.hasApiKey()) {
-                    val res = TmdbMatcher.enrich(
-                        tmdb = tmdb,
-                        rawName = base.name,
-                        categoryName = base.genre,
-                        novaYear = base.year.toIntOrNull(),
-                        maxQueries = 3,
-                        mediaType = "movie",
-                    )
-                    if (res.level == TmdbMatcher.Level.STRONG) res.movie else null
-                } else {
-                    null
-                }
-            } catch (_: Exception) {
-                null
-            }
-            if (tmdbData == null) base else base.copy(
-                image = base.image.ifBlank { tmdbData.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" }.orEmpty() },
-                backdrop = base.backdrop.ifBlank { tmdbData.backdropPath?.let { "https://image.tmdb.org/t/p/w780$it" }.orEmpty() },
-                plot = base.plot.ifBlank { tmdbData.overview },
-                year = base.year.ifBlank { tmdbData.releaseDate.take(4) },
-                rating = base.rating.ifBlank { RatingSanitizer.format(tmdbData.voteAverage, tmdbData.voteCount) },
-                duration = base.duration.ifBlank { tmdbData.runtime?.let { "${it}m" }.orEmpty() },
-                genre = base.genre.ifBlank { tmdbData.genres.joinToString(", ") { it.name } },
-                director = base.director.ifBlank { tmdbData.credits?.crew?.firstOrNull { it.job == "Director" }?.name.orEmpty() },
-                cast = base.cast.ifBlank { tmdbData.credits?.cast?.take(5)?.joinToString(", ") { it.name }.orEmpty() },
-                castMembers = base.castMembers.ifEmpty { parseCastMembersJson(encodeTmdbCastJson(tmdbData.credits?.cast)) },
-                posterUrls = base.posterUrls.ifEmpty { tmdbData.posterUrls },
-                trailerUrl = base.trailerUrl.ifBlank { tmdbData.trailerUrl },
-            )
+            parseMovieDetails(id, json)
         }
 
     // Series
@@ -847,11 +813,11 @@ class Repository(
                         year = yearOf(name),
                         categoryId = o.category_id.str().trim(),
                         added = o.added.str().trim().toLongOrNull() ?: 0L,
-                    ),
+                    )
                 )
             }
         }
-        return if (result.any { it.added > 0L }) result.sortedByDescending { it.added } else result
+        return result
     }
 
     private fun parseSeriesStream(stream: InputStream): List<Poster> {
@@ -876,7 +842,7 @@ class Repository(
                 )
             }
         }
-        return if (result.any { it.added > 0L }) result.sortedByDescending { it.added } else result
+        return result
     }
 
     private fun parseMovieDetails(id: String, json: JsonElement): MovieDetails {

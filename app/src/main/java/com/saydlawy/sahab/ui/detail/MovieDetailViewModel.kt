@@ -7,6 +7,7 @@ import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.MovieDetails
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.data.catalog.buildCatalogSearchTitle
 import com.saydlawy.sahab.util.RatingSanitizer
 import com.saydlawy.sahab.util.userMessage
 import kotlinx.coroutines.CancellationException
@@ -70,11 +71,16 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                                 confidence = result.confidence,
                                 identifiedTitle = result.identifiedTitle,
                                 now = now,
+                                searchTitle = buildCatalogSearchTitle(
+                                    entity.titleAr,
+                                    entity.titleEn,
+                                    result.identifiedTitle,
+                                ),
                             )
                         }
                     } else {
                         val newEntity = CatalogMovieEntity(
-                            sahabId = "pending:$id",
+                            sahabId = CatalogMovieEntity.idPending(id, "movie"),
                             novaStreamId = id,
                             titleAr = details.name,
                             year = details.year,
@@ -93,6 +99,9 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                             needsEnrichment = 0,
                             lastEnriched = now,
                             lastSeen = now,
+                            needsCloudPush = 1,
+                            updatedAt = now,
+                            searchTitle = buildCatalogSearchTitle(details.name, result.identifiedTitle),
                         )
                         withContext(Dispatchers.IO) {
                             runCatching { container.catalogDb.movieDao().upsert(newEntity) }
@@ -102,9 +111,9 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                         runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
                     }
                     if (updated != null) {
-                        // رفع القصة الجديدة إلى السحابة (Firebase) ليستفيد منها باقي المستخدمين
+                        // رفع القصة الجديدة وفق بوابة الصلاحيات والإعدادات
                         container.appScope.launch(Dispatchers.IO) {
-                            container.firebaseCatalog.saveCatalogItem(updated)
+                            container.catalogSync.maybeAutoUploadToCloud(updated)
                         }
                         _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
                     } else {
@@ -192,6 +201,13 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 if (currentDetails.plot.isBlank()) {
                     try {
                         val remote = container.repo.movieDetails(id)
+                        if (remote.ext.isNotBlank()) {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    container.catalogDb.movieDao().updateMovieExtension(id, remote.ext, System.currentTimeMillis())
+                                }
+                            }
+                        }
                         val merged = currentDetails.copy(
                             image = currentDetails.image.ifBlank { remote.image },
                             backdrop = if (currentDetails.backdrop.isBlank() || currentDetails.backdrop == currentDetails.image) {
@@ -206,6 +222,7 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                             year = currentDetails.year.ifBlank { remote.year },
                             duration = currentDetails.duration.ifBlank { remote.duration },
                             rating = RatingSanitizer.format(currentDetails.rating).ifBlank { RatingSanitizer.format(remote.rating) },
+                            ext = remote.ext.ifBlank { currentDetails.ext },
                         )
                         _state.update { DetailUiState(loading = false, data = merged) }
                     } catch (_: Exception) {

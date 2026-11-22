@@ -100,7 +100,6 @@ fun HomeScreen(
 
     val featuredChannels = homeState.featuredChannels
     val trendingMovies = homeState.trendingMovies
-    val topRatedMovies = homeState.topRatedMovies
 
     LaunchedEffect(
         container.repo.account,
@@ -220,11 +219,11 @@ fun HomeScreen(
             ) {
                 val sectionDefaultOrder = listOf(
                     "section_continue_watching", "section_live_channels", "section_trending_movies",
-                    "section_top_rated", "section_quick_categories",
+                    "section_quick_categories",
                 )
                 val orderedHomeSections = when (themeCustomization.componentPlacement["home_sections"]) {
-                    "live_first" -> listOf("section_live_channels", "section_continue_watching", "section_trending_movies", "section_top_rated", "section_quick_categories")
-                    "movies_first" -> listOf("section_trending_movies", "section_top_rated", "section_continue_watching", "section_live_channels", "section_quick_categories")
+                    "live_first" -> listOf("section_live_channels", "section_continue_watching", "section_trending_movies", "section_quick_categories")
+                    "movies_first" -> listOf("section_trending_movies", "section_continue_watching", "section_live_channels", "section_quick_categories")
                     else -> sectionDefaultOrder
                 }
                 val visibleHomeSections = orderedHomeSections.filter { section ->
@@ -232,7 +231,6 @@ fun HomeScreen(
                         "section_continue_watching" -> showRecents && themeCustomization.isVisible("home_continue") && continueWatchingItems.isNotEmpty()
                         "section_live_channels" -> showLiveChannels && themeCustomization.isVisible("home_live_channels")
                         "section_trending_movies" -> showRecommended && themeCustomization.isVisible("home_recommendations")
-                        "section_top_rated" -> showRecommended && themeCustomization.isVisible("home_recommendations") && topRatedMovies.isNotEmpty()
                         "section_quick_categories" -> showQuickCategories && themeCustomization.isVisible("home_categories")
                         else -> false
                     }
@@ -285,15 +283,8 @@ fun HomeScreen(
                         )
                         "section_trending_movies" -> TrendingMoviesSection(
                             movies = trendingMovies,
+                            title = "أفلام مختارة",
                             onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
-                            hasDefaultEntry = isDefaultSection,
-                        )
-                        "section_top_rated" -> TrendingMoviesSection(
-                            movies = topRatedMovies,
-                            onMovieClick = { movie -> onOpen(Routes.movie(movie.novaStreamId.ifEmpty { movie.sahabId })) },
-                            title = "الأعلى 10",
-                            iconEmoji = "⭐",
-                            rowKey = "home_top_rated_row",
                             hasDefaultEntry = isDefaultSection,
                         )
                         "section_quick_categories" -> QuickCategoriesSection(

@@ -11,7 +11,6 @@ import com.saydlawy.sahab.data.HomeChannelsSource
 import com.saydlawy.sahab.data.Kind
 import com.saydlawy.sahab.data.Repository
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
-import com.saydlawy.sahab.util.RatingSanitizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,7 +25,6 @@ import java.util.Locale
 data class HomeUiState(
     val featuredChannels: List<Channel> = emptyList(),
     val trendingMovies: List<CatalogMovieEntity> = emptyList(),
-    val topRatedMovies: List<CatalogMovieEntity> = emptyList(),
 )
 
 /**
@@ -82,11 +80,7 @@ class HomeViewModel(
                 emptyList()
             }
             if (instant.isNotEmpty()) {
-                val topInstant = instant
-                    .filter { RatingSanitizer.parseValid(it.rating, it.tmdbVoteCount) != null }
-                    .sortedByDescending { RatingSanitizer.rankingScore(it.rating, it.tmdbVoteCount) }
-                    .take(18)
-                _state.update { it.copy(trendingMovies = instant, topRatedMovies = topInstant.ifEmpty { it.topRatedMovies }) }
+                _state.update { it.copy(trendingMovies = instant) }
             }
 
             val enriched = try {
@@ -101,11 +95,7 @@ class HomeViewModel(
                 emptyList()
             }
             if (enriched.isNotEmpty()) {
-                val topEnriched = enriched
-                    .filter { RatingSanitizer.parseValid(it.rating, it.tmdbVoteCount) != null }
-                    .sortedByDescending { RatingSanitizer.rankingScore(it.rating, it.tmdbVoteCount) }
-                    .take(18)
-                _state.update { it.copy(trendingMovies = enriched, topRatedMovies = topEnriched.ifEmpty { it.topRatedMovies }) }
+                _state.update { it.copy(trendingMovies = enriched) }
             }
         }
     }

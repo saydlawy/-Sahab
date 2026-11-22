@@ -149,8 +149,8 @@ internal fun HomeCustomizationPanel(
             )
 
             SettingsSwitchRow(
-                title = "عرض قسم أفلام مقترحة لك (أحدث الإضافات)",
-                subtitle = "إظهار أحدث الأفلام المضافة من سيرفر Xtream وقاعدة بيانات Firebase",
+                title = "عرض قسم أفلام مختارة في الرئيسية",
+                subtitle = "إظهار شريط من أفلام مكتبة مزود IPTV بالترتيب الافتراضي",
                 checked = showRecommended,
                 itemKey = "settings_toggle_recommended",
                 onToggle = onToggleShowRecommended,

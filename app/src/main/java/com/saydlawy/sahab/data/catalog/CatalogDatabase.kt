@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [CatalogMovieEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class CatalogDatabase : RoomDatabase() {
@@ -130,6 +130,40 @@ abstract class CatalogDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "catalog_movies", "providerOrder")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `providerOrder` INTEGER NOT NULL DEFAULT 2147483647")
+                }
+                if (!hasColumn(db, "catalog_movies", "episodesJson")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `episodesJson` TEXT NOT NULL DEFAULT ''")
+                }
+                if (!hasColumn(db, "catalog_movies", "searchTitle")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `searchTitle` TEXT NOT NULL DEFAULT ''")
+                }
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_categoryId_novaAdded`")
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_needsEnrichment_novaAdded`")
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_lastSeen`")
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_deleted`")
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_mediaType_deleted_novaAdded`")
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_mediaType_deleted_rating`")
+                db.execSQL("DROP INDEX IF EXISTS `index_catalog_movies_mediaType_deleted_year`")
+
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_deleted_providerOrder_sahabId` ON `catalog_movies` (`mediaType`, `deleted`, `providerOrder`, `sahabId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_deleted_categoryId_providerOrder_sahabId` ON `catalog_movies` (`mediaType`, `deleted`, `categoryId`, `providerOrder`, `sahabId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_deleted_needsEnrichment_providerOrder` ON `catalog_movies` (`mediaType`, `deleted`, `needsEnrichment`, `providerOrder`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_deleted_lastSeen` ON `catalog_movies` (`mediaType`, `deleted`, `lastSeen`)",
+                )
+            }
+        }
+
         fun getInstance(context: Context): CatalogDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -137,7 +171,15 @@ abstract class CatalogDatabase : RoomDatabase() {
                     CatalogDatabase::class.java,
                     "catalog.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7,
+                        MIGRATION_7_8,
+                    )
                     .build()
                     .also { INSTANCE = it }
             }

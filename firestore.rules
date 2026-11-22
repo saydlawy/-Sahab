@@ -3,28 +3,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===============================================================
-    // Assumed Data Model (Sahab IPTV)
-    // ===============================================================
-    //
-    // Collection: users/{uid}
-    // Fields:
-    //   - fcmToken: string (optional, <= 512 chars)
-    //   - updatedAt: timestamp (optional)
-    //
-    // Subcollection: users/{uid}/data/{docId} (xtream | accounts_list | favorites | recents | preferences)
-    //   - xtream: server, user, pass (string <= 2048), cryptoVersion (int, optional)
-    //   - accounts_list: enc (string <= 65536), cryptoVersion (int, optional), json (legacy string, optional)
-    //   - favorites / recents: json (string <= 262144)
-    //   - preferences: lightEffects (bool), homeChannelsLayout (string), homeChannelsSource (string), homeChannelsCategoryId (string)
-    //
-    // Collection: global_catalog/{docId}
-    //   Shared catalog & AI-generated plots. Read-only fields populated by pipeline/TMDB
-    //   cannot be overwritten by clients once non-empty.
-    //
-    // Collections: global_channels, global_epg, global_sports (read-only from client)
-    // ===============================================================
-
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -34,7 +12,8 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && request.auth.uid == 'YttqqChnJwPvb6v5MD2wDA32Xcd2'; // gitleaks:allow
+      return isAuthenticated() &&
+             request.auth.uid == 'YttqqChnJwPvb6v5MD2wDA32Xcd2'; // gitleaks:allow
     }
 
     function hasOnlyAllowedFields(fields) {
@@ -110,9 +89,19 @@ service cloud.firestore {
               isValidOptionalInt('cryptoVersion', 1, 10)) ||
              ((docId == 'favorites' || docId == 'recents') &&
               hasOnlyAllowedFields(['json']) &&
-              ('json' in data) && data.json is string && data.json.size() <= 262144) ||
+              ('json' in data) &&
+              data.json is string &&
+              data.json.size() <= 262144) ||
              (docId == 'preferences' &&
-              hasOnlyAllowedFields(['lightEffects', 'homeChannelsLayout', 'homeChannelsSource', 'homeChannelsCategoryId', 'moviesLayoutStyle', 'seriesLayoutStyle', 'updatedAt']) &&
+              hasOnlyAllowedFields([
+                'lightEffects',
+                'homeChannelsLayout',
+                'homeChannelsSource',
+                'homeChannelsCategoryId',
+                'moviesLayoutStyle',
+                'seriesLayoutStyle',
+                'updatedAt'
+              ]) &&
               (!('lightEffects' in data) || data.lightEffects is bool) &&
               isValidOptionalString('homeChannelsLayout', 1, 32) &&
               isValidOptionalString('homeChannelsSource', 1, 32) &&
@@ -124,10 +113,31 @@ service cloud.firestore {
 
     function catalogAllowedFields() {
       return [
-        'novaStreamId', 'titleAr', 'titleEn', 'year', 'plot', 'plotSource',
-        'plotConfidence', 'identifiedTitle', 'mediaType', 'cast', 'director',
-        'genre', 'runtime', 'rating', 'posterUrl', 'backdropUrl',
-        'tmdbId', 'imdbId', 'tmdbVoteCount', 'aliases', 'redirectTo', 'updatedAt'
+        'novaStreamId',
+        'titleAr',
+        'titleEn',
+        'year',
+        'plot',
+        'plotSource',
+        'plotConfidence',
+        'identifiedTitle',
+        'mediaType',
+        'cast',
+        'castJson',
+        'director',
+        'genre',
+        'runtime',
+        'rating',
+        'posterUrl',
+        'backdropUrl',
+        'postersJson',
+        'trailerUrl',
+        'tmdbId',
+        'imdbId',
+        'tmdbVoteCount',
+        'aliases',
+        'redirectTo',
+        'updatedAt'
       ];
     }
 
@@ -144,12 +154,15 @@ service cloud.firestore {
              isValidOptionalString('mediaType', 1, 32) &&
              (!('mediaType' in data) || data.mediaType in ['movie', 'series']) &&
              isValidOptionalString('cast', 0, 1000) &&
+             isValidOptionalString('castJson', 0, 10000) &&
              isValidOptionalString('director', 0, 300) &&
              isValidOptionalString('genre', 0, 300) &&
              isValidOptionalString('runtime', 0, 64) &&
              isValidOptionalString('rating', 0, 32) &&
              isValidOptionalUrl('posterUrl') &&
              isValidOptionalUrl('backdropUrl') &&
+             isValidOptionalString('postersJson', 0, 12000) &&
+             isValidOptionalUrl('trailerUrl') &&
              isValidOptionalInt('tmdbId', 1, 999999999) &&
              isValidOptionalString('imdbId', 0, 32) &&
              isValidOptionalInt('tmdbVoteCount', 0, 999999999) &&
@@ -158,27 +171,30 @@ service cloud.firestore {
              isValidOptionalInt('updatedAt', 0, 9999999999999);
     }
 
-
     function isValidGlobalCatalogRedirect(data) {
       return !('redirectTo' in data) ||
              data.redirectTo == null ||
-             (data.redirectTo is string && data.redirectTo.matches('^tmdb:[0-9]+$'));
+             (data.redirectTo is string &&
+              data.redirectTo.matches('^tmdb:[0-9]+$'));
     }
 
     match /users/{uid} {
       allow read: if isOwner(uid);
-      allow create, update: if isOwner(uid) && isValidUserRoot(request.resource.data);
+      allow create, update: if isOwner(uid) &&
+                            isValidUserRoot(request.resource.data);
       allow delete: if isOwner(uid);
 
       match /data/{docId} {
         allow read: if isOwner(uid);
-        allow create, update: if isOwner(uid) && isValidUserDataDoc(docId, request.resource.data);
+        allow create, update: if isOwner(uid) &&
+                              isValidUserDataDoc(docId, request.resource.data);
         allow delete: if isOwner(uid);
       }
 
       match /custom_catalog/{docId} {
         allow read: if isOwner(uid);
-        allow create, update: if isOwner(uid) && isValidCatalogPayload(request.resource.data);
+        allow create, update: if isOwner(uid) &&
+                              isValidCatalogPayload(request.resource.data);
         allow delete: if isOwner(uid);
       }
     }
@@ -186,22 +202,27 @@ service cloud.firestore {
     match /global_catalog/{docId} {
       allow read: if true;
       allow create: if isAdmin() &&
-                       docId.matches('^tmdb:[0-9]+$') &&
-                       isValidCatalogPayload(request.resource.data) &&
-                       isValidGlobalCatalogRedirect(request.resource.data);
+                    docId.matches('^tmdb:[0-9]+$') &&
+                    isValidCatalogPayload(request.resource.data) &&
+                    isValidGlobalCatalogRedirect(request.resource.data);
       allow update: if isAdmin() &&
-                       docId.matches('^tmdb:[0-9]+$') &&
-                       isValidCatalogPayload(request.resource.data) &&
-                       isValidGlobalCatalogRedirect(request.resource.data);
+                    docId.matches('^tmdb:[0-9]+$') &&
+                    isValidCatalogPayload(request.resource.data) &&
+                    isValidGlobalCatalogRedirect(request.resource.data);
       allow delete: if isAdmin();
     }
 
     match /meta/catalog {
       allow read: if true;
       allow create, update: if isAdmin() &&
-                               request.resource.data.keys().hasOnly(['lastUpdatedAt', 'updatedBy']) &&
-                               isValidOptionalInt('lastUpdatedAt', 0, 9999999999999) &&
-                               isValidOptionalString('updatedBy', 0, 128);
+                            request.resource.data.keys()
+                              .hasOnly(['lastUpdatedAt', 'updatedBy']) &&
+                            isValidOptionalInt(
+                              'lastUpdatedAt',
+                              0,
+                              9999999999999
+                            ) &&
+                            isValidOptionalString('updatedBy', 0, 128);
       allow delete: if false;
     }
 

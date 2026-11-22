@@ -1,12 +1,8 @@
 package com.saydlawy.sahab.ui.browse
 
-import com.saydlawy.sahab.data.Poster
-import com.saydlawy.sahab.data.VodCustomGrouping
-import com.saydlawy.sahab.data.catalog.CatalogFacetRow
 import com.saydlawy.sahab.util.RatingSanitizer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VodCustomOrganizerRatingTest {
@@ -36,128 +32,16 @@ class VodCustomOrganizerRatingTest {
         assertEquals("9.1", RatingSanitizer.format("9.1", voteCount = 1200))
         assertEquals("7.5", RatingSanitizer.format("7.5/10"))
         assertEquals("7.8", RatingSanitizer.format("7,8"))
-
-        // Bayesian score ranks genuine high-vote movies ahead of sparse-vote movies
-        val classic = RatingSanitizer.rankingScore("8.4", voteCount = 5000)
-        val sparse = RatingSanitizer.rankingScore("8.8", voteCount = 2)
-        val fluke = RatingSanitizer.rankingScore("10.0", voteCount = 1)
-        assertTrue(classic > sparse)
-        assertTrue(sparse > fluke)
-        assertEquals(0.0, fluke, 0.0001)
     }
 
     @Test
-    fun organizeStripsBogusTensAndRanksRealMoviesFirstAcrossGenreYearAndCast() {
-        val posters = listOf(
-            Poster(id = "xtream_ten", name = "Bogus Xtream Ten", image = "a", rating = "10", year = "2024", categoryId = "1", added = 500L),
-            Poster(id = "tmdb_fluke", name = "One Vote TMDB Ten", image = "b", rating = "10.0", year = "2024", categoryId = "1", added = 400L),
-            Poster(id = "low_vote", name = "Low Vote High Rating", image = "c", rating = "8.8", year = "2024", categoryId = "1", added = 300L),
-            Poster(id = "real_hit", name = "Real Cinema Hit", image = "d", rating = "10.0", year = "2024", categoryId = "1", added = 200L),
-        )
-        val facets = mapOf(
-            "xtream_ten" to CatalogFacetRow(
-                novaStreamId = "xtream_ten",
-                year = "2024",
-                genre = "Action",
-                cast = "Actor One",
-                rating = "",
-                novaAdded = 500L,
-                tmdbVoteCount = null,
-            ),
-            "tmdb_fluke" to CatalogFacetRow(
-                novaStreamId = "tmdb_fluke",
-                year = "2024",
-                genre = "Action",
-                cast = "Actor One",
-                rating = "10.0",
-                novaAdded = 400L,
-                tmdbVoteCount = 1,
-            ),
-            "low_vote" to CatalogFacetRow(
-                novaStreamId = "low_vote",
-                year = "2024",
-                genre = "Action",
-                cast = "Actor One",
-                rating = "8.8",
-                novaAdded = 300L,
-                tmdbVoteCount = 2,
-            ),
-            "real_hit" to CatalogFacetRow(
-                novaStreamId = "real_hit",
-                year = "2024",
-                genre = "Action",
-                cast = "Actor One",
-                rating = "8.4",
-                novaAdded = 200L,
-                tmdbVoteCount = 5000,
-            ),
-        )
+    fun sanitizerMetadataHelpers_extractYearAndPrimaryGenreCleanly() {
+        assertEquals("2024", RatingSanitizer.extractFourDigitYear("2024-05-11"))
+        assertEquals("2021", RatingSanitizer.extractFourDigitYear("فيلم تجريبي 2021"))
+        assertEquals("", RatingSanitizer.extractFourDigitYear("no year"))
 
-        val groupings = listOf(
-            VodCustomGrouping.GENRE,
-            VodCustomGrouping.YEAR,
-            VodCustomGrouping.CAST,
-        )
-        val forbidden = setOf("10", "10.0", "10.00", "9.9")
-
-        for (grouping in groupings) {
-            val result = VodCustomOrganizer.organize(posters, facets, grouping)
-            assertTrue("Expected categories for $grouping", result.categories.isNotEmpty())
-            for ((catId, list) in result.itemsByCategory) {
-                assertTrue("Expected populated category $catId for $grouping", list.isNotEmpty())
-                for (p in list) {
-                    assertTrue(
-                        "Forbidden rating '${p.rating}' leaked in $grouping ($catId) for ${p.id}",
-                        p.rating !in forbidden,
-                    )
-                }
-                assertEquals(
-                    "Real high-vote movie must rank #1 in $grouping ($catId)",
-                    "real_hit",
-                    list.first().id,
-                )
-                assertEquals(
-                    "Low-vote valid movie must rank #2 in $grouping ($catId)",
-                    "low_vote",
-                    list[1].id,
-                )
-            }
-        }
-    }
-
-    @Test
-    fun organize_fallsBackToPosterYearTitleAndGenreWhenFacetsMissing() {
-        val posters = listOf(
-            Poster(id = "p1", name = "فيلم تجريبي 2021", image = "a", rating = "7.9", year = "", genre = "دراما", categoryId = "1", added = 100L),
-            Poster(id = "p2", name = "Action Hit", image = "b", rating = "8.2", year = "2018", genre = "Action", categoryId = "1", added = 200L),
-        )
-        val byYear = VodCustomOrganizer.organize(posters, emptyMap(), VodCustomGrouping.YEAR)
-        assertTrue(byYear.categories.any { it.name == "2021" })
-        assertTrue(byYear.categories.any { it.name == "2010 - 2019" })
-
-        val byGenre = VodCustomOrganizer.organize(posters, emptyMap(), VodCustomGrouping.GENRE)
-        assertTrue(byGenre.categories.any { it.name == "دراما" })
-        assertTrue(byGenre.categories.any { it.name == "أكشن" })
-    }
-
-    @Test
-    fun prepareSortedItems_reusedAcrossGroupingsMatchesDirectOrganize() {
-        val posters = listOf(
-            Poster(id = "a", name = "Alpha (2023)", image = "1", rating = "8.5", year = "2023", genre = "Action", added = 10L),
-            Poster(id = "b", name = "Beta (2021)", image = "2", rating = "7.4", year = "2021", genre = "Drama", added = 30L),
-            Poster(id = "c", name = "Gamma (2023)", image = "3", rating = "9.0", year = "2023", genre = "Action", added = 20L),
-        )
-        val facets = mapOf(
-            "a" to CatalogFacetRow("a", "2023", "Action", "Actor A, Actor B", "8.5", 10L, tmdbVoteCount = 2000),
-            "b" to CatalogFacetRow("b", "2021", "Drama", "Actor B", "7.4", 30L, tmdbVoteCount = 500),
-            "c" to CatalogFacetRow("c", "2023", "Action", "Actor A", "9.0", 20L, tmdbVoteCount = 4000),
-        )
-
-        val preSorted = VodCustomOrganizer.prepareSortedItems(posters, facets)
-        for (grouping in VodCustomGrouping.entries) {
-            val direct = VodCustomOrganizer.organize(posters, facets, grouping)
-            val cachedSort = VodCustomOrganizer.organize(posters, facets, grouping, preSortedItems = preSorted)
-            assertEquals("Mismatch for $grouping", direct, cachedSort)
-        }
+        assertEquals("Action", RatingSanitizer.extractPrimaryGenre("Action, Drama"))
+        assertEquals("دراما", RatingSanitizer.extractPrimaryGenre("دراما، أكشن"))
+        assertEquals("", RatingSanitizer.extractPrimaryGenre("   "))
     }
 }
