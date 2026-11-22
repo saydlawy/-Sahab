@@ -413,6 +413,17 @@ internal suspend fun CatalogMovieDao.mergeCloudBatchPreservingLocalWithDao(
             row.tmdbId?.let { tid -> existingByTmdbId.getOrPut(tid) { mutableListOf() }.add(row) }
         }
     }
+    val existingByStreamKey = HashMap<Pair<String, String>, MutableList<CatalogMovieEntity>>(cloudItems.size)
+    cloudItems
+        .filter { it.novaStreamId.isNotBlank() && !it.novaStreamId.startsWith("cloud:") }
+        .groupBy { it.mediaType }
+        .forEach { (type, items) ->
+            items.map { it.novaStreamId }.distinct().chunked(500).forEach { streamChunk ->
+                findByStreamIds(streamChunk, type).forEach { row ->
+                    existingByStreamKey.getOrPut(type to row.novaStreamId) { mutableListOf() }.add(row)
+                }
+            }
+        }
 
     val toUpsert = ArrayList<CatalogMovieEntity>(cloudItems.size)
     val queuedSahabIds = HashSet<String>(cloudItems.size)
@@ -423,6 +434,13 @@ internal suspend fun CatalogMovieDao.mergeCloudBatchPreservingLocalWithDao(
             cloud.tmdbId?.takeIf { it > 0 }?.let { tid ->
                 existingByTmdbId[tid]?.forEach { row ->
                     if (row.sahabId != cloud.sahabId && row.mediaType == cloud.mediaType) {
+                        add(row)
+                    }
+                }
+            }
+            if (cloud.novaStreamId.isNotBlank() && !cloud.novaStreamId.startsWith("cloud:")) {
+                existingByStreamKey[cloud.mediaType to cloud.novaStreamId]?.forEach { row ->
+                    if (row.sahabId != cloud.sahabId) {
                         add(row)
                     }
                 }
@@ -469,7 +487,7 @@ internal suspend fun CatalogMovieDao.mergeCloudBatchPreservingLocalWithDao(
                     genre = cloud.genre.ifBlank { local.genre },
                     runtime = cloud.runtime.ifBlank { local.runtime },
                     rating = cloud.rating.ifBlank { local.rating },
-                    posterUrl = local.posterUrl.ifBlank { cloud.posterUrl },
+                    posterUrl = cloud.posterUrl.ifBlank { local.posterUrl },
                     backdropUrl = cloud.backdropUrl.ifBlank { local.backdropUrl },
                     postersJson = cloud.postersJson.ifBlank { local.postersJson },
                     trailerUrl = cloud.trailerUrl.ifBlank { local.trailerUrl },
