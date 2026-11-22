@@ -332,7 +332,6 @@ class BrowseViewModel(
             val queryCat = targetCat.takeIf { it != ALL_CAT_ID && it != FAV_CAT_ID && it != RECENTS_CAT_ID }
             val page = runCatching { loadCatalogPage(queryCat, limit = 120, offset = 0) }.getOrDefault(emptyList())
             val (hero, top10) = buildHeroAndTop10(page)
-            val groups = buildRoomCategoryGroups(defaultCategories, isCustom = false)
             _state.update {
                 it.copy(
                     categories = defaultCategories,
@@ -341,10 +340,11 @@ class BrowseViewModel(
                     categoryCounts = defaultCounts,
                     featuredHeroItems = hero,
                     top10Items = top10,
-                    categoryGroups = groups,
                     loadingItems = false,
                 )
             }
+            val groups = buildRoomCategoryGroups(defaultCategories, isCustom = false)
+            _state.update { it.copy(categoryGroups = groups) }
             return
         }
 
@@ -397,17 +397,17 @@ class BrowseViewModel(
         } else {
             loadCustomRoomPage(firstCat, limit = 120, offset = 0)
         }
-        val customGroups = buildRoomCategoryGroups(customCats, isCustom = true)
         _state.update {
             it.copy(
                 categories = customCats,
                 selectedId = firstCat,
                 items = initialItems,
                 categoryCounts = countsMap,
-                categoryGroups = customGroups,
                 loadingItems = false,
             )
         }
+        val customGroups = buildRoomCategoryGroups(customCats, isCustom = true)
+        _state.update { it.copy(categoryGroups = customGroups) }
     }
 
     private suspend fun loadCustomRoomPage(categoryId: String, limit: Int = 120, offset: Int = 0): List<Poster> =
