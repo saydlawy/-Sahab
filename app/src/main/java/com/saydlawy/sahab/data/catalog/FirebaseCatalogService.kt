@@ -406,14 +406,45 @@ class FirebaseCatalogService {
             put("tmdbVoteCount", entity.tmdbVoteCount)
             if (aliases.isNotEmpty()) put("aliases", aliases)
         }
+        val stringLimits = mapOf(
+            "novaStreamId" to 64, "titleAr" to 300, "titleEn" to 300, "year" to 16,
+            "plot" to 6000, "plotSource" to 64, "plotConfidence" to 32, "identifiedTitle" to 300,
+            "mediaType" to 32, "cast" to 1000, "castJson" to 10000, "director" to 300,
+            "genre" to 300, "runtime" to 64, "rating" to 32, "postersJson" to 12000,
+            "imdbId" to 32, "redirectTo" to 64
+        )
+        val urlFields = setOf("posterUrl", "backdropUrl", "trailerUrl")
+        fun sanitizeField(k: String, v: Any?): Any? {
+            if (v == null) return null
+            if (k in urlFields) {
+                val s = (v as? String)?.trim().orEmpty()
+                return if (s.length <= 1024 && (s.startsWith("https://") || s.startsWith("http://"))) s else null
+            }
+            stringLimits[k]?.let { maxLen ->
+                val s = (v as? String)?.trim().orEmpty()
+                if (k == "mediaType") return if (s == "series") "series" else "movie"
+                if (k == "redirectTo") return if (s.matches(Regex("^tmdb:[0-9]+$"))) s else null
+                return if (s.isNotEmpty()) s.take(maxLen) else null
+            }
+            if (k == "tmdbId") return (v as? Number)?.toInt()?.takeIf { it in 1..999999999 }
+            if (k == "tmdbVoteCount") return (v as? Number)?.toInt()?.takeIf { it in 0..999999999 }
+            if (k == "updatedAt") return (v as? Number)?.toLong()?.takeIf { it in 0L..9999999999999L }
+            return null
+        }
+
         val docRef = collection.document(targetDocId)
         docRef.get()
             .addOnSuccessListener { snap ->
                 if (!snap.exists()) {
-                    val createPayload = data.filterValues { v ->
-                        v != null && (v !is String || v.isNotBlank())
-                    } + ("updatedAt" to System.currentTimeMillis())
-                    docRef.set(createPayload, SetOptions.merge())
+                    val createPayload = mutableMapOf<String, Any>()
+                    for ((k, v) in data) {
+                        if (k == "aliases") continue
+                        sanitizeField(k, v)?.let { createPayload[k] = it }
+                    }
+                    val cleanAliases = aliases.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 64 }.distinct().take(10)
+                    if (cleanAliases.isNotEmpty()) createPayload["aliases"] = cleanAliases
+                    createPayload["updatedAt"] = writeTs
+                    docRef.set(createPayload)
                         .addOnSuccessListener { if (cont.isActive) cont.resume(true) }
                         .addOnFailureListener { e ->
                             lastWriteError = "create [$targetDocId]: ${e.message ?: e::class.java.simpleName}"
@@ -421,23 +452,37 @@ class FirebaseCatalogService {
                             if (cont.isActive) cont.resume(false)
                         }
                 } else {
-                    val delta = mutableMapOf<String, Any?>()
+                    val merged = mutableMapOf<String, Any>()
+                    val existingMap = snap.data.orEmpty()
+                    for ((k, v) in existingMap) {
+                        if (k == "aliases") continue
+                        sanitizeField(k, v)?.let { merged[k] = it }
+                    }
+                    var changed = existingMap.keys.any { it != "aliases" && it !in merged }
                     for ((k, v) in data) {
                         if (k == "aliases") continue
-                        if (v == null || (v is String && v.isBlank())) continue
-                        val existing = snap.get(k)
-                        if (existing == null || (existing is String && existing.isBlank())) {
-                            delta[k] = v
+                        val cleanVal = sanitizeField(k, v) ?: continue
+                        if (k !in merged) {
+                            merged[k] = cleanVal
+                            changed = true
                         }
                     }
-                    if (aliases.isNotEmpty()) {
-                        delta["aliases"] = FieldValue.arrayUnion(*aliases.toTypedArray())
+                    val existingAliases = (existingMap["aliases"] as? List<*>)
+                        ?.mapNotNull { (it as? String)?.trim()?.takeIf { s -> s.isNotEmpty() && s.length <= 64 } }
+                        .orEmpty()
+                    val mergedAliases = (existingAliases + aliases.map { it.trim() })
+                        .filter { it.isNotEmpty() && it.length <= 64 }
+                        .distinct()
+                        .take(10)
+                    if (mergedAliases.isNotEmpty()) {
+                        merged["aliases"] = mergedAliases
+                        if (mergedAliases != existingAliases) changed = true
                     }
-                    if (delta.isEmpty()) {
+                    if (!changed) {
                         if (cont.isActive) cont.resume(true)
                     } else {
-                        delta["updatedAt"] = writeTs
-                        docRef.set(delta, SetOptions.merge())
+                        merged["updatedAt"] = writeTs
+                        docRef.set(merged)
                             .addOnSuccessListener { if (cont.isActive) cont.resume(true) }
                             .addOnFailureListener { e ->
                                 lastWriteError = "update [$targetDocId]: ${e.message ?: e::class.java.simpleName}"
