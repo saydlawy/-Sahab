@@ -97,7 +97,6 @@ class BrowseViewModel(
         }
         viewModelScope.launch {
             container.catalogSync.syncVersion
-                .distinctUntilChanged()
                 .collectLatest { version ->
                     if (version <= 0L || _state.value.loadingCategories) return@collectLatest
                     refreshCountsAndCurrentViewAfterSync()
