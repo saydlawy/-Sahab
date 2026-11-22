@@ -417,7 +417,7 @@ class CatalogSync(
                 dao.applySyncBatch(unchangedIds, updatedFields, newEntities, now, normalizedType)
             }
 
-            val deleted = dao.softDeleteBefore(cutoff = now - STALE_CUTOFF_MS, mediaType = normalizedType)
+            val deleted = dao.softDeleteBefore(cutoff = now, mediaType = normalizedType)
             _syncVersion.value = System.currentTimeMillis()
 
             Stats(

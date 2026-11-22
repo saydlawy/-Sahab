@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 internal const val RECENTS_CAT_ID = "__RECENTS__"
 internal const val FAV_CAT_ID = "__FAVORITES__"
 internal const val ALL_CAT_ID = "__ALL__"
+internal const val UNCATEGORIZED_CAT_ID = "__UNCATEGORIZED__"
 
 @Immutable
 data class BrowseUiState(
@@ -79,6 +80,7 @@ class BrowseViewModel(
 
     private var defaultCategories: List<Category> = emptyList()
     private var providerAllCache: List<Poster> = emptyList()
+    private val providerCategoryCache = HashMap<String, List<Poster>>()
     private var nextCursorOrder: Int? = null
     private var nextCursorSahabId: String? = null
     private var fallbackOffset: Int = 0
@@ -108,33 +110,76 @@ class BrowseViewModel(
     private suspend fun fetchCategories(): List<Category> =
         if (series) repo.seriesCategories() else repo.movieCategories()
 
-    private suspend fun fetchProviderItems(categoryId: String?): List<Poster> =
-        if (series) repo.seriesList(categoryId) else repo.movies(categoryId)
+    private suspend fun fetchProviderItems(categoryId: String?, forceNetwork: Boolean = false): List<Poster> =
+        if (series) repo.seriesList(categoryId, forceNetwork = forceNetwork) else repo.movies(categoryId, forceNetwork = forceNetwork)
 
     private suspend fun ensureProviderAllLoaded(): List<Poster> {
         if (providerAllCache.isNotEmpty()) return providerAllCache
         val peeked = runCatching {
             if (series) repo.peekAllSeries() else repo.peekAllMovies()
         }.getOrNull().orEmpty()
-        if (peeked.isNotEmpty()) {
+        if (peeked.isNotEmpty() && peeked.any { it.categoryIds.isNotEmpty() }) {
             providerAllCache = peeked
             return peeked
         }
-        val fetched = runCatching { fetchProviderItems(null) }.getOrDefault(emptyList())
+        // If cached list came from an older DiskCache format (without categoryIds) or was empty, force a fresh network parse
+        val fetched = runCatching {
+            fetchProviderItems(null, forceNetwork = peeked.isNotEmpty())
+        }.getOrDefault(emptyList()).ifEmpty { peeked }
         if (fetched.isNotEmpty()) {
             providerAllCache = fetched
         }
         return providerAllCache
     }
 
+    private fun mergeCategoriesWithOrphans(
+        serverCategories: List<Category>,
+        providerAll: List<Poster>,
+    ): List<Category> {
+        if (providerAll.isEmpty()) return serverCategories
+        val knownIds = serverCategories.asSequence().map { it.id }.toHashSet()
+        val result = ArrayList<Category>(serverCategories.size + 4)
+        result.addAll(serverCategories)
+        val orphanIds = LinkedHashSet<String>()
+        var hasUncategorized = false
+        for (p in providerAll) {
+            val allCats = if (p.categoryIds.isNotEmpty()) p.categoryIds else listOf(p.categoryId)
+            val validCats = allCats.map { it.trim() }.filter { it.isNotEmpty() && it != "0" }
+            if (validCats.isEmpty()) {
+                hasUncategorized = true
+            } else {
+                for (cid in validCats) {
+                    if (cid !in knownIds) orphanIds.add(cid)
+                }
+            }
+        }
+        for (oid in orphanIds) {
+            result.add(Category(id = oid, name = "تصنيف $oid"))
+        }
+        if (hasUncategorized && UNCATEGORIZED_CAT_ID !in knownIds) {
+            result.add(Category(id = UNCATEGORIZED_CAT_ID, name = "غير مصنف"))
+        }
+        return result
+    }
+
     private suspend fun computeMergedCategoryCounts(roomCounts: Map<String, Int>, providerAll: List<Poster>): Map<String, Int> {
         if (providerAll.isEmpty()) return roomCounts
         return withContext(Dispatchers.Default) {
             val providerCounts = HashMap<String, Int>()
+            var uncategorized = 0
             for (p in providerAll) {
-                if (p.categoryId.isNotBlank()) {
-                    providerCounts[p.categoryId] = (providerCounts[p.categoryId] ?: 0) + 1
+                val allCats = if (p.categoryIds.isNotEmpty()) p.categoryIds else listOf(p.categoryId)
+                val validCats = allCats.map { it.trim() }.filter { it.isNotEmpty() && it != "0" }.distinct()
+                if (validCats.isNotEmpty()) {
+                    for (cid in validCats) {
+                        providerCounts[cid] = (providerCounts[cid] ?: 0) + 1
+                    }
+                } else {
+                    uncategorized++
                 }
+            }
+            if (uncategorized > 0) {
+                providerCounts[UNCATEGORIZED_CAT_ID] = uncategorized
             }
             val merged = HashMap<String, Int>(maxOf(roomCounts.size, providerCounts.size))
             merged.putAll(roomCounts)
@@ -142,7 +187,37 @@ class BrowseViewModel(
                 val rCnt = merged[catId] ?: 0
                 if (pCnt > rCnt) merged[catId] = pCnt
             }
+            for ((catId, cachedList) in providerCategoryCache) {
+                val cCnt = cachedList.size
+                if (cCnt > (merged[catId] ?: 0)) merged[catId] = cCnt
+            }
             merged
+        }
+    }
+
+    private suspend fun enrichSliceWithRoom(slice: List<Poster>): List<Poster> = withContext(Dispatchers.IO) {
+        if (slice.isEmpty()) return@withContext emptyList()
+        val roomByStream = HashMap<String, CatalogMovieEntity>(slice.size)
+        slice.map { it.id }.distinct().chunked(450).forEach { chunk ->
+            runCatching { dao.findByStreamIds(chunk, mediaType) }.getOrNull().orEmpty().forEach { row ->
+                roomByStream[row.novaStreamId] = row
+            }
+        }
+        if (roomByStream.isEmpty()) return@withContext slice
+        slice.map { p ->
+            val r = roomByStream[p.id] ?: return@map p
+            val rRating = RatingSanitizer.format(r.rating, r.tmdbVoteCount).ifBlank { p.rating }
+            val rYear = RatingSanitizer.extractFourDigitYear(r.year).ifBlank { p.year }
+            val rGenre = RatingSanitizer.extractPrimaryGenre(r.genre).ifBlank { p.genre }
+            val rImage = p.image.ifBlank { r.posterUrl }
+            val rExt = p.ext.ifBlank { r.containerExtension }
+            p.copy(
+                image = rImage,
+                rating = rRating,
+                ext = rExt,
+                year = rYear,
+                genre = rGenre,
+            )
         }
     }
 
@@ -150,7 +225,7 @@ class BrowseViewModel(
         val roomTotal = withContext(Dispatchers.IO) {
             runCatching { dao.countByType(mediaType) }.getOrDefault(0)
         }
-        if (roomTotal <= 0) return
+        if (roomTotal <= 0 && providerAllCache.isEmpty()) return
         val roomCounts = withContext(Dispatchers.IO) {
             runCatching { dao.getCategoryCounts(mediaType).associate { it.categoryId to it.cnt } }.getOrDefault(emptyMap())
         }
@@ -159,27 +234,15 @@ class BrowseViewModel(
 
         val current = _state.value
         val selectedCat = current.selectedId ?: ALL_CAT_ID
-        val needsReloadFirstPage = current.items.isEmpty() ||
-            (selectedCat == ALL_CAT_ID && current.items.size < PAGE_SIZE && effectiveTotal > current.items.size) ||
-            (selectedCat != ALL_CAT_ID && selectedCat != FAV_CAT_ID && selectedCat != RECENTS_CAT_ID &&
-                current.items.size < (mergedCounts[selectedCat] ?: 0).coerceAtMost(PAGE_SIZE))
-
-        if (needsReloadFirstPage && !current.loadingItems && !current.loadingMore) {
-            nextCursorOrder = null
-            nextCursorSahabId = null
-            fallbackOffset = 0
-            val queryCat = selectedCat.takeIf { it != ALL_CAT_ID && it != FAV_CAT_ID && it != RECENTS_CAT_ID }
-            val (page, hasMore) = loadPageWithProviderFallback(
-                categoryId = queryCat,
-                limit = PAGE_SIZE,
-                expectedTotal = if (queryCat == null) effectiveTotal else (mergedCounts[queryCat] ?: 0),
-            )
+        if (!current.loadingItems && !current.loadingMore && current.items.isNotEmpty() &&
+            selectedCat != FAV_CAT_ID && selectedCat != RECENTS_CAT_ID
+        ) {
+            val refreshedItems = enrichSliceWithRoom(current.items)
             _state.update {
                 it.copy(
                     totalCount = effectiveTotal,
                     categoryCounts = mergedCounts,
-                    items = if (page.isNotEmpty()) page else it.items,
-                    hasMore = hasMore,
+                    items = refreshedItems,
                 )
             }
         } else {
@@ -204,7 +267,7 @@ class BrowseViewModel(
                 currentLayoutStyle = runCatching { styleFlow.first() }.getOrDefault(VodLayoutStyle.CLASSIC)
 
                 var categoriesError: Exception? = null
-                val categories = try {
+                val serverCategories = try {
                     fetchCategories()
                 } catch (e: CancellationException) {
                     throw e
@@ -212,9 +275,10 @@ class BrowseViewModel(
                     categoriesError = e
                     emptyList()
                 }
-                defaultCategories = categories
 
                 val providerAll = ensureProviderAllLoaded()
+                val categories = mergeCategoriesWithOrphans(serverCategories, providerAll)
+                defaultCategories = categories
 
                 var roomTotal = withContext(Dispatchers.IO) {
                     runCatching { dao.countByType(mediaType) }.getOrDefault(0)
@@ -223,14 +287,14 @@ class BrowseViewModel(
                     runCatching { dao.countMissingProviderOrderOrSearch(mediaType) }.getOrDefault(0)
                 }
 
-                if (roomTotal == 0) {
+                if (roomTotal == 0 && providerAll.isEmpty()) {
                     runCatching {
                         if (series) container.catalogSync.syncSeries(repo) else container.catalogSync.syncMovies(repo)
                     }
                     roomTotal = withContext(Dispatchers.IO) {
                         runCatching { dao.countByType(mediaType) }.getOrDefault(0)
                     }
-                } else if ((providerAll.isNotEmpty() && roomTotal < providerAll.size) || missingMeta > 0) {
+                } else if ((providerAll.isNotEmpty() && roomTotal < providerAll.size) || missingMeta > 0 || roomTotal == 0) {
                     container.appScope.launch(Dispatchers.IO) {
                         runCatching {
                             if (series) container.catalogSync.syncSeries(repo) else container.catalogSync.syncMovies(repo)
@@ -265,12 +329,12 @@ class BrowseViewModel(
                     ALL_CAT_ID -> loadPageWithProviderFallback(
                         categoryId = null,
                         limit = PAGE_SIZE,
-                        expectedTotal = effectiveTotal,
+                        alreadyLoadedCount = 0,
                     )
                     else -> loadPageWithProviderFallback(
                         categoryId = selectedCat,
                         limit = PAGE_SIZE,
-                        expectedTotal = mergedCounts[selectedCat] ?: 0,
+                        alreadyLoadedCount = 0,
                     )
                 }
 
@@ -278,9 +342,11 @@ class BrowseViewModel(
                     initialItems.filter { it.image.isNotBlank() }.take(6).ifEmpty { initialItems.take(6) }
                 } else {
                     withContext(Dispatchers.IO) {
-                        runCatching { dao.getPaged(mediaType = mediaType, limit = 6, offset = 0).map { it.toPoster() } }
-                            .getOrDefault(emptyList())
-                            .ifEmpty { providerAll.take(6) }
+                        providerAll.filter { it.image.isNotBlank() }.take(6)
+                            .ifEmpty {
+                                runCatching { dao.getPaged(mediaType = mediaType, limit = 6, offset = 0).map { it.toPoster() } }
+                                    .getOrDefault(emptyList())
+                            }
                     }
                 }
 
@@ -335,24 +401,43 @@ class BrowseViewModel(
     private suspend fun buildRoomCategoryGroups(
         cats: List<Category>,
         maxGroups: Int = Int.MAX_VALUE,
-        itemsPerGroup: Int = 60,
+        itemsPerGroup: Int = Int.MAX_VALUE,
     ): List<CategoryPosterGroup> = withContext(Dispatchers.IO) {
-        val providerByCat: Map<String, List<Poster>> by lazy {
-            providerAllCache.groupBy { it.categoryId }
+        val providerAll = ensureProviderAllLoaded()
+        val providerByCat = HashMap<String, MutableList<Poster>>()
+        if (providerAll.isNotEmpty()) {
+            for (p in providerAll) {
+                val allCats = if (p.categoryIds.isNotEmpty()) p.categoryIds else listOf(p.categoryId)
+                val validCats = allCats.map { it.trim() }.filter { it.isNotEmpty() && it != "0" }.distinct()
+                if (validCats.isEmpty()) {
+                    providerByCat.getOrPut(UNCATEGORIZED_CAT_ID) { ArrayList() }.add(p)
+                } else {
+                    for (cid in validCats) {
+                        providerByCat.getOrPut(cid) { ArrayList() }.add(p)
+                    }
+                }
+            }
         }
         val result = ArrayList<CategoryPosterGroup>(cats.size)
         for (cat in cats) {
             if (result.size >= maxGroups) break
-            val roomList = runCatching {
-                dao.getPagedByCategory(catId = cat.id, mediaType = mediaType, limit = itemsPerGroup, offset = 0)
-                    .map { it.toPoster() }
-            }.getOrDefault(emptyList())
-            val fallbackList = if (roomList.size < itemsPerGroup && providerAllCache.isNotEmpty()) {
-                providerByCat[cat.id].orEmpty().take(itemsPerGroup)
-            } else {
-                emptyList()
+            val fromProvider = providerByCat[cat.id].orEmpty().ifEmpty {
+                providerCategoryCache[cat.id].orEmpty()
             }
-            val list = if (fallbackList.size > roomList.size) fallbackList else roomList
+            val list = if (fromProvider.isNotEmpty()) {
+                val capped = if (itemsPerGroup == Int.MAX_VALUE) fromProvider else fromProvider.take(itemsPerGroup)
+                if (capped.size <= 120) {
+                    enrichSliceWithRoom(capped)
+                } else {
+                    enrichSliceWithRoom(capped.subList(0, 120)) + capped.subList(120, capped.size)
+                }
+            } else {
+                val safeLimit = if (itemsPerGroup == Int.MAX_VALUE) 500 else itemsPerGroup
+                runCatching {
+                    dao.getPagedByCategory(catId = cat.id, mediaType = mediaType, limit = safeLimit, offset = 0)
+                        .map { it.toPoster() }
+                }.getOrDefault(emptyList())
+            }
             if (list.isNotEmpty()) {
                 result.add(CategoryPosterGroup(cat, list))
             }
@@ -416,17 +501,27 @@ class BrowseViewModel(
         }
         itemsJob = viewModelScope.launch {
             val queryCat = categoryId.takeIf { it != ALL_CAT_ID }
-            val current = _state.value
-            val expectedTotal = if (queryCat == null) current.totalCount else (current.categoryCounts[queryCat] ?: 0)
             val (page, hasMore) = loadPageWithProviderFallback(
                 categoryId = queryCat,
                 limit = PAGE_SIZE,
-                expectedTotal = expectedTotal,
+                alreadyLoadedCount = 0,
             )
+            val updatedCounts = if (queryCat != null) {
+                val catTotal = providerCategoryCache[queryCat]?.size
+                    ?: (_state.value.categoryCounts[queryCat] ?: page.size)
+                if (catTotal > (_state.value.categoryCounts[queryCat] ?: 0)) {
+                    _state.value.categoryCounts + (queryCat to catTotal)
+                } else {
+                    _state.value.categoryCounts
+                }
+            } else {
+                _state.value.categoryCounts
+            }
             _state.update {
                 it.copy(
                     selectedId = categoryId,
                     items = page,
+                    categoryCounts = updatedCounts,
                     loadingItems = false,
                     hasMore = hasMore,
                     error = null,
@@ -459,41 +554,49 @@ class BrowseViewModel(
         }.distinctBy { it.id }
     }
 
+    private suspend fun resolveProviderSourceForCategory(categoryId: String?): List<Poster> {
+        val providerAll = ensureProviderAllLoaded()
+        if (categoryId.isNullOrBlank()) return providerAll
+        if (categoryId == UNCATEGORIZED_CAT_ID) {
+            return withContext(Dispatchers.Default) {
+                providerAll.filter { p ->
+                    val allCats = if (p.categoryIds.isNotEmpty()) p.categoryIds else listOf(p.categoryId)
+                    allCats.none { it.trim().isNotEmpty() && it.trim() != "0" }
+                }
+            }
+        }
+        val fromAll = withContext(Dispatchers.Default) {
+            providerAll.filter { it.belongsToCategory(categoryId) }
+        }
+        if (fromAll.isNotEmpty()) return fromAll
+        providerCategoryCache[categoryId]?.let { if (it.isNotEmpty()) return it }
+        val direct = runCatching { fetchProviderItems(categoryId, forceNetwork = false) }.getOrDefault(emptyList())
+            .map { if (it.categoryId.isBlank()) it.copy(categoryId = categoryId, categoryIds = listOf(categoryId)) else it }
+        if (direct.isNotEmpty()) {
+            providerCategoryCache[categoryId] = direct
+        }
+        return direct
+    }
+
     private suspend fun loadPageWithProviderFallback(
         categoryId: String?,
         limit: Int = PAGE_SIZE,
-        expectedTotal: Int = 0,
+        alreadyLoadedCount: Int = 0,
     ): Pair<List<Poster>, Boolean> {
-        val roomPage = if (fallbackOffset == 0) {
-            loadRoomPageAndAdvanceCursor(categoryId = categoryId, limit = limit)
-        } else {
-            emptyList()
-        }
-        val expectedInFirstPage = if (expectedTotal > 0) minOf(limit, expectedTotal) else limit
-        if (roomPage.size >= expectedInFirstPage && fallbackOffset == 0) {
-            return roomPage to (roomPage.size >= limit)
+        val fullSource = resolveProviderSourceForCategory(categoryId)
+        if (fullSource.isNotEmpty()) {
+            val start = alreadyLoadedCount.coerceIn(0, fullSource.size)
+            val end = (start + limit).coerceAtMost(fullSource.size)
+            if (start >= end) return emptyList<Poster>() to false
+            val slice = enrichSliceWithRoom(fullSource.subList(start, end))
+            fallbackOffset = end
+            return slice to (end < fullSource.size)
         }
 
-        // Room is either empty or still mid-sync for this category: serve directly from Repository provider list
-        val providerAll = ensureProviderAllLoaded()
-        val fullSource = if (categoryId.isNullOrBlank()) {
-            providerAll
-        } else {
-            val fromAll = providerAll.filter { it.categoryId == categoryId }
-            if (fromAll.isNotEmpty()) {
-                fromAll
-            } else {
-                runCatching { fetchProviderItems(categoryId) }.getOrDefault(emptyList())
-            }
-        }
-        if (fullSource.isEmpty() || fullSource.size <= roomPage.size) {
-            return roomPage to (roomPage.size >= limit)
-        }
-        val start = fallbackOffset.coerceAtMost(fullSource.size)
-        val end = (start + limit).coerceAtMost(fullSource.size)
-        val slice = fullSource.subList(start, end)
-        fallbackOffset = end
-        return slice to (end < fullSource.size)
+        // Offline fallback when Repository cache is empty and only Room has local rows
+        val roomCat = categoryId?.takeIf { it != UNCATEGORIZED_CAT_ID }
+        val roomPage = loadRoomPageAndAdvanceCursor(categoryId = roomCat, limit = limit)
+        return roomPage to (roomPage.size >= limit)
     }
 
     private suspend fun loadRoomPageAndAdvanceCursor(
@@ -579,14 +682,10 @@ class BrowseViewModel(
         _state.update { it.copy(loadingMore = true) }
         loadMoreJob = viewModelScope.launch {
             val queryCat = catId.takeIf { it != ALL_CAT_ID }
-            val expectedTotal = if (queryCat == null) current.totalCount else (current.categoryCounts[queryCat] ?: 0)
-            if (fallbackOffset == 0 && current.items.isNotEmpty() && nextCursorOrder == null) {
-                fallbackOffset = current.items.size
-            }
             val (nextPage, pageHasMore) = loadPageWithProviderFallback(
                 categoryId = queryCat,
                 limit = PAGE_SIZE,
-                expectedTotal = expectedTotal,
+                alreadyLoadedCount = current.items.size,
             )
 
             _state.update { s ->
@@ -594,12 +693,10 @@ class BrowseViewModel(
                 val existingIds = s.items.asSequence().map { it.id }.toHashSet()
                 val uniqueNew = nextPage.filter { it.id !in existingIds }
                 val updatedItems = if (uniqueNew.isEmpty()) s.items else s.items + uniqueNew
-                val moreRemains = (pageHasMore && uniqueNew.isNotEmpty()) ||
-                    (expectedTotal > updatedItems.size && nextPage.isNotEmpty())
                 s.copy(
                     items = updatedItems,
                     loadingMore = false,
-                    hasMore = moreRemains,
+                    hasMore = pageHasMore && uniqueNew.isNotEmpty(),
                 )
             }
         }
@@ -630,23 +727,29 @@ class BrowseViewModel(
                         ).map { it.toPoster() }
                     }.getOrDefault(emptyList())
                 }
-                val finalMatches = if (roomMatches.isNotEmpty()) {
-                    roomMatches
-                } else {
-                    val providerAll = ensureProviderAllLoaded()
+                val providerAll = ensureProviderAllLoaded()
+                val providerMatches = if (providerAll.isNotEmpty()) {
                     withContext(Dispatchers.Default) {
-                        providerAll.filter { p ->
-                            p.name.contains(rawTrim, ignoreCase = true) ||
-                                p.name.normalizeForSearch().contains(needle)
-                        }.take(SEARCH_LIMIT)
+                        providerAll.asSequence()
+                            .filter { p ->
+                                p.name.contains(rawTrim, ignoreCase = true) ||
+                                    p.name.normalizeForSearch().contains(needle)
+                            }
+                            .take(SEARCH_LIMIT)
+                            .toList()
                     }
+                } else {
+                    emptyList()
                 }
-                searchOffset = finalMatches.size
+                val combined = (roomMatches + enrichSliceWithRoom(providerMatches))
+                    .distinctBy { it.id }
+                    .take(SEARCH_LIMIT)
+                searchOffset = roomMatches.size
                 _state.update {
                     it.copy(
-                        searchResults = finalMatches,
+                        searchResults = combined,
                         searching = false,
-                        hasMore = finalMatches.size >= SEARCH_LIMIT,
+                        hasMore = roomMatches.size >= SEARCH_LIMIT,
                     )
                 }
             } catch (e: CancellationException) {
@@ -786,7 +889,7 @@ class BrowseViewModel(
     }
 
     private companion object {
-        const val PAGE_SIZE = 120
+        const val PAGE_SIZE = 250
         const val SEARCH_LIMIT = 500
     }
 }

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 internal val ApiJson = Json {
     ignoreUnknownKeys = true
     isLenient = true
+    coerceInputValues = true
 }
 
 internal fun JsonElement?.str(): String = when (this) {

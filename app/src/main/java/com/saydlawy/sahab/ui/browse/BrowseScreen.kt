@@ -150,14 +150,21 @@ fun BrowseScreen(
 
     val gridStorageKey = "${route}_grid_${state.selectedId ?: ALL_CAT_ID}"
     val gridState = rememberRestorableLazyGridState(gridStorageKey)
-    LaunchedEffect(gridState, state.selectedId, state.visibleItems.size, state.hasMore) {
+    LaunchedEffect(
+        gridState,
+        state.selectedId,
+        state.visibleItems.size,
+        state.hasMore,
+        state.loadingMore,
+        state.loadingItems,
+    ) {
         snapshotFlow {
             val layoutInfo = gridState.layoutInfo
             val total = layoutInfo.totalItemsCount
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             total to lastVisible
         }.collect { (total, lastVisible) ->
-            if (total > 0 && lastVisible >= total - 24 && state.hasMore && !state.loadingMore && !state.loadingItems) {
+            if (total > 0 && lastVisible >= total - 36 && state.hasMore && !state.loadingMore && !state.loadingItems) {
                 vm.loadMore()
             }
         }

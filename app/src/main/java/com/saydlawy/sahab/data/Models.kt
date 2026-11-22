@@ -66,7 +66,11 @@ data class Poster(
     val genre: String = "",
     val categoryId: String = "",
     val added: Long = 0L,
-)
+    val categoryIds: List<String> = emptyList(),
+) {
+    fun belongsToCategory(catId: String): Boolean =
+        categoryId == catId || (categoryIds.isNotEmpty() && catId in categoryIds)
+}
 
 @Serializable
 data class MovieDetails(
