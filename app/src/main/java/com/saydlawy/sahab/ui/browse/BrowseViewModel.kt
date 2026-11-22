@@ -405,9 +405,20 @@ class BrowseViewModel(
             val cats = sortedEntries.map {
                 val label = if (grouping == VodCustomGrouping.RATING) "تقييم ${it.key}" else it.key
                 Category(id = prefix + it.key, name = label)
+            }.toMutableList()
+            val catCounts = sortedEntries.associate { (prefix + it.key) to it.value }.toMutableMap()
+            val emptyCount = when (grouping) {
+                VodCustomGrouping.GENRE -> dao.countEmptyGenre(mediaType)
+                VodCustomGrouping.YEAR -> dao.countEmptyYear(mediaType)
+                VodCustomGrouping.CAST -> dao.countEmptyCast(mediaType)
+                VodCustomGrouping.RATING -> dao.countEmptyRating(mediaType)
             }
-            val catCounts = sortedEntries.associate { (prefix + it.key) to it.value }
-            cats to catCounts
+            if (emptyCount > 0) {
+                val emptyId = prefix + "__empty__"
+                cats.add(Category(id = emptyId, name = "غير مصنف"))
+                catCounts[emptyId] = emptyCount
+            }
+            cats.toList() to catCounts.toMap()
         }
 
         customItemsByCategory = emptyMap()
@@ -436,6 +447,10 @@ class BrowseViewModel(
             val dao = container.catalogDb.movieDao()
             val raw = categoryId.removePrefix(CUSTOM_CAT_PREFIX)
             val entities = when {
+                raw == "genre:__empty__" -> dao.getPagedEmptyGenre(mediaType, limit, offset)
+                raw == "year:__empty__" -> dao.getPagedEmptyYear(mediaType, limit, offset)
+                raw == "cast:__empty__" -> dao.getPagedEmptyCast(mediaType, limit, offset)
+                raw == "rating:__empty__" -> dao.getPagedEmptyRating(mediaType, limit, offset)
                 raw.startsWith("genre:") -> dao.getPagedByGenre(raw.removePrefix("genre:"), mediaType, limit, offset)
                 raw.startsWith("year:") -> dao.getPagedByYear(raw.removePrefix("year:"), mediaType, limit, offset)
                 raw.startsWith("cast:") -> dao.getPagedByCast(raw.removePrefix("cast:"), mediaType, limit, offset)

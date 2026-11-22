@@ -332,6 +332,67 @@ interface CatalogMovieDao {
         offset: Int = 0,
     ): List<CatalogMovieEntity>
 
+    @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND TRIM(genre) = ''")
+    suspend fun countEmptyGenre(mediaType: String = "movie"): Int
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND TRIM(genre) = '' " +
+            "ORDER BY novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedEmptyGenre(
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
+    @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND TRIM(year) = ''")
+    suspend fun countEmptyYear(mediaType: String = "movie"): Int
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND TRIM(year) = '' " +
+            "ORDER BY novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedEmptyYear(
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
+    @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND mediaType = :mediaType AND TRIM(`cast`) = ''")
+    suspend fun countEmptyCast(mediaType: String = "movie"): Int
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND TRIM(`cast`) = '' " +
+            "ORDER BY novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedEmptyCast(
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
+    @Query(
+        "SELECT COUNT(*) FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "AND (TRIM(rating) = '' OR CAST(rating AS REAL) <= 0 OR CAST(rating AS REAL) >= 9.9)"
+    )
+    suspend fun countEmptyRating(mediaType: String = "movie"): Int
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "AND (TRIM(rating) = '' OR CAST(rating AS REAL) <= 0 OR CAST(rating AS REAL) >= 9.9) " +
+            "ORDER BY novaAdded DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedEmptyRating(
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
     @Query(
         "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount, titleAr, titleEn, identifiedTitle, sahabId " +
             "FROM catalog_movies " +
