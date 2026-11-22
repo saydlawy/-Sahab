@@ -349,8 +349,6 @@ internal fun NetflixPosterTile(
         onClick = onOpen,
         onLongClick = onLongClick,
         onFocused = onFocused,
-        targetWidthPx = targetWidthPx,
-        targetHeightPx = targetHeightPx,
         modifier = modifier.restorableFocus(route, focusKey, isDefault),
     )
 }
