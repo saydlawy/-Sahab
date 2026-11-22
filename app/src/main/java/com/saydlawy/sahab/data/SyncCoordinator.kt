@@ -341,15 +341,26 @@ class SyncCoordinator(private val container: AppContainer) {
             .onSuccess { count -> Log.d("SahabSync", "[$reason] firebase->room synced=$count") }
             .onFailure { Log.w("SahabSync", "[$reason] firebase->room failed: ${it.message}") }
 
-        Log.d("SahabSync", "[$reason] step 3/5: catalogSync.syncMovies")
-        suspendRunCatching { container.catalogSync.syncMovies(container.repo) }
-            .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3/5 movies done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
-            .onFailure { Log.w("SahabSync", "[$reason] step 3/5 movies failed: ${it.message}") }
+        val movieDao = container.catalogDb.movieDao()
+        val needMoviesSync = needNetworkCatalogSync || movieDao.countByType("movie") == 0
+        if (needMoviesSync) {
+            Log.d("SahabSync", "[$reason] step 3/5: catalogSync.syncMovies")
+            suspendRunCatching { container.catalogSync.syncMovies(container.repo) }
+                .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3/5 movies done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
+                .onFailure { Log.w("SahabSync", "[$reason] step 3/5 movies failed: ${it.message}") }
+        } else {
+            Log.d("SahabSync", "[$reason] step 3/5: skipped syncMovies (fresh & Room populated)")
+        }
 
-        Log.d("SahabSync", "[$reason] step 3.5/5: catalogSync.syncSeries")
-        suspendRunCatching { container.catalogSync.syncSeries(container.repo) }
-            .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3.5/5 series done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
-            .onFailure { Log.w("SahabSync", "[$reason] step 3.5/5 series failed: ${it.message}") }
+        val needSeriesSync = needNetworkCatalogSync || movieDao.countByType("series") == 0
+        if (needSeriesSync) {
+            Log.d("SahabSync", "[$reason] step 3.5/5: catalogSync.syncSeries")
+            suspendRunCatching { container.catalogSync.syncSeries(container.repo) }
+                .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3.5/5 series done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
+                .onFailure { Log.w("SahabSync", "[$reason] step 3.5/5 series failed: ${it.message}") }
+        } else {
+            Log.d("SahabSync", "[$reason] step 3.5/5: skipped syncSeries (fresh & Room populated)")
+        }
 
         val lastChSync = container.prefs.lastChannelSyncTime.first()
         val needChSync = forceCatalog || lastChSync == 0L || (System.currentTimeMillis() - lastChSync > 24L * 3600_000L)
