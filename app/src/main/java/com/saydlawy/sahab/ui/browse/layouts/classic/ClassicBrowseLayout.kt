@@ -332,7 +332,13 @@ private fun ClassicPosterGrid(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(headerTitle, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.TextDim)
-                    if (items.isNotEmpty()) Tag(Ar.itemsCount(items.size), Palette.Glow, fontSize = 10.sp)
+                    val totalBadgeCount = when {
+                        state.searchResults != null -> state.searchResults.size
+                        state.selectedId == null || state.selectedId == ALL_CAT_ID -> maxOf(state.totalCount, items.size)
+                        state.selectedId == FAV_CAT_ID || state.selectedId == RECENTS_CAT_ID -> items.size
+                        else -> maxOf(state.categoryCounts[state.selectedId] ?: 0, items.size)
+                    }
+                    if (totalBadgeCount > 0) Tag(Ar.itemsCount(totalBadgeCount), Palette.Glow, fontSize = 10.sp)
                 }
             }
             Spacer(Modifier.height(4.dp))

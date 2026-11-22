@@ -34,8 +34,32 @@ class CatalogSync(
         val durationMs: Long = 0L,
     )
 
+    private val syncMutex = kotlinx.coroutines.sync.Mutex()
+    private val activeSyncCount = java.util.concurrent.atomic.AtomicInteger(0)
+
     private val _syncing = MutableStateFlow(false)
     val syncing: StateFlow<Boolean> = _syncing
+
+    private val _syncVersion = MutableStateFlow(0L)
+    val syncVersion: StateFlow<Long> = _syncVersion
+
+    private suspend fun <T> withSyncLock(block: suspend () -> T): T {
+        activeSyncCount.incrementAndGet()
+        _syncing.value = true
+        return try {
+            syncMutex.lock()
+            try {
+                block()
+            } finally {
+                syncMutex.unlock()
+            }
+        } finally {
+            if (activeSyncCount.decrementAndGet() <= 0) {
+                activeSyncCount.set(0)
+                _syncing.value = false
+            }
+        }
+    }
 
     private val _firebaseSyncing = MutableStateFlow(false)
     val firebaseSyncing: StateFlow<Boolean> = _firebaseSyncing
@@ -312,11 +336,10 @@ class CatalogSync(
     suspend fun syncSeries(repo: Repository): Stats = syncMedia(repo, mediaType = "series")
 
     private suspend fun syncMedia(repo: Repository, mediaType: String): Stats = withContext(Dispatchers.IO) {
-        if (!_syncing.compareAndSet(expect = false, update = true)) return@withContext Stats()
-        val start = System.currentTimeMillis()
-        val isSeries = mediaType.equals("series", ignoreCase = true)
-        val normalizedType = if (isSeries) "series" else "movie"
-        try {
+        withSyncLock {
+            val start = System.currentTimeMillis()
+            val isSeries = mediaType.equals("series", ignoreCase = true)
+            val normalizedType = if (isSeries) "series" else "movie"
             val now = System.currentTimeMillis()
 
             val categories: Map<String, String> = runCatching {
@@ -329,7 +352,7 @@ class CatalogSync(
             }.getOrElse { emptyList() }
 
             if (posters.isEmpty()) {
-                return@withContext Stats(durationMs = System.currentTimeMillis() - start)
+                return@withSyncLock Stats(durationMs = System.currentTimeMillis() - start)
             }
 
             val existing = dao.loadAllProviderSyncSnapshot(normalizedType)
@@ -395,6 +418,7 @@ class CatalogSync(
             }
 
             val deleted = dao.softDeleteBefore(cutoff = now - STALE_CUTOFF_MS, mediaType = normalizedType)
+            _syncVersion.value = System.currentTimeMillis()
 
             Stats(
                 total = posters.size,
@@ -403,8 +427,6 @@ class CatalogSync(
                 deleted = deleted,
                 durationMs = System.currentTimeMillis() - start,
             )
-        } finally {
-            _syncing.value = false
         }
     }
 
@@ -416,13 +438,12 @@ class CatalogSync(
     )
 
     suspend fun populateFromSeed(context: Context): SeedStats = withContext(Dispatchers.IO) {
-        if (!_syncing.compareAndSet(expect = false, update = true)) return@withContext SeedStats(wasSkipped = true)
-        val start = System.currentTimeMillis()
-        try {
+        withSyncLock {
+            val start = System.currentTimeMillis()
             val dbCount = dao.observeCount().first()
             val enrichedCount = dao.countEnriched()
             if (dbCount > 1000 && enrichedCount > 100) {
-                return@withContext SeedStats(
+                return@withSyncLock SeedStats(
                     total = dbCount,
                     wasSkipped = true,
                     durationMs = System.currentTimeMillis() - start,
@@ -476,19 +497,20 @@ class CatalogSync(
                 }
             } catch (e: java.io.FileNotFoundException) {
                 android.util.Log.e("SahabSeed", "catalog_seed.json.gz NOT FOUND in assets — skipping seed load, falling back to lazy enrichment", e)
-                return@withContext SeedStats(wasSkipped = true, durationMs = System.currentTimeMillis() - start)
+                return@withSyncLock SeedStats(wasSkipped = true, durationMs = System.currentTimeMillis() - start)
             } catch (e: Exception) {
                 android.util.Log.e("SahabSeed", "seed load failed — falling back to lazy enrichment", e)
-                return@withContext SeedStats(wasSkipped = true, durationMs = System.currentTimeMillis() - start)
+                return@withSyncLock SeedStats(wasSkipped = true, durationMs = System.currentTimeMillis() - start)
             }
 
+            if (loaded > 0) {
+                _syncVersion.value = System.currentTimeMillis()
+            }
             SeedStats(
                 total = total,
                 loaded = loaded,
                 durationMs = System.currentTimeMillis() - start,
             )
-        } finally {
-            _syncing.value = false
         }
     }
 

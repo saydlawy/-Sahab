@@ -316,14 +316,18 @@ class SyncCoordinator(private val container: AppContainer) {
             Log.d("SahabSeed", "[$reason] seed: total=${stats.total} loaded=${stats.loaded} skipped=${stats.wasSkipped} dur=${stats.durationMs}ms")
         }.onFailure { Log.w("SahabSeed", "[$reason] seed failed: ${it.message}") }
 
-        if (!forceCatalog) {
+        val lastCatalogSync = container.prefs.lastCatalogSyncTime.first()
+        val needNetworkCatalogSync = forceCatalog || lastCatalogSync == 0L || (System.currentTimeMillis() - lastCatalogSync) >= 24L * 3600_000L
+        if (!needNetworkCatalogSync) {
             Log.d("SahabSync", "[$reason] step 1/5: prewarmCatalog")
             suspendRunCatching { container.repo.prewarmCatalog() }
                 .onFailure { Log.w("SahabSync", "[$reason] prewarm failed: ${it.message}") }
         }
 
         if (!forceCatalog && !isNetworkAvailable(context)) {
-            Log.d("SahabSync", "[$reason] offline — skipping network sync steps")
+            Log.d("SahabSync", "[$reason] offline — syncing any cached provider lists to Room before exit")
+            suspendRunCatching { container.catalogSync.syncMovies(container.repo) }
+            suspendRunCatching { container.catalogSync.syncSeries(container.repo) }
             return@withLock
         }
 
@@ -337,22 +341,15 @@ class SyncCoordinator(private val container: AppContainer) {
             .onSuccess { count -> Log.d("SahabSync", "[$reason] firebase->room synced=$count") }
             .onFailure { Log.w("SahabSync", "[$reason] firebase->room failed: ${it.message}") }
 
-        val movieCount = suspendRunCatching { container.catalogDb.movieDao().countByType("movie") }.getOrDefault(0)
-        val seriesCount = suspendRunCatching { container.catalogDb.movieDao().countByType("series") }.getOrDefault(0)
-        val missingMovieMeta = suspendRunCatching { container.catalogDb.movieDao().countMissingProviderOrderOrSearch("movie") }.getOrDefault(0)
-        val missingSeriesMeta = suspendRunCatching { container.catalogDb.movieDao().countMissingProviderOrderOrSearch("series") }.getOrDefault(0)
-        if (sync is Repository.SyncResult.Success || movieCount == 0 || missingMovieMeta > 0 || (sync is Repository.SyncResult.Skipped && movieCount > 0)) {
-            Log.d("SahabSync", "[$reason] step 3/5: catalogSync.syncMovies")
-            suspendRunCatching { container.catalogSync.syncMovies(container.repo) }
-                .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3/5 movies done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
-                .onFailure { Log.w("SahabSync", "[$reason] step 3/5 movies failed: ${it.message}") }
-        }
-        if (sync is Repository.SyncResult.Success || seriesCount == 0 || missingSeriesMeta > 0 || (sync is Repository.SyncResult.Skipped && seriesCount > 0)) {
-            Log.d("SahabSync", "[$reason] step 3.5/5: catalogSync.syncSeries")
-            suspendRunCatching { container.catalogSync.syncSeries(container.repo) }
-                .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3.5/5 series done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
-                .onFailure { Log.w("SahabSync", "[$reason] step 3.5/5 series failed: ${it.message}") }
-        }
+        Log.d("SahabSync", "[$reason] step 3/5: catalogSync.syncMovies")
+        suspendRunCatching { container.catalogSync.syncMovies(container.repo) }
+            .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3/5 movies done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
+            .onFailure { Log.w("SahabSync", "[$reason] step 3/5 movies failed: ${it.message}") }
+
+        Log.d("SahabSync", "[$reason] step 3.5/5: catalogSync.syncSeries")
+        suspendRunCatching { container.catalogSync.syncSeries(container.repo) }
+            .onSuccess { st -> Log.d("SahabSync", "[$reason] step 3.5/5 series done: total=${st.total} ins=${st.inserted} upd=${st.updated}") }
+            .onFailure { Log.w("SahabSync", "[$reason] step 3.5/5 series failed: ${it.message}") }
 
         val lastChSync = container.prefs.lastChannelSyncTime.first()
         val needChSync = forceCatalog || lastChSync == 0L || (System.currentTimeMillis() - lastChSync > 24L * 3600_000L)

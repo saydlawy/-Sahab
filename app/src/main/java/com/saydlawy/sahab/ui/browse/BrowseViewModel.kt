@@ -78,8 +78,11 @@ class BrowseViewModel(
     private var groupsJob: Job? = null
 
     private var defaultCategories: List<Category> = emptyList()
+    private var providerAllCache: List<Poster> = emptyList()
     private var nextCursorOrder: Int? = null
     private var nextCursorSahabId: String? = null
+    private var fallbackOffset: Int = 0
+    private var searchOffset: Int = 0
     private var currentLayoutStyle: VodLayoutStyle = VodLayoutStyle.CLASSIC
 
     init {
@@ -92,11 +95,107 @@ class BrowseViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            container.catalogSync.syncVersion
+                .distinctUntilChanged()
+                .collectLatest { version ->
+                    if (version <= 0L || _state.value.loadingCategories) return@collectLatest
+                    refreshCountsAndCurrentViewAfterSync()
+                }
+        }
         loadCategories()
     }
 
     private suspend fun fetchCategories(): List<Category> =
         if (series) repo.seriesCategories() else repo.movieCategories()
+
+    private suspend fun fetchProviderItems(categoryId: String?): List<Poster> =
+        if (series) repo.seriesList(categoryId) else repo.movies(categoryId)
+
+    private suspend fun ensureProviderAllLoaded(): List<Poster> {
+        if (providerAllCache.isNotEmpty()) return providerAllCache
+        val peeked = runCatching {
+            if (series) repo.peekAllSeries() else repo.peekAllMovies()
+        }.getOrNull().orEmpty()
+        if (peeked.isNotEmpty()) {
+            providerAllCache = peeked
+            return peeked
+        }
+        val fetched = runCatching { fetchProviderItems(null) }.getOrDefault(emptyList())
+        if (fetched.isNotEmpty()) {
+            providerAllCache = fetched
+        }
+        return providerAllCache
+    }
+
+    private suspend fun computeMergedCategoryCounts(roomCounts: Map<String, Int>, providerAll: List<Poster>): Map<String, Int> {
+        if (providerAll.isEmpty()) return roomCounts
+        return withContext(Dispatchers.Default) {
+            val providerCounts = HashMap<String, Int>()
+            for (p in providerAll) {
+                if (p.categoryId.isNotBlank()) {
+                    providerCounts[p.categoryId] = (providerCounts[p.categoryId] ?: 0) + 1
+                }
+            }
+            val merged = HashMap<String, Int>(maxOf(roomCounts.size, providerCounts.size))
+            merged.putAll(roomCounts)
+            for ((catId, pCnt) in providerCounts) {
+                val rCnt = merged[catId] ?: 0
+                if (pCnt > rCnt) merged[catId] = pCnt
+            }
+            merged
+        }
+    }
+
+    private suspend fun refreshCountsAndCurrentViewAfterSync() {
+        val roomTotal = withContext(Dispatchers.IO) {
+            runCatching { dao.countByType(mediaType) }.getOrDefault(0)
+        }
+        if (roomTotal <= 0) return
+        val roomCounts = withContext(Dispatchers.IO) {
+            runCatching { dao.getCategoryCounts(mediaType).associate { it.categoryId to it.cnt } }.getOrDefault(emptyMap())
+        }
+        val mergedCounts = computeMergedCategoryCounts(roomCounts, providerAllCache)
+        val effectiveTotal = maxOf(roomTotal, providerAllCache.size)
+
+        val current = _state.value
+        val selectedCat = current.selectedId ?: ALL_CAT_ID
+        val needsReloadFirstPage = current.items.isEmpty() ||
+            (selectedCat == ALL_CAT_ID && current.items.size < PAGE_SIZE && effectiveTotal > current.items.size) ||
+            (selectedCat != ALL_CAT_ID && selectedCat != FAV_CAT_ID && selectedCat != RECENTS_CAT_ID &&
+                current.items.size < (mergedCounts[selectedCat] ?: 0).coerceAtMost(PAGE_SIZE))
+
+        if (needsReloadFirstPage && !current.loadingItems && !current.loadingMore) {
+            nextCursorOrder = null
+            nextCursorSahabId = null
+            fallbackOffset = 0
+            val queryCat = selectedCat.takeIf { it != ALL_CAT_ID && it != FAV_CAT_ID && it != RECENTS_CAT_ID }
+            val (page, hasMore) = loadPageWithProviderFallback(
+                categoryId = queryCat,
+                limit = PAGE_SIZE,
+                expectedTotal = if (queryCat == null) effectiveTotal else (mergedCounts[queryCat] ?: 0),
+            )
+            _state.update {
+                it.copy(
+                    totalCount = effectiveTotal,
+                    categoryCounts = mergedCounts,
+                    items = if (page.isNotEmpty()) page else it.items,
+                    hasMore = hasMore,
+                )
+            }
+        } else {
+            _state.update {
+                it.copy(
+                    totalCount = effectiveTotal,
+                    categoryCounts = mergedCounts,
+                )
+            }
+        }
+
+        if (currentLayoutStyle != VodLayoutStyle.CLASSIC && defaultCategories.isNotEmpty()) {
+            loadCategoryGroupsAsync(defaultCategories)
+        }
+    }
 
     fun loadCategories() {
         viewModelScope.launch {
@@ -116,33 +215,39 @@ class BrowseViewModel(
                 }
                 defaultCategories = categories
 
+                val providerAll = ensureProviderAllLoaded()
+
                 var roomTotal = withContext(Dispatchers.IO) {
                     runCatching { dao.countByType(mediaType) }.getOrDefault(0)
                 }
+                val missingMeta = withContext(Dispatchers.IO) {
+                    runCatching { dao.countMissingProviderOrderOrSearch(mediaType) }.getOrDefault(0)
+                }
+
                 if (roomTotal == 0) {
-                    if (container.catalogSync.syncing.value) {
-                        runCatching { container.catalogSync.syncing.first { !it } }
-                        roomTotal = withContext(Dispatchers.IO) {
-                            runCatching { dao.countByType(mediaType) }.getOrDefault(0)
-                        }
+                    runCatching {
+                        if (series) container.catalogSync.syncSeries(repo) else container.catalogSync.syncMovies(repo)
                     }
-                    if (roomTotal == 0) {
+                    roomTotal = withContext(Dispatchers.IO) {
+                        runCatching { dao.countByType(mediaType) }.getOrDefault(0)
+                    }
+                } else if ((providerAll.isNotEmpty() && roomTotal < providerAll.size) || missingMeta > 0) {
+                    container.appScope.launch(Dispatchers.IO) {
                         runCatching {
                             if (series) container.catalogSync.syncSeries(repo) else container.catalogSync.syncMovies(repo)
-                        }
-                        roomTotal = withContext(Dispatchers.IO) {
-                            runCatching { dao.countByType(mediaType) }.getOrDefault(0)
                         }
                     }
                 }
 
-                if (categories.isEmpty() && roomTotal == 0 && categoriesError != null) {
+                val effectiveTotal = maxOf(roomTotal, providerAll.size)
+                if (categories.isEmpty() && effectiveTotal == 0 && categoriesError != null) {
                     throw categoriesError
                 }
 
                 val roomCounts = withContext(Dispatchers.IO) {
                     runCatching { dao.getCategoryCounts(mediaType).associate { it.categoryId to it.cnt } }.getOrDefault(emptyMap())
                 }
+                val mergedCounts = computeMergedCategoryCounts(roomCounts, providerAll)
 
                 val rawPref = initialCategoryId ?: _state.value.selectedId
                 val selectedCat = when {
@@ -153,18 +258,21 @@ class BrowseViewModel(
 
                 nextCursorOrder = null
                 nextCursorSahabId = null
+                fallbackOffset = 0
 
                 val (initialItems, initialHasMore) = when (selectedCat) {
                     RECENTS_CAT_ID -> emptyList<Poster>() to false
                     FAV_CAT_ID -> loadFavoritesFromRoom() to false
-                    ALL_CAT_ID -> {
-                        val page = loadRoomPageAndAdvanceCursor(categoryId = null, limit = PAGE_SIZE)
-                        page to (page.size >= PAGE_SIZE)
-                    }
-                    else -> {
-                        val page = loadRoomPageAndAdvanceCursor(categoryId = selectedCat, limit = PAGE_SIZE)
-                        page to (page.size >= PAGE_SIZE)
-                    }
+                    ALL_CAT_ID -> loadPageWithProviderFallback(
+                        categoryId = null,
+                        limit = PAGE_SIZE,
+                        expectedTotal = effectiveTotal,
+                    )
+                    else -> loadPageWithProviderFallback(
+                        categoryId = selectedCat,
+                        limit = PAGE_SIZE,
+                        expectedTotal = mergedCounts[selectedCat] ?: 0,
+                    )
                 }
 
                 val heroCandidates = if (selectedCat == ALL_CAT_ID && initialItems.isNotEmpty()) {
@@ -173,6 +281,7 @@ class BrowseViewModel(
                     withContext(Dispatchers.IO) {
                         runCatching { dao.getPaged(mediaType = mediaType, limit = 6, offset = 0).map { it.toPoster() } }
                             .getOrDefault(emptyList())
+                            .ifEmpty { providerAll.take(6) }
                     }
                 }
 
@@ -181,8 +290,8 @@ class BrowseViewModel(
                         categories = categories,
                         selectedId = selectedCat,
                         items = initialItems,
-                        totalCount = roomTotal,
-                        categoryCounts = roomCounts,
+                        totalCount = effectiveTotal,
+                        categoryCounts = mergedCounts,
                         featuredHeroItems = heroCandidates,
                         loadingCategories = false,
                         loadingItems = false,
@@ -226,16 +335,25 @@ class BrowseViewModel(
 
     private suspend fun buildRoomCategoryGroups(
         cats: List<Category>,
-        maxGroups: Int = 10,
-        itemsPerGroup: Int = 14,
+        maxGroups: Int = Int.MAX_VALUE,
+        itemsPerGroup: Int = 60,
     ): List<CategoryPosterGroup> = withContext(Dispatchers.IO) {
-        val result = ArrayList<CategoryPosterGroup>(maxGroups)
+        val providerByCat: Map<String, List<Poster>> by lazy {
+            providerAllCache.groupBy { it.categoryId }
+        }
+        val result = ArrayList<CategoryPosterGroup>(cats.size)
         for (cat in cats) {
             if (result.size >= maxGroups) break
-            val list = runCatching {
+            val roomList = runCatching {
                 dao.getPagedByCategory(catId = cat.id, mediaType = mediaType, limit = itemsPerGroup, offset = 0)
                     .map { it.toPoster() }
             }.getOrDefault(emptyList())
+            val fallbackList = if (roomList.size < itemsPerGroup && providerAllCache.isNotEmpty()) {
+                providerByCat[cat.id].orEmpty().take(itemsPerGroup)
+            } else {
+                emptyList()
+            }
+            val list = if (fallbackList.size > roomList.size) fallbackList else roomList
             if (list.isNotEmpty()) {
                 result.add(CategoryPosterGroup(cat, list))
             }
@@ -248,6 +366,7 @@ class BrowseViewModel(
         loadMoreJob?.cancel()
         nextCursorOrder = null
         nextCursorSahabId = null
+        fallbackOffset = 0
 
         if (categoryId == RECENTS_CAT_ID) {
             _state.update {
@@ -298,13 +417,19 @@ class BrowseViewModel(
         }
         itemsJob = viewModelScope.launch {
             val queryCat = categoryId.takeIf { it != ALL_CAT_ID }
-            val page = loadRoomPageAndAdvanceCursor(categoryId = queryCat, limit = PAGE_SIZE)
+            val current = _state.value
+            val expectedTotal = if (queryCat == null) current.totalCount else (current.categoryCounts[queryCat] ?: 0)
+            val (page, hasMore) = loadPageWithProviderFallback(
+                categoryId = queryCat,
+                limit = PAGE_SIZE,
+                expectedTotal = expectedTotal,
+            )
             _state.update {
                 it.copy(
                     selectedId = categoryId,
                     items = page,
                     loadingItems = false,
-                    hasMore = page.size >= PAGE_SIZE,
+                    hasMore = hasMore,
                     error = null,
                 )
             }
@@ -333,6 +458,43 @@ class BrowseViewModel(
                 ext = fav.ext,
             )
         }.distinctBy { it.id }
+    }
+
+    private suspend fun loadPageWithProviderFallback(
+        categoryId: String?,
+        limit: Int = PAGE_SIZE,
+        expectedTotal: Int = 0,
+    ): Pair<List<Poster>, Boolean> {
+        val roomPage = if (fallbackOffset == 0) {
+            loadRoomPageAndAdvanceCursor(categoryId = categoryId, limit = limit)
+        } else {
+            emptyList()
+        }
+        val expectedInFirstPage = if (expectedTotal > 0) minOf(limit, expectedTotal) else limit
+        if (roomPage.size >= expectedInFirstPage && fallbackOffset == 0) {
+            return roomPage to (roomPage.size >= limit)
+        }
+
+        // Room is either empty or still mid-sync for this category: serve directly from Repository provider list
+        val providerAll = ensureProviderAllLoaded()
+        val fullSource = if (categoryId.isNullOrBlank()) {
+            providerAll
+        } else {
+            val fromAll = providerAll.filter { it.categoryId == categoryId }
+            if (fromAll.isNotEmpty()) {
+                fromAll
+            } else {
+                runCatching { fetchProviderItems(categoryId) }.getOrDefault(emptyList())
+            }
+        }
+        if (fullSource.isEmpty() || fullSource.size <= roomPage.size) {
+            return roomPage to (roomPage.size >= limit)
+        }
+        val start = fallbackOffset.coerceAtMost(fullSource.size)
+        val end = (start + limit).coerceAtMost(fullSource.size)
+        val slice = fullSource.subList(start, end)
+        fallbackOffset = end
+        return slice to (end < fullSource.size)
     }
 
     private suspend fun loadRoomPageAndAdvanceCursor(
@@ -378,24 +540,67 @@ class BrowseViewModel(
     fun loadMore() {
         val current = _state.value
         if (current.loadingItems || current.loadingMore || !current.hasMore) return
-        if (current.query.isNotBlank() || current.searchResults != null) return
+        if (loadMoreJob?.isActive == true) return
+
+        if (current.query.isNotBlank() && current.searchResults != null) {
+            val rawTrim = current.query.trim()
+            val needle = rawTrim.normalizeForSearch().trim()
+            if (needle.length < 2) return
+            _state.update { it.copy(loadingMore = true) }
+            loadMoreJob = viewModelScope.launch {
+                val nextMatches = withContext(Dispatchers.IO) {
+                    runCatching {
+                        dao.searchCatalogPaged(
+                            query = rawTrim,
+                            normalizedQuery = needle,
+                            mediaType = mediaType,
+                            limit = SEARCH_LIMIT,
+                            offset = searchOffset,
+                        ).map { it.toPoster() }
+                    }.getOrDefault(emptyList())
+                }
+                searchOffset += nextMatches.size
+                _state.update { s ->
+                    val existing = s.searchResults.orEmpty()
+                    val existingIds = existing.asSequence().map { it.id }.toHashSet()
+                    val uniqueNew = nextMatches.filter { it.id !in existingIds }
+                    s.copy(
+                        searchResults = if (uniqueNew.isEmpty()) existing else existing + uniqueNew,
+                        loadingMore = false,
+                        hasMore = nextMatches.size >= SEARCH_LIMIT && uniqueNew.isNotEmpty(),
+                    )
+                }
+            }
+            return
+        }
+
         val catId = current.selectedId ?: ALL_CAT_ID
         if (catId == RECENTS_CAT_ID || catId == FAV_CAT_ID) return
-        if (loadMoreJob?.isActive == true) return
 
         _state.update { it.copy(loadingMore = true) }
         loadMoreJob = viewModelScope.launch {
             val queryCat = catId.takeIf { it != ALL_CAT_ID }
-            val nextPage = loadRoomPageAndAdvanceCursor(categoryId = queryCat, limit = PAGE_SIZE)
+            val expectedTotal = if (queryCat == null) current.totalCount else (current.categoryCounts[queryCat] ?: 0)
+            if (fallbackOffset == 0 && current.items.isNotEmpty() && nextCursorOrder == null) {
+                fallbackOffset = current.items.size
+            }
+            val (nextPage, pageHasMore) = loadPageWithProviderFallback(
+                categoryId = queryCat,
+                limit = PAGE_SIZE,
+                expectedTotal = expectedTotal,
+            )
 
             _state.update { s ->
                 if (s.selectedId != catId) return@update s.copy(loadingMore = false)
                 val existingIds = s.items.asSequence().map { it.id }.toHashSet()
                 val uniqueNew = nextPage.filter { it.id !in existingIds }
+                val updatedItems = if (uniqueNew.isEmpty()) s.items else s.items + uniqueNew
+                val moreRemains = (pageHasMore && uniqueNew.isNotEmpty()) ||
+                    (expectedTotal > updatedItems.size && nextPage.isNotEmpty())
                 s.copy(
-                    items = if (uniqueNew.isEmpty()) s.items else s.items + uniqueNew,
+                    items = updatedItems,
                     loadingMore = false,
-                    hasMore = nextPage.size >= PAGE_SIZE && uniqueNew.isNotEmpty(),
+                    hasMore = moreRemains,
                 )
             }
         }
@@ -407,6 +612,7 @@ class BrowseViewModel(
         val rawTrim = query.trim()
         val needle = rawTrim.normalizeForSearch().trim()
         if (needle.length < 2) {
+            searchOffset = 0
             _state.update { it.copy(searchResults = null, searching = false) }
             return
         }
@@ -425,7 +631,25 @@ class BrowseViewModel(
                         ).map { it.toPoster() }
                     }.getOrDefault(emptyList())
                 }
-                _state.update { it.copy(searchResults = roomMatches, searching = false) }
+                val finalMatches = if (roomMatches.isNotEmpty()) {
+                    roomMatches
+                } else {
+                    val providerAll = ensureProviderAllLoaded()
+                    withContext(Dispatchers.Default) {
+                        providerAll.filter { p ->
+                            p.name.contains(rawTrim, ignoreCase = true) ||
+                                p.name.normalizeForSearch().contains(needle)
+                        }.take(SEARCH_LIMIT)
+                    }
+                }
+                searchOffset = finalMatches.size
+                _state.update {
+                    it.copy(
+                        searchResults = finalMatches,
+                        searching = false,
+                        hasMore = finalMatches.size >= SEARCH_LIMIT,
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -563,7 +787,7 @@ class BrowseViewModel(
     }
 
     private companion object {
-        const val PAGE_SIZE = 60
-        const val SEARCH_LIMIT = 120
+        const val PAGE_SIZE = 120
+        const val SEARCH_LIMIT = 500
     }
 }
