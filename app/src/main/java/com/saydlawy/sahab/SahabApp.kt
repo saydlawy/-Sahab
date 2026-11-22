@@ -83,7 +83,7 @@ class AppContainer(context: Context) {
     val client: OkHttpClient = OkHttpClient.Builder()
         .cache(Cache(File(context.applicationContext.cacheDir, "http_cache"), 32L * 1024L * 1024L))
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
         .addInterceptor(CleartextGuardInterceptor())
         .addInterceptor { chain ->
             chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())

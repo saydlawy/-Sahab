@@ -527,6 +527,33 @@ class BrowseViewModel(
                     error = null,
                 )
             }
+
+            // Verify per-category server endpoint in background in case the IPTV panel returns
+            // additional items only when `category_id` is passed explicitly.
+            if (queryCat != null && queryCat != UNCATEGORIZED_CAT_ID && queryCat !in providerCategoryCache) {
+                val direct = runCatching {
+                    if (series) repo.seriesByCategoryDirect(queryCat) else repo.moviesByCategoryDirect(queryCat)
+                }.getOrDefault(emptyList())
+                    .map { p ->
+                        val mergedCats = (p.categoryIds + queryCat).distinct()
+                        p.copy(categoryId = p.categoryId.ifBlank { queryCat }, categoryIds = mergedCats)
+                    }
+                if (direct.isNotEmpty()) {
+                    providerCategoryCache[queryCat] = direct
+                    val currentTotalForCat = _state.value.categoryCounts[queryCat] ?: page.size
+                    if (direct.size > currentTotalForCat || direct.size > page.size) {
+                        val firstDirectPage = enrichSliceWithRoom(direct.take(PAGE_SIZE))
+                        _state.update { s ->
+                            if (s.selectedId != categoryId) return@update s
+                            s.copy(
+                                items = firstDirectPage,
+                                categoryCounts = s.categoryCounts + (queryCat to direct.size),
+                                hasMore = direct.size > firstDirectPage.size,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -565,12 +592,14 @@ class BrowseViewModel(
                 }
             }
         }
+        providerCategoryCache[categoryId]?.let { if (it.isNotEmpty()) return it }
         val fromAll = withContext(Dispatchers.Default) {
             providerAll.filter { it.belongsToCategory(categoryId) }
         }
         if (fromAll.isNotEmpty()) return fromAll
-        providerCategoryCache[categoryId]?.let { if (it.isNotEmpty()) return it }
-        val direct = runCatching { fetchProviderItems(categoryId, forceNetwork = false) }.getOrDefault(emptyList())
+        val direct = runCatching {
+            if (series) repo.seriesByCategoryDirect(categoryId) else repo.moviesByCategoryDirect(categoryId)
+        }.getOrDefault(emptyList())
             .map { if (it.categoryId.isBlank()) it.copy(categoryId = categoryId, categoryIds = listOf(categoryId)) else it }
         if (direct.isNotEmpty()) {
             providerCategoryCache[categoryId] = direct

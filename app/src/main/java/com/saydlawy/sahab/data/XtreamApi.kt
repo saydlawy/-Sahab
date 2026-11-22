@@ -50,6 +50,7 @@ class XtreamApi(private val client: OkHttpClient) {
     /**
      * Streams huge Xtream array responses (channels / VOD / series) directly from OkHttp's
      * response body without buffering a multi-megabyte String + JsonArray DOM in heap.
+     * Also tolerates UTF-8 BOM prefixes and PHP associative-object payloads (`{"0":{...},"5":{...}}`).
      */
     suspend fun <T> streamArray(
         account: Account,
@@ -60,15 +61,53 @@ class XtreamApi(private val client: OkHttpClient) {
     ): T {
         val url = buildUrl(account, action, params)
         return client.newCall(Request.Builder().url(url).build()).awaitStream { rawStream ->
-            val pb = PushbackInputStream(BufferedInputStream(rawStream, 64 * 1024), 4)
+            val pb = PushbackInputStream(BufferedInputStream(rawStream, 64 * 1024), 8)
             var next = pb.read()
+            // Skip UTF-8 BOM (0xEF 0xBB 0xBF) if emitted by PHP panels
+            if (next == 0xEF) {
+                val b2 = pb.read()
+                val b3 = pb.read()
+                if (b2 == 0xBB && b3 == 0xBF) {
+                    next = pb.read()
+                } else {
+                    if (b3 != -1) pb.unread(b3)
+                    if (b2 != -1) pb.unread(b2)
+                }
+            }
             while (next != -1 && next <= ' '.code) {
                 next = pb.read()
             }
             if (next == -1) {
                 onEmptyOrNonArray()
+            } else if (next == '{'.code) {
+                pb.unread(next)
+                try {
+                    val bodyText = pb.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val root = ApiJson.parseToJsonElement(bodyText) as? kotlinx.serialization.json.JsonObject
+                    val extractedArray = root?.let { obj ->
+                        val objectEntries = obj.values.filterIsInstance<kotlinx.serialization.json.JsonObject>()
+                        when {
+                            objectEntries.isNotEmpty() -> kotlinx.serialization.json.JsonArray(objectEntries)
+                            else -> obj.values.firstOrNull { it is kotlinx.serialization.json.JsonArray } as? kotlinx.serialization.json.JsonArray
+                        }
+                    }
+                    if (extractedArray == null || extractedArray.isEmpty()) {
+                        onEmptyOrNonArray()
+                    } else {
+                        val arrayBytes = ApiJson.encodeToString(kotlinx.serialization.json.JsonArray.serializer(), extractedArray)
+                            .toByteArray(Charsets.UTF_8)
+                        parseStream(arrayBytes.inputStream())
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: IOException) {
+                    throw e
+                } catch (e: ApiException) {
+                    throw e
+                } catch (_: Exception) {
+                    onEmptyOrNonArray()
+                }
             } else if (next != '['.code) {
-                // Non-array error/empty object response — drain safely on non-array without throwing DOM errors
                 onEmptyOrNonArray()
             } else {
                 pb.unread(next)

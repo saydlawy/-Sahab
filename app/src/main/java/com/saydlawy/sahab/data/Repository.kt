@@ -17,7 +17,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import okio.ByteString.Companion.decodeBase64
@@ -145,7 +144,9 @@ class Repository(
                 k.startsWith(prefix) && (
                     (k.contains("::live:") && !k.endsWith("::live:")) ||
                         (k.contains("::vod:") && !k.endsWith("::vod:")) ||
-                        (k.contains("::series:") && !k.endsWith("::series:"))
+                        (k.contains("::series:") && !k.endsWith("::series:")) ||
+                        k.contains("::vod_cat_direct:") ||
+                        k.contains("::series_cat_direct:")
                     )
             }
         }
@@ -635,6 +636,26 @@ class Repository(
             withContext(Dispatchers.Default) { parseSeriesDetails(id, json) }
         }
 
+    suspend fun moviesByCategoryDirect(categoryId: String, forceNetwork: Boolean = false): List<Poster> {
+        if (requireAccount().type == "M3U" || categoryId.isBlank()) return emptyList()
+        val key = "vod_cat_direct:$categoryId"
+        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS, forceNetwork = forceNetwork) {
+            streamArray("get_vod_streams", categoryParams(categoryId)) { stream ->
+                parseMoviesStream(stream)
+            }
+        }
+    }
+
+    suspend fun seriesByCategoryDirect(categoryId: String, forceNetwork: Boolean = false): List<Poster> {
+        if (requireAccount().type == "M3U" || categoryId.isBlank()) return emptyList()
+        val key = "series_cat_direct:$categoryId"
+        return cachedPersistent(key, ListSerializer(Poster.serializer()), CATALOG_LIST_TTL_MS, forceNetwork = forceNetwork) {
+            streamArray("get_series", categoryParams(categoryId)) { stream ->
+                parseSeriesStream(stream)
+            }
+        }
+    }
+
     // Program guide
 
     fun peekShortEpg(streamId: String, limit: Int = 3): List<Program>? {
@@ -739,90 +760,53 @@ class Repository(
         )
     }
 
-    private fun parseCategories(json: JsonElement): List<Category> =
-        json.arr().orEmpty().mapNotNull { e ->
+    private fun parseCategories(json: JsonElement): List<Category> {
+        val elements: Collection<JsonElement> = when (json) {
+            is JsonArray -> json
+            is JsonObject -> json.values
+            else -> emptyList()
+        }
+        return elements.mapNotNull { e ->
             val o = e.obj() ?: return@mapNotNull null
-            val id = o.s("category_id")
-            if (id.isBlank()) null else Category(id, o.s("category_name").ifBlank { Ar.noName })
+            val id = o.s("category_id").ifBlank { o.s("id") }
+            val name = o.s("category_name").ifBlank { o.s("name") }.ifBlank { Ar.noName }
+            if (id.isBlank()) null else Category(id, name)
         }.distinctBy { it.id }
-
-    @Serializable
-    private data class XtreamChannelDto(
-        val stream_id: JsonElement? = null,
-        val name: JsonElement? = null,
-        val stream_icon: JsonElement? = null,
-        val category_id: JsonElement? = null,
-        val epg_channel_id: JsonElement? = null,
-        val added: JsonElement? = null,
-    )
-
-    @Serializable
-    private data class XtreamMovieDto(
-        val stream_id: JsonElement? = null,
-        val id: JsonElement? = null,
-        val name: JsonElement? = null,
-        val title: JsonElement? = null,
-        val stream_icon: JsonElement? = null,
-        val cover: JsonElement? = null,
-        val rating: JsonElement? = null,
-        val container_extension: JsonElement? = null,
-        val category_id: JsonElement? = null,
-        val category_ids: JsonElement? = null,
-        val added: JsonElement? = null,
-    )
-
-    @Serializable
-    private data class XtreamSeriesDto(
-        val series_id: JsonElement? = null,
-        val id: JsonElement? = null,
-        val name: JsonElement? = null,
-        val title: JsonElement? = null,
-        val cover: JsonElement? = null,
-        val stream_icon: JsonElement? = null,
-        val rating: JsonElement? = null,
-        val releaseDate: JsonElement? = null,
-        val release_date: JsonElement? = null,
-        val year: JsonElement? = null,
-        val category_id: JsonElement? = null,
-        val category_ids: JsonElement? = null,
-        val last_modified: JsonElement? = null,
-    )
+    }
 
     private fun resolveAllCategoryIds(primary: JsonElement?, arrayFallback: JsonElement?): List<String> {
         val out = LinkedHashSet<String>(4)
-        val direct = primary.str().trim()
-        if (direct.isNotBlank() && direct != "0" && !direct.equals("null", ignoreCase = true)) {
-            out.add(direct)
-        }
-        arrayFallback.arr()?.forEach { elem ->
-            val cid = elem.str().trim()
-            if (cid.isNotBlank() && cid != "0" && !cid.equals("null", ignoreCase = true)) {
-                out.add(cid)
+        fun addElement(el: JsonElement?) {
+            when (el) {
+                is JsonArray -> el.forEach { addElement(it) }
+                else -> {
+                    val cid = el.str().trim()
+                    if (cid.isNotBlank() && cid != "0" && !cid.equals("null", ignoreCase = true)) {
+                        out.add(cid)
+                    }
+                }
             }
         }
-        if (out.isEmpty()) {
-            val single = arrayFallback.firstString()
-            if (single.isNotBlank() && single != "0" && !single.equals("null", ignoreCase = true)) {
-                out.add(single)
-            }
-        }
+        addElement(primary)
+        addElement(arrayFallback)
         return out.toList()
     }
 
     private fun parseChannelsStream(stream: InputStream): List<Channel> {
         val result = ArrayList<Channel>(256)
         val seen = HashSet<String>(256)
-        for (o in api.decodeArraySequence<XtreamChannelDto>(stream)) {
-            val id = o.stream_id.str().trim()
+        for (elem in api.decodeArraySequence<JsonElement>(stream)) {
+            val o = elem.obj() ?: continue
+            val id = o["stream_id"].firstString().ifBlank { o["id"].firstString() }
             if (id.isNotBlank() && seen.add(id)) {
                 result.add(
                     Channel(
                         id = id,
-                        name = o.name.str().trim().ifBlank { Ar.noName },
-                        icon = o.stream_icon.str().trim(),
-                        categoryId = o.category_id.str().trim(),
-                        epgId = o.epg_channel_id.str().trim(),
-                        added = o.added.str().trim().toLongOrNull() ?: 0L,
+                        name = o["name"].firstString().ifBlank { Ar.noName },
+                        icon = o["stream_icon"].firstString(),
+                        categoryId = resolveAllCategoryIds(o["category_id"], o["category_ids"]).firstOrNull().orEmpty(),
+                        epgId = o["epg_channel_id"].firstString(),
+                        added = o["added"].firstString().toLongOrNull() ?: 0L,
                     ),
                 )
             }
@@ -832,60 +816,86 @@ class Repository(
 
     private fun parseMoviesStream(stream: InputStream): List<Poster> {
         val result = ArrayList<Poster>(256)
-        val seen = HashSet<String>(256)
-        for (o in api.decodeArraySequence<XtreamMovieDto>(stream)) {
-            val id = o.stream_id.str().trim().ifBlank { o.id.str().trim() }
-            if (id.isNotBlank() && seen.add(id)) {
-                val name = o.name.str().trim().ifBlank { o.title.str().trim() }
-                val image = o.stream_icon.str().trim().ifBlank { o.cover.str().trim() }
-                val catIds = resolveAllCategoryIds(o.category_id, o.category_ids)
-                val catId = catIds.firstOrNull().orEmpty()
-                result.add(
-                    Poster(
-                        id = id,
-                        name = name.ifBlank { Ar.noName },
-                        image = image,
-                        rating = formatRating(o.rating.str().trim()),
-                        ext = o.container_extension.str().trim(),
-                        year = yearOf(name),
-                        categoryId = catId,
-                        added = o.added.str().trim().toLongOrNull() ?: 0L,
-                        categoryIds = catIds,
+        val indexById = HashMap<String, Int>(256)
+        for (elem in api.decodeArraySequence<JsonElement>(stream)) {
+            val o = elem.obj() ?: continue
+            val id = o["stream_id"].firstString().ifBlank { o["id"].firstString() }
+            if (id.isBlank()) continue
+            val catIds = resolveAllCategoryIds(o["category_id"], o["category_ids"])
+            val existingIdx = indexById[id]
+            if (existingIdx != null) {
+                val prev = result[existingIdx]
+                val mergedCats = (prev.categoryIds + catIds).distinct()
+                if (mergedCats != prev.categoryIds) {
+                    result[existingIdx] = prev.copy(
+                        categoryId = prev.categoryId.ifBlank { mergedCats.firstOrNull().orEmpty() },
+                        categoryIds = mergedCats,
                     )
-                )
+                }
+                continue
             }
+            val name = o["name"].firstString().ifBlank { o["title"].firstString() }
+            val image = o["stream_icon"].firstString().ifBlank { o["cover"].firstString() }
+            val catId = catIds.firstOrNull().orEmpty()
+            indexById[id] = result.size
+            result.add(
+                Poster(
+                    id = id,
+                    name = name.ifBlank { Ar.noName },
+                    image = image,
+                    rating = formatRating(o["rating"].firstString()),
+                    ext = o["container_extension"].firstString(),
+                    year = yearOf(o["year"].firstString().ifBlank { name }),
+                    categoryId = catId,
+                    added = o["added"].firstString().toLongOrNull() ?: 0L,
+                    categoryIds = catIds,
+                ),
+            )
         }
         return result
     }
 
     private fun parseSeriesStream(stream: InputStream): List<Poster> {
         val result = ArrayList<Poster>(256)
-        val seen = HashSet<String>(256)
-        for (o in api.decodeArraySequence<XtreamSeriesDto>(stream)) {
-            val id = o.series_id.str().trim().ifBlank { o.id.str().trim() }
-            if (id.isNotBlank() && seen.add(id)) {
-                val name = o.name.str().trim().ifBlank { o.title.str().trim() }
-                val image = o.cover.str().trim().ifBlank { o.stream_icon.str().trim() }
-                val release = o.releaseDate.str().trim()
-                    .ifBlank { o.release_date.str().trim() }
-                    .ifBlank { o.year.str().trim() }
-                    .ifBlank { name }
-                val catIds = resolveAllCategoryIds(o.category_id, o.category_ids)
-                val catId = catIds.firstOrNull().orEmpty()
-                result.add(
-                    Poster(
-                        id = id,
-                        name = name.ifBlank { Ar.noName },
-                        image = image,
-                        rating = formatRating(o.rating.str().trim()),
-                        ext = "",
-                        year = yearOf(release),
-                        categoryId = catId,
-                        added = o.last_modified.str().trim().toLongOrNull() ?: 0L,
-                        categoryIds = catIds,
-                    ),
-                )
+        val indexById = HashMap<String, Int>(256)
+        for (elem in api.decodeArraySequence<JsonElement>(stream)) {
+            val o = elem.obj() ?: continue
+            val id = o["series_id"].firstString().ifBlank { o["id"].firstString() }
+            if (id.isBlank()) continue
+            val catIds = resolveAllCategoryIds(o["category_id"], o["category_ids"])
+            val existingIdx = indexById[id]
+            if (existingIdx != null) {
+                val prev = result[existingIdx]
+                val mergedCats = (prev.categoryIds + catIds).distinct()
+                if (mergedCats != prev.categoryIds) {
+                    result[existingIdx] = prev.copy(
+                        categoryId = prev.categoryId.ifBlank { mergedCats.firstOrNull().orEmpty() },
+                        categoryIds = mergedCats,
+                    )
+                }
+                continue
             }
+            val name = o["name"].firstString().ifBlank { o["title"].firstString() }
+            val image = o["cover"].firstString().ifBlank { o["stream_icon"].firstString() }
+            val release = o["releaseDate"].firstString()
+                .ifBlank { o["release_date"].firstString() }
+                .ifBlank { o["year"].firstString() }
+                .ifBlank { name }
+            val catId = catIds.firstOrNull().orEmpty()
+            indexById[id] = result.size
+            result.add(
+                Poster(
+                    id = id,
+                    name = name.ifBlank { Ar.noName },
+                    image = image,
+                    rating = formatRating(o["rating"].firstString()),
+                    ext = "",
+                    year = yearOf(release),
+                    categoryId = catId,
+                    added = o["last_modified"].firstString().toLongOrNull() ?: 0L,
+                    categoryIds = catIds,
+                ),
+            )
         }
         return result
     }
