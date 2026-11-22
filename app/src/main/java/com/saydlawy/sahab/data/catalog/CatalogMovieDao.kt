@@ -267,7 +267,9 @@ interface CatalogMovieDao {
 
     @Query(
         "SELECT * FROM catalog_movies " +
-            "WHERE deleted = 0 AND mediaType = :mediaType AND genre LIKE '%' || :genre || '%' " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "AND (',' || REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(genre), '،', ','), '/', ','), '|', ','), ', ', ','), ' ,', ',') || ',') " +
+            "LIKE '%,' || TRIM(:genre) || ',%' " +
             "ORDER BY CAST(rating AS REAL) DESC, novaAdded DESC LIMIT :limit OFFSET :offset"
     )
     suspend fun getPagedByGenre(
@@ -279,7 +281,7 @@ interface CatalogMovieDao {
 
     @Query(
         "SELECT * FROM catalog_movies " +
-            "WHERE deleted = 0 AND mediaType = :mediaType AND year LIKE :year || '%' " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND year LIKE '%' || :year || '%' " +
             "ORDER BY CAST(rating AS REAL) DESC, novaAdded DESC LIMIT :limit OFFSET :offset"
     )
     suspend fun getPagedByYear(
@@ -291,7 +293,9 @@ interface CatalogMovieDao {
 
     @Query(
         "SELECT * FROM catalog_movies " +
-            "WHERE deleted = 0 AND mediaType = :mediaType AND `cast` LIKE '%' || :actor || '%' " +
+            "WHERE deleted = 0 AND mediaType = :mediaType " +
+            "AND (',' || REPLACE(REPLACE(REPLACE(TRIM(`cast`), '،', ','), ', ', ','), ' ,', ',') || ',') " +
+            "LIKE '%,' || TRIM(:actor) || ',%' " +
             "ORDER BY CAST(rating AS REAL) DESC, novaAdded DESC LIMIT :limit OFFSET :offset"
     )
     suspend fun getPagedByCast(

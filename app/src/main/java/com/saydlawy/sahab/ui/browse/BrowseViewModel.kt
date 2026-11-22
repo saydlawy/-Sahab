@@ -53,6 +53,8 @@ data class BrowseUiState(
     val searchResults: List<Poster>? = null,
     val loadingCategories: Boolean = true,
     val loadingItems: Boolean = false,
+    val loadingMore: Boolean = false,
+    val hasMore: Boolean = true,
     val searching: Boolean = false,
     val error: String? = null,
     val featuredHeroItems: List<Poster> = emptyList(),
@@ -391,7 +393,7 @@ class BrowseViewModel(
             val sortedEntries = when (grouping) {
                 VodCustomGrouping.YEAR -> counts.entries.sortedByDescending { it.key }
                 VodCustomGrouping.CAST -> counts.entries.sortedByDescending { it.value }.take(80)
-                VodCustomGrouping.GENRE -> counts.entries.sortedByDescending { it.value }.take(40)
+                VodCustomGrouping.GENRE -> counts.entries.sortedByDescending { it.value }
                 VodCustomGrouping.RATING -> listOf("9+", "8+", "7+", "6+").mapNotNull { key ->
                     counts.entries.firstOrNull { it.key == key }
                 }
@@ -937,6 +939,8 @@ class BrowseViewModel(
 
     fun select(categoryId: String) {
         itemsJob?.cancel()
+        loadMoreJob?.cancel()
+        _state.update { it.copy(loadingMore = false, hasMore = true) }
         if (categoryId == RECENTS_CAT_ID) {
             _state.update {
                 it.copy(
@@ -1426,6 +1430,41 @@ class BrowseViewModel(
                 backdropUrl = xtreamBackdrop.ifBlank { poster.image },
                 trailerUrl = xtreamTrailer,
             )
+        }
+    }
+
+    private var loadMoreJob: Job? = null
+
+    fun loadMore() {
+        val current = _state.value
+        if (current.loadingItems || current.loadingMore || !current.hasMore) return
+        if (current.query.isNotBlank() || current.searchResults != null) return
+        val catId = current.selectedId ?: ALL_CAT_ID
+        if (catId == RECENTS_CAT_ID || catId == FAV_CAT_ID) return
+        if (loadMoreJob?.isActive == true) return
+
+        val offset = current.items.size
+        val pageSize = 120
+        _state.update { it.copy(loadingMore = true) }
+        loadMoreJob = viewModelScope.launch {
+            val nextPage = runCatching {
+                when {
+                    catId == ALL_CAT_ID -> loadCatalogPage(null, limit = pageSize, offset = offset)
+                    catId.startsWith(CUSTOM_CAT_PREFIX) -> loadCustomRoomPage(catId, limit = pageSize, offset = offset)
+                    else -> loadCatalogPage(catId, limit = pageSize, offset = offset)
+                }
+            }.getOrDefault(emptyList())
+
+            _state.update { s ->
+                if (s.selectedId != catId) return@update s.copy(loadingMore = false)
+                val existingIds = s.items.asSequence().map { it.id }.toHashSet()
+                val uniqueNew = nextPage.filter { it.id !in existingIds }
+                s.copy(
+                    items = if (uniqueNew.isEmpty()) s.items else s.items + uniqueNew,
+                    loadingMore = false,
+                    hasMore = nextPage.size >= pageSize && uniqueNew.isNotEmpty(),
+                )
+            }
         }
     }
 

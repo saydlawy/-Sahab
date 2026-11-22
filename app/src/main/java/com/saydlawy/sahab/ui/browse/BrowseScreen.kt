@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -100,6 +101,18 @@ fun BrowseScreen(
 
     LaunchedEffect(state.selectedId) {
         state.selectedId?.let { focusNav.setSelectedCategory(route, it) }
+    }
+    LaunchedEffect(gridState, state.selectedId, state.visibleItems.size, state.hasMore) {
+        snapshotFlow {
+            val layoutInfo = gridState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total to lastVisible
+        }.collect { (total, lastVisible) ->
+            if (total > 0 && lastVisible >= total - 24 && state.hasMore && !state.loadingMore && !state.loadingItems) {
+                vm.loadMore()
+            }
+        }
     }
     LaunchedEffect(state.query) {
         focusNav.setSearchQuery(route, state.query)
