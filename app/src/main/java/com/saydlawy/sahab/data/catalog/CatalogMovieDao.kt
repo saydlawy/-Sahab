@@ -47,6 +47,21 @@ interface CatalogMovieDao {
     )
     suspend fun getTopPopularMovies(limit: Int): List<CatalogMovieEntity>
 
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND novaStreamId != '' " +
+            "AND rating != '' AND CAST(rating AS REAL) >= 6.0 AND CAST(rating AS REAL) < 9.9 " +
+            "AND (posterUrl != '' OR backdropUrl != '') " +
+            "AND UPPER(titleAr || ' ' || titleEn) NOT LIKE '%H265%' " +
+            "AND UPPER(titleAr || ' ' || titleEn) NOT LIKE '%HEVC%' " +
+            "AND UPPER(titleAr || ' ' || titleEn) NOT LIKE '% CAM%' " +
+            "AND UPPER(titleAr || ' ' || titleEn) NOT LIKE '%HDCAM%' " +
+            "GROUP BY COALESCE(NULLIF(tmdbId, 0), sahabId) " +
+            "ORDER BY CAST(rating AS REAL) DESC, COALESCE(tmdbVoteCount, 0) DESC, novaAdded DESC " +
+            "LIMIT :limit",
+    )
+    suspend fun getTopRatedUnique(mediaType: String = "movie", limit: Int = 10): List<CatalogMovieEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CatalogMovieEntity)
 
@@ -63,7 +78,10 @@ interface CatalogMovieDao {
         val merged = cloudItems.map { cloud ->
             val local = existingById[cloud.sahabId]
             if (local == null) {
-                cloud
+                cloud.copy(needsCloudPush = 0)
+            } else if (local.needsCloudPush == 1 && local.updatedAt >= cloud.updatedAt) {
+                // Keep pending local edit until it is confirmed pushed to cloud.
+                local
             } else {
                 val keepLocalAiPlot = local.plotSource == "gemini_user_key" && local.plot.isNotBlank()
                 cloud.copy(
@@ -92,6 +110,8 @@ interface CatalogMovieDao {
                     tmdbId = cloud.tmdbId ?: local.tmdbId,
                     tmdbVoteCount = cloud.tmdbVoteCount ?: local.tmdbVoteCount,
                     deleted = local.deleted,
+                    needsCloudPush = 0,
+                    updatedAt = maxOf(local.updatedAt, cloud.updatedAt),
                 )
             }
         }
@@ -157,7 +177,7 @@ interface CatalogMovieDao {
             "runtime = :runtime, rating = :rating, backdropUrl = :backdropUrl, " +
             "postersJson = :postersJson, trailerUrl = :trailerUrl, " +
             "tmdbVoteCount = :voteCount, needsEnrichment = :status, lastEnriched = :now, " +
-            "deleted = 0, lastSeen = :now " +
+            "deleted = 0, lastSeen = :now, needsCloudPush = :needsCloudPush, updatedAt = :now " +
             "WHERE novaStreamId = :streamId AND mediaType = :mediaType"
     )
     suspend fun applyEnrichment(
@@ -179,6 +199,7 @@ interface CatalogMovieDao {
         postersJson: String = "",
         trailerUrl: String = "",
         castJson: String = "",
+        needsCloudPush: Int = 1,
     )
 
     @Query("SELECT novaStreamId FROM catalog_movies WHERE mediaType = :mediaType")
@@ -190,7 +211,8 @@ interface CatalogMovieDao {
     @Query(
         "UPDATE catalog_movies SET " +
             "plot = :plot, plotSource = :source, plotConfidence = :confidence, " +
-            "identifiedTitle = :identifiedTitle, lastEnriched = :now " +
+            "identifiedTitle = :identifiedTitle, lastEnriched = :now, " +
+            "needsCloudPush = :needsCloudPush, updatedAt = :now " +
             "WHERE sahabId = :sahabId"
     )
     suspend fun updateAiPlot(
@@ -200,6 +222,7 @@ interface CatalogMovieDao {
         confidence: String,
         identifiedTitle: String,
         now: Long,
+        needsCloudPush: Int = 1,
     )
 
     @Query(
@@ -288,6 +311,28 @@ interface CatalogMovieDao {
     suspend fun getRawCasts(mediaType: String = "movie"): List<String>
 
     @Query(
+        "SELECT rating FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND rating != '' " +
+            "AND CAST(rating AS REAL) >= 6.0 AND CAST(rating AS REAL) < 9.9"
+    )
+    suspend fun getRawRatings(mediaType: String = "movie"): List<String>
+
+    @Query(
+        "SELECT * FROM catalog_movies " +
+            "WHERE deleted = 0 AND mediaType = :mediaType AND rating != '' " +
+            "AND CAST(rating AS REAL) >= :minRating AND CAST(rating AS REAL) < :maxRating " +
+            "ORDER BY CAST(rating AS REAL) DESC, COALESCE(tmdbVoteCount, 0) DESC, novaAdded DESC " +
+            "LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getPagedByRatingRange(
+        minRating: Double,
+        maxRating: Double,
+        mediaType: String = "movie",
+        limit: Int = 120,
+        offset: Int = 0,
+    ): List<CatalogMovieEntity>
+
+    @Query(
         "SELECT novaStreamId, year, genre, `cast`, rating, novaAdded, tmdbVoteCount, titleAr, titleEn, identifiedTitle, sahabId " +
             "FROM catalog_movies " +
             "WHERE deleted = 0 AND mediaType = :mediaType " +
@@ -328,6 +373,21 @@ interface CatalogMovieDao {
 
     @Query("UPDATE catalog_movies SET needsEnrichment = 1 WHERE deleted = 0 AND needsEnrichment = -1")
     suspend fun resetFailedEnrichment(): Int
+
+    @Query("SELECT * FROM catalog_movies WHERE deleted = 0 AND needsCloudPush = 1 ORDER BY updatedAt ASC LIMIT :limit")
+    suspend fun getPendingCloudPush(limit: Int = 50): List<CatalogMovieEntity>
+
+    @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND needsCloudPush = 1")
+    suspend fun countPendingCloudPush(): Int
+
+    @Query("SELECT COUNT(*) FROM catalog_movies WHERE deleted = 0 AND needsCloudPush = 1")
+    fun observePendingCloudPushCount(): Flow<Int>
+
+    @Query("UPDATE catalog_movies SET needsCloudPush = 0 WHERE sahabId IN (:sahabIds)")
+    suspend fun markCloudPushed(sahabIds: List<String>)
+
+    @Query("UPDATE catalog_movies SET needsCloudPush = 1, updatedAt = :now WHERE novaStreamId = :streamId AND mediaType = :mediaType")
+    suspend fun markNeedsCloudPush(streamId: String, mediaType: String, now: Long)
 
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()

@@ -50,6 +50,7 @@ enum class VodCustomGrouping {
     GENRE,
     YEAR,
     CAST,
+    RATING,
 }
 
 class Prefs @JvmOverloads constructor(

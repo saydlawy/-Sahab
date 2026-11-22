@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [CatalogMovieEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class CatalogDatabase : RoomDatabase() {
@@ -107,6 +107,29 @@ abstract class CatalogDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "catalog_movies", "needsCloudPush")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `needsCloudPush` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!hasColumn(db, "catalog_movies", "updatedAt")) {
+                    db.execSQL("ALTER TABLE `catalog_movies` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+                }
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_needsCloudPush_updatedAt` ON `catalog_movies` (`needsCloudPush`, `updatedAt`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_deleted_novaAdded` ON `catalog_movies` (`mediaType`, `deleted`, `novaAdded`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_deleted_rating` ON `catalog_movies` (`mediaType`, `deleted`, `rating`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_movies_mediaType_deleted_year` ON `catalog_movies` (`mediaType`, `deleted`, `year`)",
+                )
+            }
+        }
+
         fun getInstance(context: Context): CatalogDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -114,7 +137,7 @@ abstract class CatalogDatabase : RoomDatabase() {
                     CatalogDatabase::class.java,
                     "catalog.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { INSTANCE = it }
             }

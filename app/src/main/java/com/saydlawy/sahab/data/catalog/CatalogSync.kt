@@ -115,6 +115,72 @@ class CatalogSync(
     /**
      * يرفع جميع العناصر المكتملة محلياً في Room (التي لها tmdbId) إلى global_catalog في Firebase.
      */
+    /**
+     * Pushes only locally modified/enriched items flagged with needsCloudPush = 1.
+     * Clears needsCloudPush ONLY after verified Firestore write success, then bumps meta/catalog once.
+     */
+    suspend fun pushPendingCloudQueue(batchLimit: Int = 50): Int = withContext(Dispatchers.IO) {
+        val uid = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        if (uid.isNullOrBlank()) {
+            reportBackgroundEnrichProgress(
+                done = 0,
+                total = 1,
+                active = false,
+                failed = 1,
+                lastError = "يلزم تسجيل الدخول للحساب السحابي أولاً لرفع التعديلات المعلّقة",
+            )
+            return@withContext 0
+        }
+        val total = dao.countPendingCloudPush()
+        if (total <= 0) return@withContext 0
+        var done = 0
+        var pushed = 0
+        var failed = 0
+        var lastError = ""
+        reportBackgroundEnrichProgress(0, total, active = true, currentTitle = "رفع التعديلات المعلّقة ($total)...")
+        try {
+            while (true) {
+                val batch = dao.getPendingCloudPush(limit = batchLimit)
+                if (batch.isEmpty()) break
+                val succeededIds = mutableListOf<String>()
+                var batchFailed = 0
+                for (item in batch) {
+                    val label = item.titleAr.ifBlank { item.titleEn }
+                    reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
+                    val ok = runCatching {
+                        firebaseCatalog.saveCatalogItemVerified(item, bumpMeta = false)
+                    }.getOrElse { err ->
+                        if (err is kotlinx.coroutines.CancellationException) throw err
+                        lastError = err.message?.take(120) ?: err::class.java.simpleName
+                        android.util.Log.w("SAHAB_CLOUD", "pushPendingCloudQueue failed [$label]: $lastError", err)
+                        false
+                    }
+                    if (ok) {
+                        succeededIds += item.sahabId
+                        pushed += 1
+                    } else {
+                        failed += 1
+                        batchFailed += 1
+                        if (lastError.isBlank()) lastError = "فشل الكتابة في Firestore (قد يكون الحد اليومي نفد)"
+                    }
+                    done += 1
+                    reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
+                }
+                if (succeededIds.isNotEmpty()) {
+                    dao.markCloudPushed(succeededIds)
+                }
+                // Stop retrying immediately if an entire batch failed (e.g. quota exhausted or offline).
+                if (batchFailed == batch.size || batch.size < batchLimit) break
+            }
+            if (pushed > 0) {
+                firebaseCatalog.bumpCatalogMetaTimestamp()
+            }
+        } finally {
+            reportBackgroundEnrichProgress(done, total, active = false, failed = failed, lastError = lastError)
+        }
+        pushed
+    }
+
     suspend fun pushLocalEnrichedToCloud(): Int = withContext(Dispatchers.IO) {
         val uid = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
         if (uid.isNullOrBlank()) {
@@ -130,6 +196,7 @@ class CatalogSync(
         val total = dao.countEnriched()
         if (total <= 0) return@withContext 0
         var done = 0
+        var pushed = 0
         var failed = 0
         var lastError = ""
         reportBackgroundEnrichProgress(0, total, active = true, currentTitle = "بدء رفع البيانات المحلية...")
@@ -138,33 +205,49 @@ class CatalogSync(
             while (true) {
                 val page = dao.getEnrichedPage(afterSahabId = cursor, limit = CATALOG_ENRICHED_PAGE_SIZE)
                 if (page.isEmpty()) break
+                val succeededIds = mutableListOf<String>()
                 for (item in page) {
                     val label = item.titleAr.ifBlank { item.titleEn }
                     reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
-                    runCatching {
-                        firebaseCatalog.saveCatalogItem(item)
-                    }.onFailure { err ->
+                    val ok = runCatching {
+                        firebaseCatalog.saveCatalogItemVerified(item, bumpMeta = false)
+                    }.getOrElse { err ->
                         if (err is kotlinx.coroutines.CancellationException) throw err
-                        failed += 1
                         lastError = err.message?.take(120) ?: err::class.java.simpleName
                         android.util.Log.w("SAHAB_CLOUD", "pushLocalEnrichedToCloud failed [$label]: $lastError", err)
+                        false
+                    }
+                    if (ok) {
+                        succeededIds += item.sahabId
+                        pushed += 1
+                    } else {
+                        failed += 1
+                        if (lastError.isBlank()) lastError = "فشل الكتابة في Firestore"
                     }
                     done += 1
                     reportBackgroundEnrichProgress(done, total, active = true, currentTitle = label, failed = failed, lastError = lastError)
+                }
+                if (succeededIds.isNotEmpty()) {
+                    dao.markCloudPushed(succeededIds)
                 }
                 val nextCursor = page.last().sahabId
                 if (page.size < CATALOG_ENRICHED_PAGE_SIZE || nextCursor.isEmpty() || nextCursor <= cursor) break
                 cursor = nextCursor
             }
+            if (pushed > 0) {
+                firebaseCatalog.bumpCatalogMetaTimestamp()
+            }
         } finally {
             reportBackgroundEnrichProgress(done, total, active = false, failed = failed, lastError = lastError)
         }
-        (done - failed).coerceAtLeast(0)
+        pushed
     }
 
     /**
-     * يسحب جميع بيانات كتالوج Firebase (`global_catalog`) إلى Room على دفعات
-     * مع تحديث [firebaseSyncing] و[firebaseSyncMessage] ليظهر شعار دائم للمستخدم لحين الانتهاء.
+     * Free-tier safe catalog sync:
+     * 1. Reads meta/catalog (1 Firestore read) when force == false; exits immediately if unchanged.
+     * 2. Never auto-pulls the full catalog on launch (prevents Spark Plan quota exhaustion).
+     * 3. Pulls only delta documents with updatedAt > localLastSync and merges into Room.
      */
     suspend fun syncAllFromFirebaseToRoom(force: Boolean = false): Int = withContext(Dispatchers.IO) {
         if (!_firebaseSyncing.compareAndSet(expect = false, update = true)) return@withContext 0
@@ -173,9 +256,26 @@ class CatalogSync(
         } else {
             runCatching { prefs?.lastCloudDeltaSyncTime?.first() ?: 0L }.getOrDefault(0L)
         }
-        val syncStartMs = System.currentTimeMillis()
-        _firebaseSyncMessage.value = if (lastDeltaMs > 0L) "جارٍ سحب التحديثات السحابية..." else "جارٍ تحميل مكتبة سحاب..."
         try {
+            if (!force) {
+                val remoteLastUpdatedAt = firebaseCatalog.getCatalogLastUpdatedAt()
+                if (remoteLastUpdatedAt < 0L) {
+                    // Network or quota error on gate read: abort safely with 0 extra reads.
+                    return@withContext 0
+                }
+                if (lastDeltaMs == 0L) {
+                    // Never auto-pull full catalog on first run; anchor delta cursor for future incremental updates.
+                    val anchorTs = if (remoteLastUpdatedAt > 0L) remoteLastUpdatedAt else System.currentTimeMillis()
+                    runCatching { prefs?.setLastCloudDeltaSyncTime(anchorTs) }
+                    return@withContext 0
+                }
+                if (remoteLastUpdatedAt <= lastDeltaMs) {
+                    // Local catalog is already up to date (cost: 1 read total).
+                    return@withContext 0
+                }
+            }
+            val syncStartMs = System.currentTimeMillis()
+            _firebaseSyncMessage.value = if (lastDeltaMs > 0L) "جارٍ سحب التحديثات السحابية..." else "جارٍ تحميل مكتبة سحاب..."
             val outcome = firebaseCatalog.fetchAllCatalogBatchedOutcome(batchSize = 400L, sinceMs = lastDeltaMs) { batch, totalFetched ->
                 dao.mergeCloudBatchPreservingLocal(batch)
                 _firebaseSyncMessage.value = "جارٍ مزامنة مكتبة سحاب... ($totalFetched عنصر)"
@@ -570,12 +670,17 @@ class CatalogSync(
                     needsEnrichment = 0,
                     lastEnriched = now,
                     lastSeen = now,
+                    needsCloudPush = 1,
+                    updatedAt = now,
                 )
             )
         }
         runCatching {
             dao.findByStreamId(streamId, normalizedType)?.let { enrichedEntity ->
-                firebaseCatalog.saveCatalogItem(enrichedEntity)
+                val pushed = firebaseCatalog.saveCatalogItemVerified(enrichedEntity, bumpMeta = true)
+                if (pushed) {
+                    dao.markCloudPushed(listOf(enrichedEntity.sahabId))
+                }
             }
         }
         return true

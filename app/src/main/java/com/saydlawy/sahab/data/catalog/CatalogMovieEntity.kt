@@ -29,6 +29,10 @@ import kotlinx.serialization.Serializable
         Index(value = ["tmdbId"]),
         Index(value = ["lastSeen"]),
         Index(value = ["deleted"]),
+        Index(value = ["needsCloudPush", "updatedAt"]),
+        Index(value = ["mediaType", "deleted", "novaAdded"]),
+        Index(value = ["mediaType", "deleted", "rating"]),
+        Index(value = ["mediaType", "deleted", "year"]),
     ],
 )
 data class CatalogMovieEntity(
@@ -63,6 +67,8 @@ data class CatalogMovieEntity(
     val lastEnriched: Long = 0L,
     val lastSeen: Long = 0L,
     val deleted: Int = 0,
+    val needsCloudPush: Int = 0,
+    val updatedAt: Long = 0L,
 ) {
     val displayTitle: String
         get() = titleAr.ifBlank { titleEn }

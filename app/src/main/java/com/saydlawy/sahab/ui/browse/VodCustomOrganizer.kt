@@ -171,7 +171,33 @@ internal object VodCustomOrganizer {
             VodCustomGrouping.GENRE -> groupByGenre(sortedItems, facetsByStreamId)
             VodCustomGrouping.YEAR -> groupByYear(sortedItems, facetsByStreamId)
             VodCustomGrouping.CAST -> groupByCast(sortedItems, facetsByStreamId)
+            VodCustomGrouping.RATING -> groupByRating(sortedItems, facetsByStreamId)
         }
+    }
+
+    private fun groupByRating(
+        sortedItems: List<Poster>,
+        facets: Map<String, CatalogFacetRow>,
+    ): CustomOrganizationResult {
+        val order = listOf("9+", "8+", "7+", "6+")
+        val buckets = LinkedHashMap<String, MutableList<Poster>>()
+        order.forEach { buckets[it] = mutableListOf() }
+        for (poster in sortedItems) {
+            val score = RatingSanitizer.parseValid(poster.rating, facets[poster.id]?.tmdbVoteCount) ?: continue
+            val key = when {
+                score >= 9.0 -> "9+"
+                score >= 8.0 -> "8+"
+                score >= 7.0 -> "7+"
+                score >= 6.0 -> "6+"
+                else -> null
+            } ?: continue
+            buckets[key]?.add(poster)
+        }
+        val nonEmpty = buckets.filterValues { it.isNotEmpty() }
+        val cats = nonEmpty.keys.map { Category(id = "custom:rating:$it", name = "تقييم $it") }
+        val itemsByCat = nonEmpty.entries.associate { ("custom:rating:" + it.key) to it.value.toList() }
+        val counts = itemsByCat.mapValues { it.value.size }
+        return CustomOrganizationResult(cats, itemsByCat, counts)
     }
 
     private fun groupByGenre(

@@ -41,6 +41,9 @@ fun SettingsDataFlowPanel(container: AppContainer) {
     val isAdmin = container.authManager.isAdmin
     val bgStatus by container.catalogSync.bgEnrichStatus.collectAsStateWithLifecycle()
     val fbMsg by container.catalogSync.firebaseSyncMessage.collectAsStateWithLifecycle()
+    val pendingPushCount by container.catalogDb.movieDao()
+        .observePendingCloudPushCount()
+        .collectAsStateWithLifecycle(initialValue = 0)
 
     var movieStats by remember { mutableStateOf(MediaFlowStats()) }
     var seriesStats by remember { mutableStateOf(MediaFlowStats()) }
@@ -67,6 +70,16 @@ fun SettingsDataFlowPanel(container: AppContainer) {
                 "مستخدم عادي / ضيف — القراءة فقط من السحابة (الكتابة مغلقة)"
             }
             Text(roleText, fontSize = 13.sp, color = if (isAdmin) Color(0xFF4ADE80) else Color(0xFFFBBF24))
+        }
+
+        FlowCard(title = "طابور الرفع المعلّق للسحابة (Offline-First)") {
+            val queueColor = if (pendingPushCount > 0) Color(0xFFFBBF24) else Color(0xFF4ADE80)
+            val queueText = if (pendingPushCount > 0) {
+                "يوجد $pendingPushCount تعديل محلي محفوظ في Room بانتظار الرفع إلى Firestore"
+            } else {
+                "لا توجد تعديلات معلّقة — كل التعديلات المحلية متزامنة مع السحابة"
+            }
+            Text(queueText, fontSize = 13.sp, color = queueColor)
         }
 
         FlowCard(title = "الأفلام في Room") {
@@ -144,6 +157,26 @@ fun SettingsDataFlowPanel(container: AppContainer) {
             Spacer(Modifier.height(8.dp))
 
             if (isAdmin) {
+                var pendingPushFocused by remember { mutableStateOf(false) }
+                Button(
+                    enabled = !busy && !bgStatus.active && pendingPushCount > 0,
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            val pushed = container.catalogSync.pushPendingCloudQueue()
+                            refreshStats()
+                            actionMsg = "تم رفع $pushed تعديل معلّق إلى السحابة"
+                            busy = false
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .onFocusChanged { pendingPushFocused = it.isFocused }
+                        .border(if (pendingPushFocused) 2.dp else 0.dp, if (pendingPushFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(24.dp)),
+                ) { Text("رفع التعديلات المعلّقة الآن ($pendingPushCount)") }
+                Spacer(Modifier.height(8.dp))
+
                 var adminPushFocused by remember { mutableStateOf(false) }
                 Button(
                     enabled = !busy && !bgStatus.active,

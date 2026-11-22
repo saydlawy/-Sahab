@@ -303,6 +303,11 @@ private fun VodOrganizationQuickBar(
             mode == VodOrganizationMode.CUSTOM && grouping == VodCustomGrouping.CAST,
             { onSelectGrouping(VodCustomGrouping.CAST) },
         ),
+        Triple(
+            "التقييم",
+            mode == VodOrganizationMode.CUSTOM && grouping == VodCustomGrouping.RATING,
+            { onSelectGrouping(VodCustomGrouping.RATING) },
+        ),
     )
 
     Row(

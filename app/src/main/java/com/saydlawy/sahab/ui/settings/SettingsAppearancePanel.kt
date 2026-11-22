@@ -120,6 +120,7 @@ internal fun SettingsAppearancePanel(container: AppContainer) {
                             VodCustomGrouping.GENRE.name to "النوع (أكشن، دراما...)",
                             VodCustomGrouping.YEAR.name to "السنة",
                             VodCustomGrouping.CAST.name to "الممثل",
+                            VodCustomGrouping.RATING.name to "التقييم",
                         ),
                         selected = vodCustomGrouping.name,
                         onSelect = { raw ->

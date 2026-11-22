@@ -196,6 +196,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /meta/catalog {
+      allow read: if true;
+      allow create, update: if isAdmin() &&
+                               request.resource.data.keys().hasOnly(['lastUpdatedAt', 'updatedBy']) &&
+                               isValidOptionalInt('lastUpdatedAt', 0, 9999999999999) &&
+                               isValidOptionalString('updatedBy', 0, 128);
+      allow delete: if false;
+    }
+
     match /global_channels/{docId} {
       allow read: if true;
       allow write: if false;

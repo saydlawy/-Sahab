@@ -23,6 +23,52 @@ import kotlin.coroutines.resume
 class FirebaseCatalogService {
     private val db = FirebaseFirestore.getInstance()
     private val collection = db.collection("global_catalog")
+    private val metaDoc = db.collection("meta").document("catalog")
+
+    /**
+     * Single-read gate: fetches meta/catalog.lastUpdatedAt (1 Firestore read).
+     * Returns -1L on network/quota error so callers do not trigger unnecessary syncs.
+     */
+    suspend fun getCatalogLastUpdatedAt(timeoutMs: Long = 10_000L): Long {
+        return withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<Long> { cont ->
+                metaDoc.get()
+                    .addOnSuccessListener { snap ->
+                        val ts = snap.getLong("lastUpdatedAt") ?: 0L
+                        if (cont.isActive) cont.resume(ts)
+                    }
+                    .addOnFailureListener { e ->
+                        android.util.Log.w("SAHAB_CLOUD", "meta/catalog read failed: ${e.message}", e)
+                        if (cont.isActive) cont.resume(-1L)
+                    }
+            }
+        } ?: -1L
+    }
+
+    /**
+     * Updates meta/catalog.lastUpdatedAt after a verified admin write.
+     */
+    suspend fun bumpCatalogMetaTimestamp(
+        now: Long = System.currentTimeMillis(),
+        timeoutMs: Long = 10_000L,
+    ): Boolean {
+        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        if (currentUid != com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID) return false
+        return withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<Boolean> { cont ->
+                val payload = mapOf(
+                    "lastUpdatedAt" to now,
+                    "updatedBy" to currentUid,
+                )
+                metaDoc.set(payload, SetOptions.merge())
+                    .addOnSuccessListener { if (cont.isActive) cont.resume(true) }
+                    .addOnFailureListener { e ->
+                        android.util.Log.w("SAHAB_CLOUD", "meta/catalog update failed: ${e.message}", e)
+                        if (cont.isActive) cont.resume(false)
+                    }
+            }
+        } ?: false
+    }
 
     @Volatile
     private var cachedRecommendedMovies: List<CatalogMovieEntity> = emptyList()
@@ -423,18 +469,25 @@ class FirebaseCatalogService {
             .trim()
     }
 
-    suspend fun saveCatalogItem(entity: CatalogMovieEntity) = suspendCancellableCoroutine { cont ->
+    suspend fun saveCatalogItem(entity: CatalogMovieEntity) {
+        saveCatalogItemVerified(entity)
+    }
+
+    /**
+     * Writes an enriched/edited catalog item to Firestore and returns true ONLY on confirmed success.
+     * Used by the local push queue so needsCloudPush is never cleared on quota/network failure.
+     */
+    suspend fun saveCatalogItemVerified(
+        entity: CatalogMovieEntity,
+        bumpMeta: Boolean = true,
+    ): Boolean {
         val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-        if (currentUid != com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID) {
-            if (cont.isActive) cont.resume(Unit)
-            return@suspendCancellableCoroutine
-        }
+        if (currentUid != com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID) return false
         val tmdbDocId = entity.tmdbId?.takeIf { it > 0 }?.let { CatalogMovieEntity.idFromTmdb(it) }
         val targetDocId = tmdbDocId ?: entity.sahabId
-        if (!targetDocId.startsWith("tmdb:")) {
-            if (cont.isActive) cont.resume(Unit)
-            return@suspendCancellableCoroutine
-        }
+        if (!targetDocId.startsWith("tmdb:")) return false
+        val writeTs = System.currentTimeMillis()
+        val ok = suspendCancellableCoroutine<Boolean> { cont ->
         val aliases = aliasesFor(entity).take(10)
         val normalizedMediaType = if (entity.mediaType == "series") "series" else "movie"
         val data = buildMap<String, Any?> {
@@ -470,10 +523,11 @@ class FirebaseCatalogService {
                         v != null && (v !is String || v.isNotBlank())
                     } + ("updatedAt" to System.currentTimeMillis())
                     docRef.set(createPayload, SetOptions.merge())
+                        .addOnSuccessListener { if (cont.isActive) cont.resume(true) }
                         .addOnFailureListener { e ->
                             android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem create failed [$targetDocId]: ${e.message}", e)
+                            if (cont.isActive) cont.resume(false)
                         }
-                        .addOnCompleteListener { if (cont.isActive) cont.resume(Unit) }
                 } else {
                     val delta = mutableMapOf<String, Any?>()
                     for ((k, v) in data) {
@@ -488,21 +542,27 @@ class FirebaseCatalogService {
                         delta["aliases"] = FieldValue.arrayUnion(*aliases.toTypedArray())
                     }
                     if (delta.isEmpty()) {
-                        if (cont.isActive) cont.resume(Unit)
+                        if (cont.isActive) cont.resume(true)
                     } else {
-                        delta["updatedAt"] = System.currentTimeMillis()
+                        delta["updatedAt"] = writeTs
                         docRef.set(delta, SetOptions.merge())
+                            .addOnSuccessListener { if (cont.isActive) cont.resume(true) }
                             .addOnFailureListener { e ->
                                 android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem update failed [$targetDocId]: ${e.message}", e)
+                                if (cont.isActive) cont.resume(false)
                             }
-                            .addOnCompleteListener { if (cont.isActive) cont.resume(Unit) }
                     }
                 }
             }
             .addOnFailureListener { e ->
                 android.util.Log.w("SAHAB_CLOUD", "saveCatalogItem get failed [$targetDocId]: ${e.message}", e)
-                if (cont.isActive) cont.resume(Unit)
+                if (cont.isActive) cont.resume(false)
             }
+        }
+        if (ok && bumpMeta) {
+            bumpCatalogMetaTimestamp(writeTs)
+        }
+        return ok
     }
 
     suspend fun linkPendingAliasToTmdb(

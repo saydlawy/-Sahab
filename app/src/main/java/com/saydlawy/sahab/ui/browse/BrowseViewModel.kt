@@ -374,18 +374,38 @@ class BrowseViewModel(
                         }
                     }
                 }
+                VodCustomGrouping.RATING -> {
+                    for (raw in dao.getRawRatings(mediaType)) {
+                        val score = raw.trim().toDoubleOrNull() ?: continue
+                        val bucket = when {
+                            score >= 9.0 -> "9+"
+                            score >= 8.0 -> "8+"
+                            score >= 7.0 -> "7+"
+                            score >= 6.0 -> "6+"
+                            else -> null
+                        } ?: continue
+                        counts[bucket] = (counts[bucket] ?: 0) + 1
+                    }
+                }
             }
             val sortedEntries = when (grouping) {
                 VodCustomGrouping.YEAR -> counts.entries.sortedByDescending { it.key }
                 VodCustomGrouping.CAST -> counts.entries.sortedByDescending { it.value }.take(80)
                 VodCustomGrouping.GENRE -> counts.entries.sortedByDescending { it.value }.take(40)
+                VodCustomGrouping.RATING -> listOf("9+", "8+", "7+", "6+").mapNotNull { key ->
+                    counts.entries.firstOrNull { it.key == key }
+                }
             }
             val prefix = when (grouping) {
                 VodCustomGrouping.GENRE -> "${CUSTOM_CAT_PREFIX}genre:"
                 VodCustomGrouping.YEAR -> "${CUSTOM_CAT_PREFIX}year:"
                 VodCustomGrouping.CAST -> "${CUSTOM_CAT_PREFIX}cast:"
+                VodCustomGrouping.RATING -> "${CUSTOM_CAT_PREFIX}rating:"
             }
-            val cats = sortedEntries.map { Category(id = prefix + it.key, name = it.key) }
+            val cats = sortedEntries.map {
+                val label = if (grouping == VodCustomGrouping.RATING) "تقييم ${it.key}" else it.key
+                Category(id = prefix + it.key, name = label)
+            }
             val catCounts = sortedEntries.associate { (prefix + it.key) to it.value }
             cats to catCounts
         }
@@ -419,6 +439,16 @@ class BrowseViewModel(
                 raw.startsWith("genre:") -> dao.getPagedByGenre(raw.removePrefix("genre:"), mediaType, limit, offset)
                 raw.startsWith("year:") -> dao.getPagedByYear(raw.removePrefix("year:"), mediaType, limit, offset)
                 raw.startsWith("cast:") -> dao.getPagedByCast(raw.removePrefix("cast:"), mediaType, limit, offset)
+                raw.startsWith("rating:") -> {
+                    val (minR, maxR) = when (raw.removePrefix("rating:")) {
+                        "9+" -> 9.0 to 9.9
+                        "8+" -> 8.0 to 9.0
+                        "7+" -> 7.0 to 8.0
+                        "6+" -> 6.0 to 7.0
+                        else -> 6.0 to 9.9
+                    }
+                    dao.getPagedByRatingRange(minR, maxR, mediaType, limit, offset)
+                }
                 else -> emptyList()
             }
             entities.map { it.toPoster() }
@@ -513,17 +543,25 @@ class BrowseViewModel(
     private suspend fun buildHeroAndTop10(
         allItems: List<Poster>,
     ): Pair<List<Poster>, List<Poster>> {
+        val mediaType = if (series) "series" else "movie"
+        val sqlTop10 = withContext(Dispatchers.IO) {
+            runCatching {
+                container.catalogDb.movieDao().getTopRatedUnique(mediaType = mediaType, limit = 10).map { it.toPoster() }
+            }.getOrDefault(emptyList())
+        }
         val resolved = ensureResolvedFacets(allItems)
         val ranked = ensurePreSortedItems(allItems, resolved)
         return withContext(Dispatchers.Default) {
             val hero = ranked.filter { it.image.isNotBlank() }.take(6).ifEmpty { allItems.take(6) }
-            val top10 = ranked
-                .filter { RatingSanitizer.parseValid(it.rating, resolved[it.id]?.tmdbVoteCount) != null }
-                .distinctBy { poster ->
-                    val facetTitle = resolved[poster.id]?.titleEn?.ifBlank { resolved[poster.id]?.titleAr } ?: poster.name
-                    normalizeTitleKey(facetTitle).ifBlank { poster.id }
-                }
-                .take(10)
+            val top10 = sqlTop10.ifEmpty {
+                ranked
+                    .filter { RatingSanitizer.parseValid(it.rating, resolved[it.id]?.tmdbVoteCount) != null }
+                    .distinctBy { poster ->
+                        val facetTitle = resolved[poster.id]?.titleEn?.ifBlank { resolved[poster.id]?.titleAr } ?: poster.name
+                        normalizeTitleKey(facetTitle).ifBlank { poster.id }
+                    }
+                    .take(10)
+            }
             hero to top10
         }
     }
