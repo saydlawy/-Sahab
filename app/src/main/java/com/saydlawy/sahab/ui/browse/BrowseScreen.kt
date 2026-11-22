@@ -102,18 +102,6 @@ fun BrowseScreen(
     LaunchedEffect(state.selectedId) {
         state.selectedId?.let { focusNav.setSelectedCategory(route, it) }
     }
-    LaunchedEffect(gridState, state.selectedId, state.visibleItems.size, state.hasMore) {
-        snapshotFlow {
-            val layoutInfo = gridState.layoutInfo
-            val total = layoutInfo.totalItemsCount
-            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            total to lastVisible
-        }.collect { (total, lastVisible) ->
-            if (total > 0 && lastVisible >= total - 24 && state.hasMore && !state.loadingMore && !state.loadingItems) {
-                vm.loadMore()
-            }
-        }
-    }
     LaunchedEffect(state.query) {
         focusNav.setSearchQuery(route, state.query)
     }
@@ -187,6 +175,18 @@ fun BrowseScreen(
 
     val gridStorageKey = "${route}_grid_${state.selectedId ?: ALL_CAT_ID}"
     val gridState = rememberRestorableLazyGridState(gridStorageKey)
+    LaunchedEffect(gridState, state.selectedId, state.visibleItems.size, state.hasMore) {
+        snapshotFlow {
+            val layoutInfo = gridState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total to lastVisible
+        }.collect { (total, lastVisible) ->
+            if (total > 0 && lastVisible >= total - 24 && state.hasMore && !state.loadingMore && !state.loadingItems) {
+                vm.loadMore()
+            }
+        }
+    }
     val netflixFeedState = rememberRestorableLazyListState("${route}_netflix_feed")
     val displayMode = LocalDisplayMode.current
 
