@@ -343,11 +343,17 @@ class CatalogSync(
         }
     }
 
-    suspend fun syncMovies(repo: Repository): Stats = syncMedia(repo, mediaType = "movie")
+    suspend fun syncMovies(repo: Repository, forceFullRefresh: Boolean = false): Stats =
+        syncMedia(repo, mediaType = "movie", forceFullRefresh = forceFullRefresh)
 
-    suspend fun syncSeries(repo: Repository): Stats = syncMedia(repo, mediaType = "series")
+    suspend fun syncSeries(repo: Repository, forceFullRefresh: Boolean = false): Stats =
+        syncMedia(repo, mediaType = "series", forceFullRefresh = forceFullRefresh)
 
-    private suspend fun syncMedia(repo: Repository, mediaType: String): Stats = withContext(Dispatchers.IO) {
+    private suspend fun syncMedia(
+        repo: Repository,
+        mediaType: String,
+        forceFullRefresh: Boolean = false,
+    ): Stats = withContext(Dispatchers.IO) {
         withSyncLock {
             val start = System.currentTimeMillis()
             val isSeries = mediaType.equals("series", ignoreCase = true)
@@ -444,7 +450,8 @@ class CatalogSync(
             }
 
             val activeExistingCount = existing.values.count { it.deleted == 0 }
-            val isSuspiciousPartial = activeExistingCount >= 50 &&
+            val isSuspiciousPartial = !forceFullRefresh &&
+                activeExistingCount >= 50 &&
                 posters.size < (activeExistingCount * 0.70).toInt()
             val deleted = if (isSuspiciousPartial) {
                 android.util.Log.w(

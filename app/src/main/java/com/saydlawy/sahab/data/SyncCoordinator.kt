@@ -263,8 +263,8 @@ class SyncCoordinator(private val container: AppContainer) {
                 val msg = suspendRunCatching {
                     container.repo.syncCatalog(force = true)
                     container.catalogSync.syncAllFromFirebaseToRoom(force = false)
-                    container.catalogSync.syncMovies(container.repo)
-                    container.catalogSync.syncSeries(container.repo)
+                    container.catalogSync.syncMovies(container.repo, forceFullRefresh = true)
+                    container.catalogSync.syncSeries(container.repo, forceFullRefresh = true)
                     val chStats = container.channelSync.sync(container.repo, forceFullRefresh = true)
                     if (chStats.isSuccess) container.prefs.setLastChannelSyncTime(System.currentTimeMillis())
 

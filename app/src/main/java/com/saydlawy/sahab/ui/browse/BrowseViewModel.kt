@@ -66,6 +66,7 @@ class BrowseViewModel(
 
     private val repo = container.repo
     private val dao = container.catalogDb.movieDao()
+    private val relationalDao = container.catalogDb.relationalDao()
     private val mediaType = if (series) "series" else "movie"
 
     private val _state = MutableStateFlow(BrowseUiState(query = initialQuery))
@@ -343,26 +344,41 @@ class BrowseViewModel(
                 val styleFlow = if (series) container.prefs.seriesLayoutStyle else container.prefs.moviesLayoutStyle
                 currentLayoutStyle = runCatching { styleFlow.first() }.getOrDefault(VodLayoutStyle.CLASSIC)
 
-                var categoriesError: Exception? = null
-                val serverCategories = try {
-                    fetchCategories()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    categoriesError = e
-                    emptyList()
-                }
-
-                val providerAll = ensureProviderAllLoaded()
-                val categories = mergeCategoriesWithOrphans(serverCategories, providerAll)
-                defaultCategories = categories
-
                 var roomTotal = withContext(Dispatchers.IO) {
                     runCatching { dao.countByType(mediaType) }.getOrDefault(0)
                 }
                 val missingMeta = withContext(Dispatchers.IO) {
                     runCatching { dao.countMissingProviderOrderOrSearch(mediaType) }.getOrDefault(0)
                 }
+
+                val roomCategories = withContext(Dispatchers.IO) {
+                    runCatching {
+                        relationalDao.getCategories(mediaType).map { Category(it.categoryId, it.name) }
+                    }.getOrDefault(emptyList())
+                }
+
+                var categoriesError: Exception? = null
+                val serverCategories = if (roomCategories.isNotEmpty()) {
+                    roomCategories
+                } else {
+                    try {
+                        fetchCategories()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        categoriesError = e
+                        emptyList()
+                    }
+                }
+
+                // Avoid loading full provider catalog into RAM when Room is already populated
+                val providerAll = if (roomTotal > 0 && missingMeta == 0) {
+                    emptyList()
+                } else {
+                    ensureProviderAllLoaded()
+                }
+                val categories = mergeCategoriesWithOrphans(serverCategories, providerAll)
+                defaultCategories = categories
 
                 if (roomTotal == 0 && providerAll.isEmpty()) {
                     runCatching {
@@ -695,6 +711,14 @@ class BrowseViewModel(
         limit: Int = PAGE_SIZE,
         alreadyLoadedCount: Int = 0,
     ): Pair<List<Poster>, Boolean> {
+        // Room-first pagination: read directly from SQLite without loading full provider list into RAM
+        if (categoryId != UNCATEGORIZED_CAT_ID && providerAllCache.isEmpty()) {
+            val roomPage = loadRoomPageAndAdvanceCursor(categoryId = categoryId, limit = limit)
+            if (roomPage.isNotEmpty() || alreadyLoadedCount > 0) {
+                return roomPage to (roomPage.size >= limit)
+            }
+        }
+
         val fullSource = resolveProviderSourceForCategory(categoryId)
         if (fullSource.isNotEmpty()) {
             val start = alreadyLoadedCount.coerceIn(0, fullSource.size)
@@ -705,7 +729,6 @@ class BrowseViewModel(
             return slice to (end < fullSource.size)
         }
 
-        // Offline fallback when Repository cache is empty and only Room has local rows
         val roomCat = categoryId?.takeIf { it != UNCATEGORIZED_CAT_ID }
         val roomPage = loadRoomPageAndAdvanceCursor(categoryId = roomCat, limit = limit)
         return roomPage to (roomPage.size >= limit)
