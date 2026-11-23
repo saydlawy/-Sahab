@@ -60,6 +60,7 @@ data class Poster(
     val id: String,
     val name: String,
     val image: String = "",
+    val fallbackImage: String = "",
     val rating: String = "",
     val ext: String = "",
     val year: String = "",

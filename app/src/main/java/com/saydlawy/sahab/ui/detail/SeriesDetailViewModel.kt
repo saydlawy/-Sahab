@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.saydlawy.sahab.AppContainer
 import com.saydlawy.sahab.data.FavItem
 import com.saydlawy.sahab.data.Kind
+import com.saydlawy.sahab.data.Episode
 import com.saydlawy.sahab.data.SeriesDetails
 import com.saydlawy.sahab.data.catalog.CatalogMovieEntity
+import com.saydlawy.sahab.data.catalog.SeriesEpisodeEntity
 import com.saydlawy.sahab.data.catalog.buildCatalogSearchTitle
 import com.saydlawy.sahab.data.catalog.encodeEpisodesJson
 import com.saydlawy.sahab.data.catalog.parseCastMembersJson
@@ -44,7 +46,20 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
 
     private fun cleanRating(raw: String): String = RatingSanitizer.format(raw)
 
-    private fun CatalogMovieEntity.toSeriesDetails(): SeriesDetails {
+    private fun List<SeriesEpisodeEntity>.toEpisodes(): List<Episode> = map { e ->
+        Episode(
+            id = e.episodeId,
+            season = e.seasonNumber,
+            number = e.episodeNumber,
+            title = e.title,
+            ext = e.ext,
+            image = e.iptvImage.ifBlank { e.tmdbStillUrl },
+            plot = e.plot,
+            duration = e.duration,
+        )
+    }
+
+    private fun CatalogMovieEntity.toSeriesDetails(relationalEpisodes: List<Episode> = emptyList()): SeriesDetails {
         val posters = postersJson
             .lineSequence()
             .map { it.trim() }
@@ -61,7 +76,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
             genre = genre,
             year = year,
             rating = RatingSanitizer.format(rating, tmdbVoteCount),
-            episodes = parseEpisodesJson(episodesJson),
+            episodes = relationalEpisodes.ifEmpty { parseEpisodesJson(episodesJson) },
             posterUrls = posters,
             trailerUrl = trailerUrl,
         )
@@ -97,16 +112,20 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
     private fun fetchDetails(forceRefresh: Boolean) {
         viewModelScope.launch {
             val dao = container.catalogDb.movieDao()
+            val relDao = container.catalogDb.relationalDao()
             if (forceRefresh) {
                 _refreshingMetadata.value = true
             }
             try {
-                // 1. Instant local read from Room (series metadata + cached episodes)
+                // 1. Instant local read from Room (series metadata + relational episodes)
                 var roomEntity: CatalogMovieEntity? = withContext(Dispatchers.IO) {
                     runCatching { dao.findByStreamIdAndType(id, "series") }.getOrNull()
                 }
+                val localEpisodes = withContext(Dispatchers.IO) {
+                    runCatching { relDao.getAllEpisodesForSeries(id).toEpisodes() }.getOrDefault(emptyList())
+                }
                 if (roomEntity != null && !forceRefresh) {
-                    _state.update { DetailUiState(loading = false, data = roomEntity.toSeriesDetails()) }
+                    _state.update { DetailUiState(loading = false, data = roomEntity.toSeriesDetails(localEpisodes)) }
                 } else if (!forceRefresh) {
                     _state.update { DetailUiState(loading = true) }
                 }
@@ -127,6 +146,26 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                     val encodedEpisodes = encodeEpisodesJson(remote.episodes)
                     withContext(Dispatchers.IO) {
                         runCatching {
+                            if (remote.episodes.isNotEmpty()) {
+                                relDao.syncSeriesEpisodesPreservingTmdb(
+                                    seriesStreamId = id,
+                                    incoming = remote.episodes.map { ep ->
+                                        SeriesEpisodeEntity(
+                                            episodeId = ep.id,
+                                            seriesStreamId = id,
+                                            seasonNumber = ep.season,
+                                            episodeNumber = ep.number,
+                                            title = ep.title,
+                                            ext = ep.ext,
+                                            iptvImage = ep.image,
+                                            plot = ep.plot,
+                                            duration = ep.duration,
+                                            updatedAt = now,
+                                        )
+                                    },
+                                    now = now,
+                                )
+                            }
                             if (roomEntity != null) {
                                 if (encodedEpisodes.isNotBlank()) {
                                     dao.updateSeriesEpisodes(id, encodedEpisodes, now)

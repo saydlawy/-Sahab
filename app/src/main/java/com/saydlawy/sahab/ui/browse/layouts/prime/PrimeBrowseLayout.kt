@@ -360,6 +360,7 @@ private fun PrimeTile(
         PosterCard(
             title = poster.name,
             imageUrl = poster.image,
+            fallbackImageUrl = poster.fallbackImage,
             badge = poster.rating,
             quality = qualityOf(poster.name),
             subtitle = poster.year,

@@ -153,8 +153,13 @@ private fun TrendingMovieCard(
                 .clip(RoundedCornerShape(14.dp))
                 .background(Palette.CardSurface),
         ) {
+            val tmdbFallback = remember(movie.postersJson, movie.backdropUrl) {
+                movie.postersJson.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
+                    .orEmpty().ifBlank { movie.backdropUrl }
+            }
             RemoteImage(
                 url = movie.posterUrl,
+                fallbackUrl = tmdbFallback,
                 fallbackText = movie.titleAr,
                 contentScale = ContentScale.Crop,
                 targetWidthPx = imgWPx,

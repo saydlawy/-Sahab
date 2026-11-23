@@ -69,7 +69,7 @@ class AppContainer(context: Context) {
     val gemini by lazy { com.saydlawy.sahab.data.ai.GeminiStoryService(client) }
     val aiKeys by lazy { com.saydlawy.sahab.data.ai.ApiKeyManager(context.applicationContext) }
     val catalogDb by lazy { CatalogDatabase.getInstance(context.applicationContext) }
-    val catalogSync by lazy { CatalogSync(catalogDb.movieDao(), firebaseCatalog, context.applicationContext, prefs) }
+    val catalogSync by lazy { CatalogSync(catalogDb.movieDao(), firebaseCatalog, context.applicationContext, prefs, catalogDb.relationalDao()) }
     val channelDb by lazy { ChannelDatabase.getInstance(context.applicationContext) }
     val channelSync by lazy { ChannelSync(channelDb.channelDao()) }
     val epgSync by lazy { EpgSync(channelDb.channelDao()) }
@@ -341,6 +341,8 @@ class AppContainer(context: Context) {
             .onFailure { android.util.Log.e("SahabClear", "Failed to clear EPG programs: ${it.message}") }
         runCatching { catalogDb.movieDao().wipe() }
             .onFailure { android.util.Log.e("SahabClear", "Failed to wipe catalog movies: ${it.message}") }
+        runCatching { catalogDb.relationalDao().wipeAllRelational() }
+            .onFailure { android.util.Log.e("SahabClear", "Failed to wipe catalog relational tables: ${it.message}") }
         if (clearPrefsAccount) {
             mergeCoordinator.reset()
             repo.setAccount(null)

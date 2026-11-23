@@ -12,12 +12,19 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * تستخدم هجرات صريحة للحفاظ على البيانات المحلية دون مسحها عند الترقية.
  */
 @Database(
-    entities = [CatalogMovieEntity::class],
-    version = 8,
+    entities = [
+        CatalogMovieEntity::class,
+        CatalogCategoryEntity::class,
+        SeriesSeasonEntity::class,
+        SeriesEpisodeEntity::class,
+        SyncMetadataEntity::class,
+    ],
+    version = 9,
     exportSchema = true,
 )
 abstract class CatalogDatabase : RoomDatabase() {
     abstract fun movieDao(): CatalogMovieDao
+    abstract fun relationalDao(): CatalogRelationalDao
 
     companion object {
         @Volatile
@@ -164,6 +171,54 @@ abstract class CatalogDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `catalog_categories` (" +
+                        "`mediaType` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`sortOrder` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`mediaType`, `categoryId`))",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_catalog_categories_mediaType_sortOrder` " +
+                        "ON `catalog_categories` (`mediaType`, `sortOrder`)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `series_seasons` (" +
+                        "`seriesStreamId` TEXT NOT NULL, `seasonNumber` INTEGER NOT NULL, `name` TEXT NOT NULL, " +
+                        "`overview` TEXT NOT NULL, `posterUrl` TEXT NOT NULL, `airDate` TEXT NOT NULL, " +
+                        "`tmdbSeasonId` INTEGER, `updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`seriesStreamId`, `seasonNumber`))",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_series_seasons_seriesStreamId` " +
+                        "ON `series_seasons` (`seriesStreamId`)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `series_episodes` (" +
+                        "`episodeId` TEXT NOT NULL, `seriesStreamId` TEXT NOT NULL, `seasonNumber` INTEGER NOT NULL, " +
+                        "`episodeNumber` INTEGER NOT NULL, `title` TEXT NOT NULL, `ext` TEXT NOT NULL, " +
+                        "`streamUrl` TEXT NOT NULL, `iptvImage` TEXT NOT NULL, `tmdbStillUrl` TEXT NOT NULL, " +
+                        "`plot` TEXT NOT NULL, `duration` TEXT NOT NULL, `airDate` TEXT NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`episodeId`))",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_series_episodes_seriesStreamId_seasonNumber_episodeNumber` " +
+                        "ON `series_episodes` (`seriesStreamId`, `seasonNumber`, `episodeNumber`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_series_episodes_seriesStreamId` " +
+                        "ON `series_episodes` (`seriesStreamId`)",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_metadata` (" +
+                        "`syncKey` TEXT NOT NULL, `lastSuccessAt` INTEGER NOT NULL, `remoteVersion` TEXT NOT NULL, " +
+                        "`itemCount` INTEGER NOT NULL, `status` TEXT NOT NULL, `lastCursor` TEXT NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`syncKey`))",
+                )
+            }
+        }
+
         fun getInstance(context: Context): CatalogDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -179,6 +234,7 @@ abstract class CatalogDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
+                        MIGRATION_8_9,
                     )
                     .build()
                     .also { INSTANCE = it }

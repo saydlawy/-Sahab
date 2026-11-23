@@ -36,6 +36,20 @@ class CatalogSyncWorker(
                 forceCatalog = false,
                 reason = "workmanager_periodic",
             )
+            if (container.authManager.isAdmin) {
+                container.catalogSync.enrichPendingBatchForAdmin(
+                    repo = container.repo,
+                    tmdb = container.tmdb,
+                    mediaType = "movie",
+                    batchSize = 20,
+                )
+                container.catalogSync.enrichPendingBatchForAdmin(
+                    repo = container.repo,
+                    tmdb = container.tmdb,
+                    mediaType = "series",
+                    batchSize = 15,
+                )
+            }
             Result.success()
         } catch (c: CancellationException) {
             throw c

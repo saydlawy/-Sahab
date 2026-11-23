@@ -142,6 +142,7 @@ internal fun NetflixBrowseLayout(
                                 PosterCard(
                                     title = poster.name,
                                     imageUrl = poster.image,
+                                    fallbackImageUrl = poster.fallbackImage,
                                     badge = poster.rating,
                                     quality = qualityOf(poster.name),
                                     subtitle = poster.year,
@@ -330,6 +331,7 @@ internal fun NetflixPosterTile(
     PosterCard(
         title = poster.name,
         imageUrl = poster.image,
+        fallbackImageUrl = poster.fallbackImage,
         badge = poster.rating,
         quality = qualityOf(poster.name),
         subtitle = poster.year,

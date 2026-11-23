@@ -453,6 +453,11 @@ fun MessageBox(
     }
 }
 
+private fun isValidImageUrl(raw: String?): Boolean {
+    val u = raw?.trim().orEmpty()
+    return u.startsWith("https://", ignoreCase = true) || u.startsWith("http://", ignoreCase = true)
+}
+
 @Composable
 fun RemoteImage(
     url: String,
@@ -461,21 +466,28 @@ fun RemoteImage(
     alignment: Alignment = Alignment.Center,
     fallbackText: String = "",
     fallbackUrl: String? = null,
+    fallbackUrls: List<String> = emptyList(),
     targetWidthPx: Int? = null,
     targetHeightPx: Int? = null,
 ) {
-    val primaryUrl = url.trim().ifBlank { fallbackUrl?.trim().orEmpty() }
-    val secondaryUrl = fallbackUrl?.trim()?.takeIf { it.isNotBlank() && it != primaryUrl }
+    val candidates = remember(url, fallbackUrl, fallbackUrls) {
+        buildList {
+            if (isValidImageUrl(url)) add(url.trim())
+            if (isValidImageUrl(fallbackUrl)) add(fallbackUrl!!.trim())
+            for (extra in fallbackUrls) {
+                if (isValidImageUrl(extra)) add(extra.trim())
+            }
+        }.distinct()
+    }
 
     Box(modifier.background(Palette.CardSurface)) {
-        if (primaryUrl.isNotBlank()) {
+        if (candidates.isNotEmpty()) {
             val context = LocalContext.current
-            // 0 = primary, 1 = secondary fallback, 2 = failed
-            var loadStage by remember(primaryUrl, secondaryUrl) { mutableIntStateOf(0) }
-            if (loadStage == 2) {
+            var loadIndex by remember(candidates) { mutableIntStateOf(0) }
+            val activeUrl = candidates.getOrNull(loadIndex)
+            if (activeUrl == null) {
                 FallbackLetter(fallbackText)
             } else {
-                val activeUrl = if (loadStage == 1 && secondaryUrl != null) secondaryUrl else primaryUrl
                 val request = remember<ImageRequest>(context, activeUrl, targetWidthPx, targetHeightPx) {
                     ImageRequest.Builder(context)
                         .data(activeUrl)
@@ -493,7 +505,7 @@ fun RemoteImage(
                     contentScale = contentScale,
                     alignment = alignment,
                     onError = {
-                        loadStage = if (loadStage == 0 && secondaryUrl != null) 1 else 2
+                        loadIndex += 1
                     },
                     modifier = Modifier.fillMaxSize(),
                 )

@@ -132,10 +132,17 @@ class ChannelSync(
                             if (e.epgId.isNotEmpty()) enriched++
                         }
                     }
-                    val remoteIds = remote.mapTo(HashSet(remote.size)) { it.id }
-                    val removedIds = existing.keys.filter { it !in remoteIds }
-                    removedIds.chunked(ROOM_BATCH_SIZE).forEach { batch ->
-                        dao.deleteByStreamIds(batch)
+                    val isSuspiciousPartial = !forceFullRefresh &&
+                        existing.size >= 50 &&
+                        remote.size < (existing.size * 0.70).toInt()
+                    if (isSuspiciousPartial) {
+                        Log.w(TAG, "Skipped channel delete: partial response (${remote.size}/${existing.size})")
+                    } else {
+                        val remoteIds = remote.mapTo(HashSet(remote.size)) { it.id }
+                        val removedIds = existing.keys.filter { it !in remoteIds }
+                        removedIds.chunked(ROOM_BATCH_SIZE).forEach { batch ->
+                            dao.deleteByStreamIds(batch)
+                        }
                     }
                     repo.invalidateLiveChannelCache()
                 } catch (e: Exception) {

@@ -25,6 +25,7 @@ class CatalogSync(
     private val firebaseCatalog: FirebaseCatalogService,
     private val appContext: Context? = null,
     private val prefs: com.saydlawy.sahab.data.Prefs? = null,
+    private val relationalDao: CatalogRelationalDao? = null,
 ) {
     data class Stats(
         val total: Int = 0,
@@ -35,6 +36,7 @@ class CatalogSync(
     )
 
     private val syncMutex = kotlinx.coroutines.sync.Mutex()
+    private val inFlightEnrich = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val activeSyncCount = java.util.concurrent.atomic.AtomicInteger(0)
 
     private val _syncing = MutableStateFlow(false)
@@ -354,6 +356,20 @@ class CatalogSync(
 
             val categories: Map<String, String> = runCatching {
                 val cats = if (isSeries) repo.seriesCategories() else repo.movieCategories()
+                if (cats.isNotEmpty()) {
+                    relationalDao?.replaceCategories(
+                        mediaType = normalizedType,
+                        items = cats.mapIndexed { idx, c ->
+                            CatalogCategoryEntity(
+                                mediaType = normalizedType,
+                                categoryId = c.id,
+                                name = c.name,
+                                sortOrder = idx,
+                                updatedAt = now,
+                            )
+                        },
+                    )
+                }
                 cats.associate { it.id to it.name }
             }.getOrElse { emptyMap() }
 
@@ -427,8 +443,30 @@ class CatalogSync(
                 dao.applySyncBatch(unchangedIds, updatedFields, newEntities, now, normalizedType)
             }
 
-            val deleted = dao.softDeleteBefore(cutoff = now, mediaType = normalizedType)
+            val activeExistingCount = existing.values.count { it.deleted == 0 }
+            val isSuspiciousPartial = activeExistingCount >= 50 &&
+                posters.size < (activeExistingCount * 0.70).toInt()
+            val deleted = if (isSuspiciousPartial) {
+                android.util.Log.w(
+                    "SahabCatalogSync",
+                    "Skipped soft-delete for $normalizedType: partial response (${posters.size}/$activeExistingCount)",
+                )
+                0
+            } else {
+                dao.softDeleteBefore(cutoff = now, mediaType = normalizedType)
+            }
             _syncVersion.value = System.currentTimeMillis()
+            runCatching {
+                relationalDao?.upsertSyncMeta(
+                    SyncMetadataEntity(
+                        syncKey = "iptv_$normalizedType",
+                        lastSuccessAt = now,
+                        itemCount = posters.size,
+                        status = if (isSuspiciousPartial) "partial_guarded" else "ok",
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
 
             Stats(
                 total = posters.size,
@@ -537,6 +575,22 @@ class CatalogSync(
         mediaType: String = "movie",
     ): com.saydlawy.sahab.data.catalog.TmdbMatcher.EnrichResult? {
         val normalizedType = if (mediaType.equals("series", ignoreCase = true)) "series" else "movie"
+        val lockKey = "$normalizedType:$streamId"
+        if (!inFlightEnrich.add(lockKey)) return null
+        return try {
+            enrichOneInternal(repo, tmdb, streamId, force, normalizedType)
+        } finally {
+            inFlightEnrich.remove(lockKey)
+        }
+    }
+
+    private suspend fun enrichOneInternal(
+        repo: Repository,
+        tmdb: com.saydlawy.sahab.data.TmdbApi,
+        streamId: String,
+        force: Boolean,
+        normalizedType: String,
+    ): com.saydlawy.sahab.data.catalog.TmdbMatcher.EnrichResult? {
         val existing = dao.findByStreamId(streamId, normalizedType) ?: return null
         if (!force && (existing.needsEnrichment == 0 || existing.needsEnrichment == -1) && existing.plot.isNotBlank()) {
             return null
@@ -884,6 +938,64 @@ class CatalogSync(
             if (trailing.isNotEmpty()) return trailing.last().value
         }
         return YEAR_REGEX.find(categoryName)?.value ?: ""
+    }
+
+    /**
+     * Admin-only controlled background enrichment batch:
+     * discovers pending items in Room, enriches via TMDB, stamps updatedAt, and uploads to Firestore
+     * so regular users only pull lightweight deltas. Regular users return 0 immediately.
+     */
+    suspend fun enrichPendingBatchForAdmin(
+        repo: Repository,
+        tmdb: com.saydlawy.sahab.data.TmdbApi,
+        mediaType: String = "movie",
+        batchSize: Int = 20,
+    ): Int = withContext(Dispatchers.IO) {
+        val uid = runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.getOrNull()
+        if (uid != com.saydlawy.sahab.data.auth.AuthManager.ADMIN_UID) return@withContext 0
+        if (!tmdb.hasApiKey()) return@withContext 0
+
+        val normalizedType = if (mediaType.equals("series", ignoreCase = true)) "series" else "movie"
+        val pending = dao.pendingEnrichment(limit = batchSize.coerceIn(1, 50), mediaType = normalizedType)
+        if (pending.isEmpty()) return@withContext 0
+
+        var done = 0
+        var enrichedCount = 0
+        var failed = 0
+        reportBackgroundEnrichProgress(0, pending.size, active = true, currentTitle = "بدء إثراء الأدمن ($normalizedType)...")
+        try {
+            for (item in pending) {
+                val label = item.titleAr.ifBlank { item.titleEn }
+                reportBackgroundEnrichProgress(done, pending.size, active = true, currentTitle = label, failed = failed)
+                val res = runCatching {
+                    enrichOne(repo, tmdb, item.novaStreamId, force = false, mediaType = normalizedType)
+                }.getOrElse { err ->
+                    if (err is kotlinx.coroutines.CancellationException) throw err
+                    failed++
+                    null
+                }
+                if (res?.level == TmdbMatcher.Level.STRONG) enrichedCount++
+                done++
+                reportBackgroundEnrichProgress(done, pending.size, active = true, currentTitle = label, failed = failed)
+                kotlinx.coroutines.delay(300L)
+            }
+            val now = System.currentTimeMillis()
+            runCatching {
+                relationalDao?.upsertSyncMeta(
+                    SyncMetadataEntity(
+                        syncKey = "admin_enrich_$normalizedType",
+                        lastSuccessAt = now,
+                        itemCount = enrichedCount,
+                        status = if (failed == 0) "ok" else "partial",
+                        lastCursor = pending.lastOrNull()?.sahabId.orEmpty(),
+                        updatedAt = now,
+                    ),
+                )
+            }
+        } finally {
+            reportBackgroundEnrichProgress(done, pending.size, active = false, failed = failed)
+        }
+        enrichedCount
     }
 
     companion object {

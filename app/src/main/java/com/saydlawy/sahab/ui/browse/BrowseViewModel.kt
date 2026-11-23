@@ -284,9 +284,12 @@ class BrowseViewModel(
             val rYear = RatingSanitizer.extractFourDigitYear(r.year).ifBlank { p.year }
             val rGenre = RatingSanitizer.extractPrimaryGenre(r.genre).ifBlank { p.genre }
             val rImage = p.image.ifBlank { r.posterUrl }
+            val rFallback = r.postersJson.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
+                .orEmpty().ifBlank { r.backdropUrl }
             val rExt = p.ext.ifBlank { r.containerExtension }
             p.copy(
                 image = rImage,
+                fallbackImage = rFallback,
                 rating = rRating,
                 ext = rExt,
                 year = rYear,
@@ -894,25 +897,6 @@ class BrowseViewModel(
                 return@launch
             }
 
-            if (cached != null && cached.needsEnrichment == 1) {
-                runCatching {
-                    container.catalogSync.enrichOne(
-                        repo = repo,
-                        tmdb = container.tmdb,
-                        streamId = poster.id,
-                        force = false,
-                        mediaType = mediaType,
-                    )
-                }
-                val enriched = withContext(Dispatchers.IO) {
-                    runCatching { dao.findByStreamIdAndType(poster.id, mediaType) }.getOrNull()
-                }
-                if (enriched != null && enriched.plot.isNotBlank()) {
-                    _focusedDetails.value = enriched.toFocusedDetails(poster)
-                    return@launch
-                }
-            }
-
             var xtreamPlot = cached?.plot.orEmpty()
             var xtreamGenre = cached?.genre.orEmpty()
             var xtreamYear = cached?.year?.ifBlank { poster.year } ?: poster.year
@@ -980,6 +964,8 @@ class BrowseViewModel(
         id = novaStreamId,
         name = titleAr.ifBlank { titleEn },
         image = posterUrl,
+        fallbackImage = postersJson.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
+            .orEmpty().ifBlank { backdropUrl },
         rating = RatingSanitizer.format(rating, tmdbVoteCount),
         ext = containerExtension,
         year = RatingSanitizer.extractFourDigitYear(year),

@@ -146,6 +146,7 @@ fun PosterCard(
     genre: String = "",
     progress: Float? = null,
     onFocused: (() -> Unit)? = null,
+    fallbackImageUrl: String? = null,
     targetWidthPx: Int? = null,
     targetHeightPx: Int? = null,
 ) {
@@ -175,6 +176,7 @@ fun PosterCard(
         ) {
             RemoteImage(
                 url = imageUrl,
+                fallbackUrl = fallbackImageUrl,
                 fallbackText = title,
                 modifier = if (contentScale == ContentScale.Fit) Modifier.fillMaxSize().padding(14.dp) else Modifier.fillMaxSize(),
                 contentScale = contentScale,
