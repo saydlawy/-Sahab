@@ -132,9 +132,10 @@ class Repository(
 
     fun invalidateLiveChannelCache() {
         synchronized(cacheLock) {
-            cache.keys.removeIf { it.contains("::live:") }
+            cache.keys.removeIf { it.contains("::live:") || it.endsWith("::live_cats") }
         }
-        inFlight.keys.removeIf { it.contains("::live:") }
+        inFlight.keys.removeIf { it.contains("::live:") || it.contains("::live_cats") }
+        disk?.remove(diskKey("live_cats"))
     }
 
     private fun invalidateCategorySubCaches() {
@@ -766,12 +767,19 @@ class Repository(
             is JsonObject -> json.values
             else -> emptyList()
         }
-        return elements.mapNotNull { e ->
-            val o = e.obj() ?: return@mapNotNull null
-            val id = o.s("category_id").ifBlank { o.s("id") }
-            val name = o.s("category_name").ifBlank { o.s("name") }.ifBlank { Ar.noName }
-            if (id.isBlank()) null else Category(id, name)
-        }.distinctBy { it.id }
+        val byId = LinkedHashMap<String, Category>(elements.size)
+        for (e in elements) {
+            val o = e.obj() ?: continue
+            val rawName = o.s("category_name").ifBlank { o.s("name") }.trim()
+            val id = o.s("category_id").ifBlank { o.s("id") }.trim().ifBlank { rawName }
+            if (id.isBlank()) continue
+            val name = rawName.ifBlank { Ar.noName }
+            val prev = byId[id]
+            if (prev == null || (prev.name == Ar.noName && name != Ar.noName)) {
+                byId[id] = Category(id, name)
+            }
+        }
+        return byId.values.toList()
     }
 
     private fun resolveAllCategoryIds(primary: JsonElement?, arrayFallback: JsonElement?): List<String> {

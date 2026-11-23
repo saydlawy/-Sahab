@@ -197,6 +197,22 @@ class DiskCache(
     }.getOrDefault(CacheStats())
 
     /** Clears IPTV catalog/EPG cache while keeping the TMDB quota cache intact. */
+    fun remove(key: String, permanentNamespace: Boolean = false) {
+        runCatching {
+            val file = fileFor(key, permanentNamespace)
+            if (permanentNamespace) {
+                file.delete()
+            } else {
+                synchronized(catalogEvictionLock) {
+                    val len = if (file.isFile) file.length() else 0L
+                    if (file.delete() && len > 0L) {
+                        estimatedCatalogBytes = (estimatedCatalogBytes - len).coerceAtLeast(0L)
+                    }
+                }
+            }
+        }
+    }
+
     fun clearCatalog() {
         runCatching {
             synchronized(catalogEvictionLock) {
