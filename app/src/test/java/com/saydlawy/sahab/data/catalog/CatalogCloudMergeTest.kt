@@ -123,7 +123,7 @@ class CatalogCloudMergeTest {
         assertEquals("901", mergedMovie.novaStreamId)
         assertEquals("cat_ar", mergedMovie.categoryId)
         assertEquals("فيلم المستخدم", mergedMovie.titleAr)
-        assertEquals("https://iptv.local/poster.jpg", mergedMovie.posterUrl)
+        assertEquals("https://cloud.example/p.jpg", mergedMovie.posterUrl)
         assertEquals("mkv", mergedMovie.containerExtension)
         assertEquals(4, mergedMovie.providerOrder)
         assertEquals("قصة الفيلم من السحابة", mergedMovie.plot)
