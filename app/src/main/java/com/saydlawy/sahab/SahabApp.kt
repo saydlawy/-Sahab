@@ -101,9 +101,9 @@ class AppContainer(context: Context) {
         return OkHttpClient.Builder()
             .dispatcher(imageDispatcher)
             .connectionPool(client.connectionPool)
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .callTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(8, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val req = chain.request()
                 val url = req.url.toString()
@@ -120,7 +120,7 @@ class AppContainer(context: Context) {
                 }
                 try {
                     val resp = chain.proceed(req)
-                    if (resp.code == 404 || resp.code == 410) {
+                    if (resp.code == 400 || resp.code == 403 || resp.code == 404 || resp.code == 410) {
                         if (failedImageUrls.size > 500) failedImageUrls.clear()
                         failedImageUrls[url] = now
                     }
