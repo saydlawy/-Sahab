@@ -101,7 +101,17 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
     val state by vm.state.collectAsStateWithLifecycle()
     val aiState by vm.aiState.collectAsStateWithLifecycle()
     val refreshingMetadata by vm.refreshingMetadata.collectAsStateWithLifecycle()
+    val isAdminLocked by vm.isAdminLocked.collectAsStateWithLifecycle()
+    val availableGenres by vm.availableGenres.collectAsStateWithLifecycle()
+    val adminSaveMessage by vm.adminSaveMessage.collectAsStateWithLifecycle()
     val container = LocalContainer.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    androidx.compose.runtime.LaunchedEffect(adminSaveMessage) {
+        val msg = adminSaveMessage ?: return@LaunchedEffect
+        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        vm.clearAdminSaveMessage()
+    }
     val focusNav = LocalFocusNavigation.current
     val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
         initialValue = container.prefs.currentActiveAccountId(),
@@ -133,16 +143,23 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                 else -> {
                     val isFavorite = favorites.isFav(activeAccountId, Kind.SERIES, details.id)
                     val showTmdbPicker = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                    val showAdminEditor = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                     SeriesNetflixContent(
                         details = details,
                         recents = recents,
                         isFavorite = isFavorite,
                         aiState = aiState,
                         refreshingMetadata = refreshingMetadata,
+                        isAdmin = container.authManager.isAdmin,
+                        isAdminLocked = isAdminLocked,
                         feedState = feedState,
                         onGenerateStory = { vm.generateAiStory() },
                         onToggleFavorite = { vm.toggleFavorite(details) },
                         onRefresh = { showTmdbPicker.value = true },
+                        onOpenAdminEdit = {
+                            vm.loadAvailableGenres()
+                            showAdminEditor.value = true
+                        },
                         onPlay = onPlay,
                     )
                     if (showTmdbPicker.value) {
@@ -152,6 +169,25 @@ fun SeriesDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> 
                             onSelect = { tmdbId -> vm.applyManualTmdbMatch(tmdbId) },
                             onDismiss = {
                                 showTmdbPicker.value = false
+                                focusNav.restoreAfterDialogDismiss("series/${details.id}")
+                            },
+                        )
+                    }
+                    if (showAdminEditor.value && container.authManager.isAdmin) {
+                        AdminCatalogEditDialog(
+                            initialTitle = details.name,
+                            initialPosterUrl = details.cover,
+                            initialGenre = details.genre,
+                            availablePosters = details.posterUrls,
+                            availableGenres = availableGenres,
+                            isLocked = isAdminLocked,
+                            saving = refreshingMetadata,
+                            onSave = { title, posterUrl, genre, lockItem ->
+                                vm.saveAdminCatalogEdit(title, posterUrl, genre, lockItem)
+                            },
+                            onUnlock = { vm.setAdminLock(false) },
+                            onDismiss = {
+                                showAdminEditor.value = false
                                 focusNav.restoreAfterDialogDismiss("series/${details.id}")
                             },
                         )
@@ -179,10 +215,13 @@ private fun SeriesNetflixContent(
     isFavorite: Boolean,
     aiState: AiGenerationState,
     refreshingMetadata: Boolean,
+    isAdmin: Boolean,
+    isAdminLocked: Boolean,
     feedState: androidx.compose.foundation.lazy.LazyListState,
     onGenerateStory: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenAdminEdit: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
 ) {
     val focusNav = LocalFocusNavigation.current
@@ -263,8 +302,11 @@ private fun SeriesNetflixContent(
                     queue = queue,
                     isFavorite = isFavorite,
                     refreshingMetadata = refreshingMetadata,
+                    isAdmin = isAdmin,
+                    isAdminLocked = isAdminLocked,
                     onToggleFavorite = onToggleFavorite,
                     onRefresh = onRefresh,
+                    onOpenAdminEdit = onOpenAdminEdit,
                     onPlay = onPlay,
                     modifier = Modifier
                         .fillMaxWidth(if (isPortrait) 1f else 0.58f)
@@ -491,8 +533,11 @@ private fun SeriesHeroInfoBlock(
     queue: List<PlayItem>,
     isFavorite: Boolean,
     refreshingMetadata: Boolean,
+    isAdmin: Boolean,
+    isAdminLocked: Boolean,
     onToggleFavorite: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenAdminEdit: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -610,6 +655,16 @@ private fun SeriesHeroInfoBlock(
                 focusKey = "series_refresh_btn",
                 onClick = onRefresh,
             )
+            if (isAdmin) {
+                DetailCircleIconButton(
+                    icon = if (isAdminLocked) Ic.Lock else Ic.Tune,
+                    description = if (isAdminLocked) "تعديل الأدمن (مقفل)" else "تعديل الأدمن",
+                    active = isAdminLocked,
+                    screenKey = screenKey,
+                    focusKey = "series_admin_edit_btn",
+                    onClick = onOpenAdminEdit,
+                )
+            }
         }
     }
 }

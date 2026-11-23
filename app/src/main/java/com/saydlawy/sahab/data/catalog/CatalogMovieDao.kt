@@ -77,12 +77,12 @@ interface CatalogMovieDao {
     @Query(
         "UPDATE catalog_movies SET " +
             "categoryId = :categoryId, " +
-            "titleAr = :titleAr, " +
-            "posterUrl = :posterUrl, " +
+            "titleAr = CASE WHEN plotSource IN ('admin_manual', 'admin_locked') THEN titleAr ELSE :titleAr END, " +
+            "posterUrl = CASE WHEN plotSource IN ('admin_manual', 'admin_locked') THEN posterUrl ELSE :posterUrl END, " +
             "containerExtension = :containerExtension, " +
             "novaAdded = :added, " +
             "providerOrder = :providerOrder, " +
-            "searchTitle = :searchTitle, " +
+            "searchTitle = CASE WHEN plotSource IN ('admin_manual', 'admin_locked') THEN searchTitle ELSE :searchTitle END, " +
             "lastSeen = :now, " +
             "deleted = 0 " +
             "WHERE novaStreamId = :streamId AND mediaType = :mediaType",
@@ -133,7 +133,7 @@ interface CatalogMovieDao {
     }
 
     @Query(
-        "SELECT novaStreamId, categoryId, titleAr, titleEn, identifiedTitle, posterUrl, " +
+        "SELECT novaStreamId, categoryId, titleAr, titleEn, identifiedTitle, plotSource, posterUrl, " +
             "containerExtension, providerOrder, searchTitle, deleted " +
             "FROM catalog_movies " +
             "WHERE mediaType = :mediaType AND $PROVIDER_ROW_CONDITION " +
@@ -194,7 +194,8 @@ interface CatalogMovieDao {
     @Query(
         "UPDATE catalog_movies SET " +
             "tmdbId = :tmdbId, titleEn = :titleEn, year = :year, " +
-            "plot = :plot, cast = :cast, castJson = :castJson, director = :director, genre = :genre, " +
+            "plot = :plot, cast = :cast, castJson = :castJson, director = :director, " +
+            "genre = CASE WHEN plotSource = 'admin_locked' AND genre != '' THEN genre ELSE :genre END, " +
             "runtime = :runtime, rating = :rating, backdropUrl = :backdropUrl, " +
             "postersJson = :postersJson, trailerUrl = :trailerUrl, " +
             "searchTitle = CASE WHEN :searchTitle != '' THEN :searchTitle ELSE searchTitle END, " +
@@ -371,6 +372,9 @@ interface CatalogMovieDao {
     @Query("UPDATE catalog_movies SET needsCloudPush = 1, updatedAt = :now WHERE novaStreamId = :streamId AND mediaType = :mediaType")
     suspend fun markNeedsCloudPush(streamId: String, mediaType: String, now: Long)
 
+    @Query("SELECT DISTINCT genre FROM catalog_movies WHERE mediaType = :mediaType AND deleted = 0 AND genre != ''")
+    suspend fun getDistinctGenresRaw(mediaType: String): List<String>
+
     @Query("DELETE FROM catalog_movies")
     suspend fun wipe()
 }
@@ -465,8 +469,13 @@ internal suspend fun CatalogMovieDao.mergeCloudBatchPreservingLocalWithDao(
                 if (local.needsCloudPush == 1 && local.updatedAt >= cloud.updatedAt) {
                     continue
                 }
-                val keepLocalAiPlot = local.plotSource == "gemini_user_key" && local.plot.isNotBlank()
-                val mergedTitleAr = local.titleAr.ifBlank { cloud.titleAr }
+                val isCloudAdminEdit = cloud.plotSource == "admin_manual" || cloud.plotSource == "admin_locked"
+                val keepLocalAiPlot = !isCloudAdminEdit && local.plotSource == "gemini_user_key" && local.plot.isNotBlank()
+                val mergedTitleAr = if (isCloudAdminEdit) {
+                    cloud.titleAr.ifBlank { local.titleAr }
+                } else {
+                    local.titleAr.ifBlank { cloud.titleAr }
+                }
                 val mergedTitleEn = cloud.titleEn.ifBlank { local.titleEn }
                 val mergedIdentified = if (keepLocalAiPlot) local.identifiedTitle else cloud.identifiedTitle.ifBlank { local.identifiedTitle }
                 toUpsert += cloud.copy(
@@ -477,7 +486,11 @@ internal suspend fun CatalogMovieDao.mergeCloudBatchPreservingLocalWithDao(
                     titleEn = mergedTitleEn,
                     year = cloud.year.ifBlank { local.year },
                     plot = if (keepLocalAiPlot) local.plot else cloud.plot.ifBlank { local.plot },
-                    plotSource = if (keepLocalAiPlot) local.plotSource else cloud.plotSource.ifBlank { local.plotSource },
+                    plotSource = when {
+                        isCloudAdminEdit -> cloud.plotSource
+                        keepLocalAiPlot -> local.plotSource
+                        else -> cloud.plotSource.ifBlank { local.plotSource }
+                    },
                     plotConfidence = if (keepLocalAiPlot) local.plotConfidence else cloud.plotConfidence.ifBlank { local.plotConfidence },
                     identifiedTitle = mergedIdentified,
                     mediaType = local.mediaType,
@@ -544,6 +557,7 @@ data class ProviderSyncSnapshotRow(
     val titleAr: String,
     val titleEn: String,
     val identifiedTitle: String,
+    val plotSource: String,
     val posterUrl: String,
     val containerExtension: String,
     val providerOrder: Int,

@@ -31,6 +31,15 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
     private val _refreshingMetadata = MutableStateFlow(false)
     val refreshingMetadata = _refreshingMetadata.asStateFlow()
 
+    private val _isAdminLocked = MutableStateFlow(false)
+    val isAdminLocked = _isAdminLocked.asStateFlow()
+
+    private val _availableGenres = MutableStateFlow<List<String>>(emptyList())
+    val availableGenres = _availableGenres.asStateFlow()
+
+    private val _adminSaveMessage = MutableStateFlow<String?>(null)
+    val adminSaveMessage = _adminSaveMessage.asStateFlow()
+
     init {
         load()
     }
@@ -92,10 +101,12 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
         if (roomDetails == null) {
             return base.copy(rating = cleanRating(base.rating))
         }
+        _isAdminLocked.value = room?.plotSource == "admin_locked"
+        val isAdminEdit = room?.plotSource == "admin_manual" || room?.plotSource == "admin_locked"
         return SeriesDetails(
             id = id,
-            name = base.name.ifBlank { roomDetails.name },
-            cover = base.cover.ifBlank { roomDetails.cover },
+            name = if (isAdminEdit) roomDetails.name.ifBlank { base.name } else base.name.ifBlank { roomDetails.name },
+            cover = if (isAdminEdit) roomDetails.cover.ifBlank { base.cover } else base.cover.ifBlank { roomDetails.cover },
             backdrop = roomDetails.backdrop.ifBlank { base.backdrop }.ifBlank { base.cover.ifBlank { roomDetails.cover } },
             plot = roomDetails.plot.ifBlank { base.plot },
             cast = roomDetails.cast.ifBlank { base.cast },
@@ -375,6 +386,92 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
             }
             if (ok) {
                 fetchDetails(forceRefresh = false)
+            }
+        }
+    }
+
+    fun clearAdminSaveMessage() {
+        _adminSaveMessage.value = null
+    }
+
+    fun loadAvailableGenres() {
+        viewModelScope.launch {
+            _availableGenres.value = container.catalogSync.getAvailableGenres("series")
+        }
+    }
+
+    fun saveAdminCatalogEdit(
+        title: String,
+        posterUrl: String,
+        genre: String,
+        lockItem: Boolean,
+    ) {
+        if (_refreshingMetadata.value) return
+        val current = _state.value.data
+        viewModelScope.launch {
+            _refreshingMetadata.value = true
+            try {
+                val res = container.catalogSync.applyAdminCatalogEdit(
+                    streamId = id,
+                    mediaType = "series",
+                    titleAr = title,
+                    posterUrl = posterUrl,
+                    genre = genre,
+                    lockItem = lockItem,
+                    fallbackTitle = current?.name.orEmpty(),
+                    fallbackPoster = current?.cover.orEmpty(),
+                    fallbackBackdrop = current?.backdrop.orEmpty(),
+                    fallbackPlot = current?.plot.orEmpty(),
+                    fallbackYear = current?.year.orEmpty(),
+                    fallbackCast = current?.cast.orEmpty(),
+                    fallbackRating = current?.rating.orEmpty(),
+                    fallbackPosters = current?.posterUrls.orEmpty(),
+                )
+                val updated = withContext(Dispatchers.IO) {
+                    runCatching { container.catalogDb.movieDao().findByStreamIdAndType(id, "series") }.getOrNull()
+                }
+                if (updated != null) {
+                    _isAdminLocked.value = updated.plotSource == "admin_locked"
+                    val relEpisodes = withContext(Dispatchers.IO) {
+                        runCatching { container.catalogDb.relationalDao().getSeriesEpisodes(id) }.getOrDefault(emptyList())
+                    }.map { toUiEpisode(it) }
+                    _state.update { DetailUiState(loading = false, data = updated.toSeriesDetails(relEpisodes)) }
+                }
+                _adminSaveMessage.value = when {
+                    res.pushedToCloud && lockItem -> "تم الحفظ والقفل 🔒 والمزامنة للسحابة لجميع المستخدمين"
+                    res.pushedToCloud -> "تم الحفظ والمزامنة للسحابة لجميع المستخدمين"
+                    else -> "تم الحفظ محلياً (سيُرفع للسحابة عند توفر الاتصال)"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _adminSaveMessage.value = "تعذر الحفظ: ${e.userMessage()}"
+            } finally {
+                _refreshingMetadata.value = false
+            }
+        }
+    }
+
+    fun setAdminLock(locked: Boolean) {
+        if (_refreshingMetadata.value) return
+        viewModelScope.launch {
+            _refreshingMetadata.value = true
+            try {
+                val res = container.catalogSync.setAdminCatalogLock(id, "series", locked)
+                if (res.savedInRoom) {
+                    _isAdminLocked.value = locked
+                    _adminSaveMessage.value = if (locked) {
+                        if (res.pushedToCloud) "تم قفل المسلسل 🔒 ومنع التعديل التلقائي" else "تم القفل محلياً 🔒"
+                    } else {
+                        if (res.pushedToCloud) "تم فك القفل 🔓" else "تم فك القفل محلياً 🔓"
+                    }
+                } else {
+                    _adminSaveMessage.value = res.cloudError.ifBlank { "احفظ تعديلاً أولاً لتفعيل القفل" }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } finally {
+                _refreshingMetadata.value = false
             }
         }
     }

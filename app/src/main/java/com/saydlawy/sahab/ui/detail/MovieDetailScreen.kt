@@ -87,7 +87,17 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
     val state by vm.state.collectAsStateWithLifecycle()
     val aiState by vm.aiState.collectAsStateWithLifecycle()
     val refreshingMetadata by vm.refreshingMetadata.collectAsStateWithLifecycle()
+    val isAdminLocked by vm.isAdminLocked.collectAsStateWithLifecycle()
+    val availableGenres by vm.availableGenres.collectAsStateWithLifecycle()
+    val adminSaveMessage by vm.adminSaveMessage.collectAsStateWithLifecycle()
     val container = LocalContainer.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    androidx.compose.runtime.LaunchedEffect(adminSaveMessage) {
+        val msg = adminSaveMessage ?: return@LaunchedEffect
+        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        vm.clearAdminSaveMessage()
+    }
     val focusNav = LocalFocusNavigation.current
     val activeAccountId by container.prefs.activeAccountId.collectAsStateWithLifecycle(
         initialValue = container.prefs.currentActiveAccountId(),
@@ -123,17 +133,24 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                     val durationMs = resume?.durationMs ?: 0L
 
                     val showTmdbPicker = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                    val showAdminEditor = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                     MovieNetflixContent(
                         details = details,
                         resumeMs = resumeMs,
                         durationMs = durationMs,
                         isFavorite = isFavorite,
-                        aiState = aiState,
                         refreshingMetadata = refreshingMetadata,
+                        isAdmin = container.authManager.isAdmin,
+                        isAdminLocked = isAdminLocked,
+                        aiState = aiState,
                         feedState = feedState,
                         onGenerateStory = { vm.generateAiStory() },
                         onToggleFavorite = { vm.toggleFavorite(details) },
                         onRefresh = { showTmdbPicker.value = true },
+                        onOpenAdminEdit = {
+                            vm.loadAvailableGenres()
+                            showAdminEditor.value = true
+                        },
                         onPlay = onPlay,
                     )
                     if (showTmdbPicker.value) {
@@ -143,6 +160,25 @@ fun MovieDetailScreen(id: String, onBack: () -> Unit, onPlay: (PlayRequest) -> U
                             onSelect = { tmdbId -> vm.applyManualTmdbMatch(tmdbId) },
                             onDismiss = {
                                 showTmdbPicker.value = false
+                                focusNav.restoreAfterDialogDismiss("movie/${details.id}")
+                            },
+                        )
+                    }
+                    if (showAdminEditor.value && container.authManager.isAdmin) {
+                        AdminCatalogEditDialog(
+                            initialTitle = details.name,
+                            initialPosterUrl = details.image,
+                            initialGenre = details.genre,
+                            availablePosters = details.posterUrls,
+                            availableGenres = availableGenres,
+                            isLocked = isAdminLocked,
+                            saving = refreshingMetadata,
+                            onSave = { title, posterUrl, genre, lockItem ->
+                                vm.saveAdminCatalogEdit(title, posterUrl, genre, lockItem)
+                            },
+                            onUnlock = { vm.setAdminLock(false) },
+                            onDismiss = {
+                                showAdminEditor.value = false
                                 focusNav.restoreAfterDialogDismiss("movie/${details.id}")
                             },
                         )
@@ -159,12 +195,15 @@ private fun MovieNetflixContent(
     resumeMs: Long,
     durationMs: Long,
     isFavorite: Boolean,
-    aiState: AiGenerationState,
     refreshingMetadata: Boolean,
+    isAdmin: Boolean,
+    isAdminLocked: Boolean,
+    aiState: AiGenerationState,
     feedState: LazyListState,
     onGenerateStory: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenAdminEdit: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
 ) {
     val screenKey = remember(details.id) { "movie/${details.id}" }
@@ -222,9 +261,12 @@ private fun MovieNetflixContent(
                     durationMs = durationMs,
                     isFavorite = isFavorite,
                     refreshingMetadata = refreshingMetadata,
+                    isAdmin = isAdmin,
+                    isAdminLocked = isAdminLocked,
                     item = item,
                     onToggleFavorite = onToggleFavorite,
                     onRefresh = onRefresh,
+                    onOpenAdminEdit = onOpenAdminEdit,
                     onPlay = onPlay,
                     modifier = Modifier
                         .fillMaxWidth(if (isPortrait) 1f else 0.58f)
@@ -407,9 +449,12 @@ private fun MovieHeroInfoBlock(
     durationMs: Long,
     isFavorite: Boolean,
     refreshingMetadata: Boolean,
+    isAdmin: Boolean,
+    isAdminLocked: Boolean,
     item: PlayItem,
     onToggleFavorite: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenAdminEdit: () -> Unit,
     onPlay: (PlayRequest) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -537,6 +582,16 @@ private fun MovieHeroInfoBlock(
                 focusKey = "movie_refresh_btn",
                 onClick = onRefresh,
             )
+            if (isAdmin) {
+                DetailCircleIconButton(
+                    icon = if (isAdminLocked) Ic.Lock else Ic.Tune,
+                    description = if (isAdminLocked) "تعديل الأدمن (مقفل)" else "تعديل الأدمن",
+                    active = isAdminLocked,
+                    screenKey = screenKey,
+                    focusKey = "movie_admin_edit_btn",
+                    onClick = onOpenAdminEdit,
+                )
+            }
         }
     }
 }

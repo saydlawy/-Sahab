@@ -246,14 +246,17 @@ class BrowseViewModel(
         if (roomByStream.isEmpty()) return@withContext slice
         slice.map { p ->
             val r = roomByStream[p.id] ?: return@map p
+            val isAdminEdit = r.plotSource == "admin_manual" || r.plotSource == "admin_locked"
+            val rName = if (isAdminEdit && r.titleAr.isNotBlank()) r.titleAr else p.name
             val rRating = RatingSanitizer.format(r.rating, r.tmdbVoteCount).ifBlank { p.rating }
             val rYear = RatingSanitizer.extractFourDigitYear(r.year).ifBlank { p.year }
             val rGenre = RatingSanitizer.extractPrimaryGenre(r.genre).ifBlank { p.genre }
-            val rImage = p.image.ifBlank { r.posterUrl }
+            val rImage = if (isAdminEdit && r.posterUrl.isNotBlank()) r.posterUrl else p.image.ifBlank { r.posterUrl }
             val rFallback = r.postersJson.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
                 .orEmpty().ifBlank { r.backdropUrl }
             val rExt = p.ext.ifBlank { r.containerExtension }
             p.copy(
+                name = rName,
                 image = rImage,
                 fallbackImage = rFallback,
                 rating = rRating,

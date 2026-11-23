@@ -406,10 +406,12 @@ class CatalogSync(
                         p.ext.ifBlank { prev?.containerExtension.orEmpty() }.ifBlank { DEFAULT_VOD_EXT }
                     }
                     if (prev != null) {
-                        val expectedSearch = buildCatalogSearchTitle(p.name, prev.titleEn, prev.identifiedTitle)
+                        val isAdminProtected = prev.plotSource == "admin_manual" || prev.plotSource == "admin_locked"
+                        val effectiveTitle = if (isAdminProtected && prev.titleAr.isNotBlank()) prev.titleAr else p.name
+                        val expectedSearch = buildCatalogSearchTitle(effectiveTitle, prev.titleEn, prev.identifiedTitle)
                         val changed = prev.categoryId != p.categoryId ||
-                            prev.titleAr != p.name ||
-                            prev.posterUrl != p.image ||
+                            (!isAdminProtected && prev.titleAr != p.name) ||
+                            (!isAdminProtected && prev.posterUrl != p.image) ||
                             prev.containerExtension != resolvedExt ||
                             prev.providerOrder != providerOrder ||
                             prev.searchTitle != expectedSearch ||
@@ -599,6 +601,9 @@ class CatalogSync(
         normalizedType: String,
     ): com.saydlawy.sahab.data.catalog.TmdbMatcher.EnrichResult? {
         val existing = dao.findByStreamId(streamId, normalizedType) ?: return null
+        if (existing.plotSource == "admin_locked") {
+            return null
+        }
         if (!force && (existing.needsEnrichment == 0 || existing.needsEnrichment == -1) && existing.plot.isNotBlank()) {
             return null
         }
@@ -908,6 +913,141 @@ class CatalogSync(
             }
         }
         return true
+    }
+
+    data class AdminEditResult(
+        val savedInRoom: Boolean,
+        val pushedToCloud: Boolean,
+        val cloudError: String = "",
+    )
+
+    suspend fun getAvailableGenres(mediaType: String = "movie"): List<String> = withContext(Dispatchers.IO) {
+        val normalizedType = if (mediaType.equals("series", ignoreCase = true)) "series" else "movie"
+        runCatching {
+            dao.getDistinctGenresRaw(normalizedType)
+                .flatMap { raw -> raw.split(',', '،', '/') }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .sorted()
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun applyAdminCatalogEdit(
+        streamId: String,
+        mediaType: String,
+        titleAr: String,
+        posterUrl: String,
+        genre: String,
+        lockItem: Boolean,
+        fallbackTitle: String = "",
+        fallbackPoster: String = "",
+        fallbackBackdrop: String = "",
+        fallbackPlot: String = "",
+        fallbackYear: String = "",
+        fallbackCast: String = "",
+        fallbackDirector: String = "",
+        fallbackRating: String = "",
+        fallbackRuntime: String = "",
+        fallbackExt: String = "m3u8",
+        fallbackPosters: List<String> = emptyList(),
+    ): AdminEditResult = withContext(Dispatchers.IO) {
+        val normalizedType = if (mediaType.equals("series", ignoreCase = true)) "series" else "movie"
+        val existing = dao.findByStreamId(streamId, normalizedType)
+        val now = System.currentTimeMillis()
+        val finalTitle = titleAr.trim()
+            .ifBlank { existing?.titleAr.orEmpty() }
+            .ifBlank { fallbackTitle.trim() }
+        val finalPoster = posterUrl.trim()
+            .ifBlank { existing?.posterUrl.orEmpty() }
+            .ifBlank { fallbackPoster.trim() }
+        val finalGenre = genre.trim()
+        val existingPosters = existing?.postersJson.orEmpty()
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+        val mergedPosters = buildList {
+            if (finalPoster.isNotBlank()) add(finalPoster)
+            addAll(existingPosters)
+            addAll(fallbackPosters.map { it.trim() }.filter { it.isNotEmpty() })
+        }.distinct().joinToString("\n")
+        val lockSource = if (lockItem) "admin_locked" else "admin_manual"
+        val updatedSearch = buildCatalogSearchTitle(
+            finalTitle,
+            existing?.titleEn.orEmpty(),
+            existing?.identifiedTitle.orEmpty(),
+        )
+        val base = existing ?: CatalogMovieEntity(
+            sahabId = CatalogMovieEntity.idPending(streamId, normalizedType),
+            novaStreamId = streamId,
+            mediaType = normalizedType,
+            titleAr = finalTitle,
+            year = fallbackYear,
+            plot = fallbackPlot,
+            cast = fallbackCast,
+            director = fallbackDirector,
+            genre = finalGenre,
+            runtime = fallbackRuntime,
+            rating = fallbackRating,
+            posterUrl = finalPoster,
+            backdropUrl = fallbackBackdrop,
+            containerExtension = fallbackExt.ifBlank { DEFAULT_VOD_EXT },
+        )
+        val updated = base.copy(
+            titleAr = finalTitle,
+            posterUrl = finalPoster,
+            postersJson = mergedPosters,
+            genre = finalGenre,
+            plotSource = lockSource,
+            needsEnrichment = 0,
+            lastEnriched = if (base.lastEnriched > 0L) base.lastEnriched else now,
+            lastSeen = now,
+            deleted = 0,
+            needsCloudPush = 1,
+            updatedAt = now,
+            searchTitle = updatedSearch,
+        )
+        dao.upsert(updated)
+        val pushed = runCatching {
+            firebaseCatalog.saveCatalogItemVerified(updated, bumpMeta = true)
+        }.getOrDefault(false)
+        if (pushed) {
+            runCatching { dao.markCloudPushed(listOf(updated.sahabId)) }
+        }
+        AdminEditResult(
+            savedInRoom = true,
+            pushedToCloud = pushed,
+            cloudError = if (pushed) "" else firebaseCatalog.lastWriteError,
+        )
+    }
+
+    suspend fun setAdminCatalogLock(
+        streamId: String,
+        mediaType: String,
+        locked: Boolean,
+    ): AdminEditResult = withContext(Dispatchers.IO) {
+        val normalizedType = if (mediaType.equals("series", ignoreCase = true)) "series" else "movie"
+        val existing = dao.findByStreamId(streamId, normalizedType)
+            ?: return@withContext AdminEditResult(savedInRoom = false, pushedToCloud = false, cloudError = "العنصر غير محفوظ محلياً بعد")
+        val now = System.currentTimeMillis()
+        val updated = existing.copy(
+            plotSource = if (locked) "admin_locked" else "admin_manual",
+            needsCloudPush = 1,
+            updatedAt = now,
+        )
+        dao.upsert(updated)
+        val pushed = runCatching {
+            firebaseCatalog.saveCatalogItemVerified(updated, bumpMeta = true)
+        }.getOrDefault(false)
+        if (pushed) {
+            runCatching { dao.markCloudPushed(listOf(updated.sahabId)) }
+        }
+        AdminEditResult(
+            savedInRoom = true,
+            pushedToCloud = pushed,
+            cloudError = if (pushed) "" else firebaseCatalog.lastWriteError,
+        )
     }
 
     private fun buildEntity(

@@ -35,6 +35,15 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
     private val _refreshingMetadata = MutableStateFlow(false)
     val refreshingMetadata = _refreshingMetadata.asStateFlow()
 
+    private val _isAdminLocked = MutableStateFlow(false)
+    val isAdminLocked = _isAdminLocked.asStateFlow()
+
+    private val _availableGenres = MutableStateFlow<List<String>>(emptyList())
+    val availableGenres = _availableGenres.asStateFlow()
+
+    private val _adminSaveMessage = MutableStateFlow<String?>(null)
+    val adminSaveMessage = _adminSaveMessage.asStateFlow()
+
     fun generateAiStory() {
         viewModelScope.launch {
             _aiState.value = com.saydlawy.sahab.data.ai.AiGenerationState.Loading
@@ -178,11 +187,12 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
             }
 
             if (fromRoom != null) {
+                _isAdminLocked.value = fromRoom.plotSource == "admin_locked"
                 var currentDetails = fromRoom.toMovieDetails()
                 _state.update { DetailUiState(loading = false, data = currentDetails) }
 
                 // 2. Background TMDB enrichment (Admin-only) if needed or if plot is missing in Room
-                if (container.authManager.isAdmin && (fromRoom.needsEnrichment == 1 || currentDetails.plot.isBlank())) {
+                if (container.authManager.isAdmin && fromRoom.plotSource != "admin_locked" && (fromRoom.needsEnrichment == 1 || currentDetails.plot.isBlank())) {
                     try {
                         container.catalogSync.enrichOne(container.repo, container.tmdb, id)
                         val updated = withContext(Dispatchers.IO) {
@@ -318,12 +328,99 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                         runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
                     }
                     if (updated != null) {
+                        _isAdminLocked.value = updated.plotSource == "admin_locked"
                         _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
+            } finally {
+                _refreshingMetadata.value = false
+            }
+        }
+    }
+
+    fun clearAdminSaveMessage() {
+        _adminSaveMessage.value = null
+    }
+
+    fun loadAvailableGenres() {
+        viewModelScope.launch {
+            _availableGenres.value = container.catalogSync.getAvailableGenres("movie")
+        }
+    }
+
+    fun saveAdminCatalogEdit(
+        title: String,
+        posterUrl: String,
+        genre: String,
+        lockItem: Boolean,
+    ) {
+        if (_refreshingMetadata.value) return
+        val current = _state.value.data
+        viewModelScope.launch {
+            _refreshingMetadata.value = true
+            try {
+                val res = container.catalogSync.applyAdminCatalogEdit(
+                    streamId = id,
+                    mediaType = "movie",
+                    titleAr = title,
+                    posterUrl = posterUrl,
+                    genre = genre,
+                    lockItem = lockItem,
+                    fallbackTitle = current?.name.orEmpty(),
+                    fallbackPoster = current?.image.orEmpty(),
+                    fallbackBackdrop = current?.backdrop.orEmpty(),
+                    fallbackPlot = current?.plot.orEmpty(),
+                    fallbackYear = current?.year.orEmpty(),
+                    fallbackCast = current?.cast.orEmpty(),
+                    fallbackDirector = current?.director.orEmpty(),
+                    fallbackRating = current?.rating.orEmpty(),
+                    fallbackRuntime = current?.duration.orEmpty(),
+                    fallbackExt = current?.ext.orEmpty(),
+                    fallbackPosters = current?.posterUrls.orEmpty(),
+                )
+                val updated = withContext(Dispatchers.IO) {
+                    runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
+                }
+                if (updated != null) {
+                    _isAdminLocked.value = updated.plotSource == "admin_locked"
+                    _state.update { DetailUiState(loading = false, data = updated.toMovieDetails()) }
+                }
+                _adminSaveMessage.value = when {
+                    res.pushedToCloud && lockItem -> "تم الحفظ والقفل 🔒 والمزامنة للسحابة لجميع المستخدمين"
+                    res.pushedToCloud -> "تم الحفظ والمزامنة للسحابة لجميع المستخدمين"
+                    else -> "تم الحفظ محلياً (سيُرفع للسحابة عند توفر الاتصال)"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _adminSaveMessage.value = "تعذر الحفظ: ${e.userMessage()}"
+            } finally {
+                _refreshingMetadata.value = false
+            }
+        }
+    }
+
+    fun setAdminLock(locked: Boolean) {
+        if (_refreshingMetadata.value) return
+        viewModelScope.launch {
+            _refreshingMetadata.value = true
+            try {
+                val res = container.catalogSync.setAdminCatalogLock(id, "movie", locked)
+                if (res.savedInRoom) {
+                    _isAdminLocked.value = locked
+                    _adminSaveMessage.value = if (locked) {
+                        if (res.pushedToCloud) "تم قفل العنصر 🔒 ومنع التعديل التلقائي" else "تم القفل محلياً 🔒"
+                    } else {
+                        if (res.pushedToCloud) "تم فك القفل 🔓" else "تم فك القفل محلياً 🔓"
+                    }
+                } else {
+                    _adminSaveMessage.value = res.cloudError.ifBlank { "احفظ تعديلاً أولاً لتفعيل القفل" }
+                }
+            } catch (e: CancellationException) {
+                throw e
             } finally {
                 _refreshingMetadata.value = false
             }
