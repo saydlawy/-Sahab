@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.ui.browse
 
+import kotlinx.coroutines.isActive
+
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

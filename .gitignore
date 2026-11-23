@@ -54,3 +54,5 @@ sahab_project_code.txt
 _unread_bundle/
 docs/agent-2/
 engineering-audit/
+sahab_*.txt
+*.bak.*
