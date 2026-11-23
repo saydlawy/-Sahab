@@ -433,8 +433,8 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                 if (updated != null) {
                     _isAdminLocked.value = updated.plotSource == "admin_locked"
                     val relEpisodes = withContext(Dispatchers.IO) {
-                        runCatching { container.catalogDb.relationalDao().getSeriesEpisodes(id) }.getOrDefault(emptyList())
-                    }.map { toUiEpisode(it) }
+                        runCatching { container.catalogDb.relationalDao().getAllEpisodesForSeries(id).toEpisodes() }.getOrDefault(emptyList())
+                    }
                     _state.update { DetailUiState(loading = false, data = updated.toSeriesDetails(relEpisodes)) }
                 }
                 _adminSaveMessage.value = when {
