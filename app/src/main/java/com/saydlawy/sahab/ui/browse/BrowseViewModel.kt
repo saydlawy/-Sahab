@@ -393,7 +393,9 @@ class BrowseViewModel(
     private fun loadCategoryGroupsAsync(categories: List<Category>) {
         groupsJob?.cancel()
         groupsJob = viewModelScope.launch {
-            val groups = buildRoomCategoryGroups(categories)
+            val groups = buildRoomCategoryGroups(categories) { firstBatch ->
+                _state.update { it.copy(categoryGroups = firstBatch) }
+            }
             _state.update { it.copy(categoryGroups = groups) }
         }
     }
@@ -402,6 +404,7 @@ class BrowseViewModel(
         cats: List<Category>,
         maxGroups: Int = Int.MAX_VALUE,
         itemsPerGroup: Int = Int.MAX_VALUE,
+        onFirstBatch: ((List<CategoryPosterGroup>) -> Unit)? = null,
     ): List<CategoryPosterGroup> = withContext(Dispatchers.IO) {
         val providerAll = ensureProviderAllLoaded()
         val providerByCat = HashMap<String, MutableList<Poster>>()
@@ -440,6 +443,9 @@ class BrowseViewModel(
             }
             if (list.isNotEmpty()) {
                 result.add(CategoryPosterGroup(cat, list))
+                if (onFirstBatch != null && result.size == 6) {
+                    onFirstBatch(result.toList())
+                }
             }
         }
         result

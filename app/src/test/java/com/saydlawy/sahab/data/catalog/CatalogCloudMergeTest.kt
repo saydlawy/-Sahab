@@ -52,6 +52,12 @@ class CatalogCloudMergeTest {
                     val tids = (args?.getOrNull(0) as? List<Int> ?: emptyList()).toSet()
                     stored.values.filter { it.tmdbId != null && it.tmdbId in tids }
                 }
+                "findByStreamIds" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val sids = (args?.getOrNull(0) as? List<String> ?: emptyList()).toSet()
+                    val mtype = args?.getOrNull(1) as? String ?: ""
+                    stored.values.filter { it.mediaType == mtype && it.novaStreamId in sids }
+                }
                 "upsertAll" -> {
                     @Suppress("UNCHECKED_CAST")
                     val items = args?.getOrNull(0) as? List<CatalogMovieEntity> ?: emptyList()
