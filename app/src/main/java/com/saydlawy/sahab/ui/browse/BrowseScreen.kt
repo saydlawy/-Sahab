@@ -107,6 +107,23 @@ fun BrowseScreen(
     }
 
     val rawItems = state.visibleItems
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var resumeTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                resumeTick++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(rawItems.firstOrNull()?.id, rawItems.size, state.selectedId, state.query, resumeTick) {
+        val prefetchIds = rawItems.take(16).map { it.id }
+        if (prefetchIds.isNotEmpty()) {
+            vm.refreshAndEnrichVisiblePosters(prefetchIds)
+        }
+    }
     val isSpecialCategory = state.searchResults == null &&
         (state.selectedId == RECENTS_CAT_ID || state.selectedId == FAV_CAT_ID)
     val specialItems by produceState(

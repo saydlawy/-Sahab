@@ -78,6 +78,7 @@ class CatalogSync(
 
     private val _bgEnrichStatus = MutableStateFlow(BackgroundEnrichStatus())
     val bgEnrichStatus: StateFlow<BackgroundEnrichStatus> = _bgEnrichStatus
+    private val lastEnrichNotifyAtMs = java.util.concurrent.atomic.AtomicLong(0L)
 
     fun reportBackgroundEnrichProgress(
         done: Int,
@@ -101,7 +102,16 @@ class CatalogSync(
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
         val notifId = 4092
         if (!active || total <= 0) {
+            lastEnrichNotifyAtMs.set(0L)
             nm.cancel(notifId)
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        val prevMs = lastEnrichNotifyAtMs.get()
+        if (done < total && prevMs > 0L && (nowMs - prevMs) < 1_000L) {
+            return
+        }
+        if (done < total && !lastEnrichNotifyAtMs.compareAndSet(prevMs, nowMs)) {
             return
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&

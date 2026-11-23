@@ -195,6 +195,78 @@ class BrowseViewModel(
         }
     }
 
+    private var viewportEnrichJob: Job? = null
+    private val viewportEnrichSemaphore = kotlinx.coroutines.sync.Semaphore(2)
+
+    fun refreshAndEnrichVisiblePosters(visibleIds: List<String>) {
+        val targetIds = visibleIds.asSequence().filter { it.isNotBlank() }.distinct().take(24).toList()
+        if (targetIds.isEmpty()) return
+        viewportEnrichJob?.cancel()
+        viewportEnrichJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(140L)
+            val currentItems = _state.value.items
+            if (currentItems.isEmpty()) return@launch
+            val idSet = targetIds.toHashSet()
+            val targetPosters = currentItems.filter { it.id in idSet }
+            if (targetPosters.isEmpty()) return@launch
+
+            val roomRefreshed = enrichSliceWithRoom(targetPosters).associateBy { it.id }
+            applyPosterUpdates(roomRefreshed)
+
+            val missingIds = withContext(Dispatchers.IO) {
+                targetIds.chunked(450).flatMap { chunk ->
+                    runCatching { dao.findByStreamIds(chunk, mediaType) }.getOrNull().orEmpty()
+                }.filter { row ->
+                    row.needsEnrichment == 1 || (row.rating.isBlank() && row.year.isBlank() && row.genre.isBlank())
+                }.map { it.novaStreamId }.distinct().take(12)
+            }
+            if (missingIds.isEmpty()) return@launch
+
+            withContext(Dispatchers.IO) {
+                for (streamId in missingIds) {
+                    if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
+                    viewportEnrichSemaphore.acquire()
+                    try {
+                        runCatching {
+                            container.catalogSync.enrichOne(
+                                repo = repo,
+                                tmdb = container.tmdb,
+                                streamId = streamId,
+                                force = false,
+                                mediaType = mediaType,
+                            )
+                        }
+                    } finally {
+                        viewportEnrichSemaphore.release()
+                    }
+                }
+            }
+
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
+            val afterEnrich = enrichSliceWithRoom(
+                _state.value.items.filter { it.id in idSet },
+            ).associateBy { it.id }
+            applyPosterUpdates(afterEnrich)
+        }
+    }
+
+    private fun applyPosterUpdates(updatedById: Map<String, Poster>) {
+        if (updatedById.isEmpty()) return
+        _state.update { state ->
+            var changed = false
+            val nextItems = state.items.map { poster ->
+                val updated = updatedById[poster.id]
+                if (updated != null && updated != poster) {
+                    changed = true
+                    updated
+                } else {
+                    poster
+                }
+            }
+            if (changed) state.copy(items = nextItems) else state
+        }
+    }
+
     private suspend fun enrichSliceWithRoom(slice: List<Poster>): List<Poster> = withContext(Dispatchers.IO) {
         if (slice.isEmpty()) return@withContext emptyList()
         val roomByStream = HashMap<String, CatalogMovieEntity>(slice.size)
