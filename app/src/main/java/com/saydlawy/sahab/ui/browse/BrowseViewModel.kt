@@ -68,6 +68,7 @@ class BrowseViewModel(
     private val dao = container.catalogDb.movieDao()
     private val relationalDao = container.catalogDb.relationalDao()
     private val mediaType = if (series) "series" else "movie"
+    @Volatile private var roomHasCatalog: Boolean = false
 
     private val _state = MutableStateFlow(BrowseUiState(query = initialQuery))
     val state = _state.asStateFlow()
@@ -199,7 +200,6 @@ class BrowseViewModel(
     }
 
     private var viewportEnrichJob: Job? = null
-    private val viewportEnrichSemaphore = kotlinx.coroutines.sync.Semaphore(2)
 
     fun refreshAndEnrichVisiblePosters(visibleIds: List<String>) {
         val targetIds = visibleIds.asSequence().filter { it.isNotBlank() }.distinct().take(24).toList()
@@ -215,41 +215,6 @@ class BrowseViewModel(
 
             val roomRefreshed = enrichSliceWithRoom(targetPosters).associateBy { it.id }
             applyPosterUpdates(roomRefreshed)
-
-            val missingIds = withContext(Dispatchers.IO) {
-                targetIds.chunked(450).flatMap { chunk ->
-                    runCatching { dao.findByStreamIds(chunk, mediaType) }.getOrNull().orEmpty()
-                }.filter { row ->
-                    row.needsEnrichment == 1 || (row.rating.isBlank() && row.year.isBlank() && row.genre.isBlank())
-                }.map { it.novaStreamId }.distinct().take(12)
-            }
-            if (missingIds.isEmpty()) return@launch
-
-            withContext(Dispatchers.IO) {
-                for (streamId in missingIds) {
-                    if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
-                    viewportEnrichSemaphore.acquire()
-                    try {
-                        runCatching {
-                            container.catalogSync.enrichOne(
-                                repo = repo,
-                                tmdb = container.tmdb,
-                                streamId = streamId,
-                                force = false,
-                                mediaType = mediaType,
-                            )
-                        }
-                    } finally {
-                        viewportEnrichSemaphore.release()
-                    }
-                }
-            }
-
-            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
-            val afterEnrich = enrichSliceWithRoom(
-                _state.value.items.filter { it.id in idSet },
-            ).associateBy { it.id }
-            applyPosterUpdates(afterEnrich)
         }
     }
 
@@ -371,8 +336,9 @@ class BrowseViewModel(
                     }
                 }
 
+                roomHasCatalog = roomTotal > 0
                 // Avoid loading full provider catalog into RAM when Room is already populated
-                val providerAll = if (roomTotal > 0 && missingMeta == 0) {
+                val providerAll = if (roomHasCatalog) {
                     emptyList()
                 } else {
                     ensureProviderAllLoaded()
@@ -712,11 +678,9 @@ class BrowseViewModel(
         alreadyLoadedCount: Int = 0,
     ): Pair<List<Poster>, Boolean> {
         // Room-first pagination: read directly from SQLite without loading full provider list into RAM
-        if (categoryId != UNCATEGORIZED_CAT_ID && providerAllCache.isEmpty()) {
+        if (categoryId != UNCATEGORIZED_CAT_ID && providerAllCache.isEmpty() && roomHasCatalog) {
             val roomPage = loadRoomPageAndAdvanceCursor(categoryId = categoryId, limit = limit)
-            if (roomPage.isNotEmpty() || alreadyLoadedCount > 0) {
-                return roomPage to (roomPage.size >= limit)
-            }
+            return roomPage to (roomPage.size >= limit)
         }
 
         val fullSource = resolveProviderSourceForCategory(categoryId)

@@ -181,8 +181,8 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 var currentDetails = fromRoom.toMovieDetails()
                 _state.update { DetailUiState(loading = false, data = currentDetails) }
 
-                // 2. Background enrichment if needed or if plot is missing in Room
-                if (fromRoom.needsEnrichment == 1 || currentDetails.plot.isBlank()) {
+                // 2. Background TMDB enrichment (Admin-only) if needed or if plot is missing in Room
+                if (container.authManager.isAdmin && (fromRoom.needsEnrichment == 1 || currentDetails.plot.isBlank())) {
                     try {
                         container.catalogSync.enrichOne(container.repo, container.tmdb, id)
                         val updated = withContext(Dispatchers.IO) {

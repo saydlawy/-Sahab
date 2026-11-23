@@ -143,7 +143,6 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
 
                 if (remote != null) {
                     val now = System.currentTimeMillis()
-                    val encodedEpisodes = encodeEpisodesJson(remote.episodes)
                     withContext(Dispatchers.IO) {
                         runCatching {
                             if (remote.episodes.isNotEmpty()) {
@@ -166,11 +165,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                                     now = now,
                                 )
                             }
-                            if (roomEntity != null) {
-                                if (encodedEpisodes.isNotBlank()) {
-                                    dao.updateSeriesEpisodes(id, encodedEpisodes, now)
-                                }
-                            } else {
+                            if (roomEntity == null) {
                                 val newEntity = CatalogMovieEntity(
                                     sahabId = CatalogMovieEntity.idPending(id, "series"),
                                     novaStreamId = id,
@@ -184,7 +179,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                                     posterUrl = remote.cover,
                                     backdropUrl = remote.backdrop,
                                     trailerUrl = remote.trailerUrl,
-                                    episodesJson = encodedEpisodes,
+                                    episodesJson = "",
                                     needsEnrichment = if (remote.plot.isNotBlank() && remote.backdrop.isNotBlank()) 0 else 1,
                                     lastSeen = now,
                                     deleted = 0,
@@ -212,7 +207,7 @@ class SeriesDetailViewModel(private val container: AppContainer, private val id:
                     currentEntity.needsEnrichment == 1 ||
                     currentEntity.plot.isBlank() ||
                     currentEntity.backdropUrl.isBlank()
-                if (needsMeta) {
+                if (needsMeta && container.authManager.isAdmin) {
                     runCatching {
                         container.catalogSync.enrichOne(
                             repo = container.repo,
