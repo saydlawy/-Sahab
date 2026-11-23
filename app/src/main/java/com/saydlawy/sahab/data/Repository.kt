@@ -532,8 +532,10 @@ class Repository(
                     val filtered = withContext(Dispatchers.Default) {
                         all.filter { it.categoryId == categoryId }
                     }
-                    putTypedCache(key, channelListSerializer, filtered)
-                    return filtered
+                    if (filtered.isNotEmpty()) {
+                        putTypedCache(key, channelListSerializer, filtered)
+                        return filtered
+                    }
                 }
             }
         }
