@@ -3,6 +3,7 @@ package com.saydlawy.sahab.feature.instantwatch.player
 import android.content.Context
 import com.saydlawy.sahab.feature.instantwatch.data.ImdbResolver
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaItem
+import com.saydlawy.sahab.feature.instantwatch.data.OnlineSubtitleFetcher
 import com.saydlawy.sahab.feature.instantwatch.data.SubtitleRepository
 import com.saydlawy.sahab.feature.instantwatch.data.TmdbRepository
 import com.saydlawy.sahab.feature.instantwatch.data.VidLinkRepository
@@ -51,6 +52,7 @@ class PlayerSessionManager(
     val imdbResolver = ImdbResolver(tmdbRepository, tmdbApiKey)
     val vidLinkRepository = VidLinkRepository(securityPolicy)
     val subtitleRepository = SubtitleRepository(okHttpClient, securityPolicy, openSubtitlesApiKey)
+    val onlineSubtitleFetcher = OnlineSubtitleFetcher(okHttpClient)
 
     val inputResolver = InputResolver(authGate, tmdbRepository, imdbResolver)
     val subtitleManager = SubtitleManager(preferences, subtitleRepository)

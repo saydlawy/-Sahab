@@ -86,6 +86,26 @@ class PlaybackOrchestrator(
             durationMs = saved?.durationMs ?: 0L,
         )
 
+        if (preferences.settings.value.saveProgressLocally) {
+            historyDao.upsert(
+                InstantWatchHistoryEntity(
+                    contentKey = request.item.contentKey,
+                    tmdbId = request.item.tmdbId,
+                    imdbId = request.item.imdbId,
+                    mediaType = if (request.item.mediaType == InstantMediaType.TV) "tv" else "movie",
+                    title = request.item.title,
+                    originalTitle = request.item.originalTitle,
+                    releaseYear = request.item.releaseYear,
+                    posterUrl = request.item.posterUrl,
+                    seasonNumber = request.seasonNumber,
+                    episodeNumber = request.episodeNumber,
+                    positionMs = resumePos,
+                    durationMs = saved?.durationMs ?: 0L,
+                    lastWatchedAt = System.currentTimeMillis(),
+                )
+            )
+        }
+
         return OrchestrationResult.Ready(
             item = request.item,
             seasonNumber = request.seasonNumber,
