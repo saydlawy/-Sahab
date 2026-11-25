@@ -170,12 +170,28 @@ fun IsolatedPlayerWebView(
                     if (onStreamSniffed != null && !alreadySniffed) {
                         val reqUrl = request.url?.toString().orEmpty()
                         val lower = reqUrl.lowercase()
-                        val isVideoStream = (
-                            lower.contains("m3u8") ||
+                        val pathPart = lower.substringBefore('?')
+                        val isNonVideoAsset =
+                            pathPart.endsWith(".json") ||
+                            pathPart.endsWith(".webmanifest") ||
+                            pathPart.endsWith(".js") ||
+                            pathPart.endsWith(".css") ||
+                            pathPart.endsWith(".png") ||
+                            pathPart.endsWith(".jpg") ||
+                            pathPart.endsWith(".jpeg") ||
+                            pathPart.endsWith(".webp") ||
+                            pathPart.endsWith(".svg") ||
+                            pathPart.endsWith(".ico") ||
+                            pathPart.endsWith(".woff") ||
+                            pathPart.endsWith(".woff2") ||
+                            pathPart.endsWith(".vtt") ||
+                            pathPart.endsWith(".srt")
+                        val isVideoStream = !isNonVideoAsset && (
+                            lower.contains(".m3u8") ||
+                            lower.contains("m3u8?") ||
                             lower.contains("master.txt") ||
-                            lower.contains("playlist") ||
-                            lower.contains("manifest") ||
-                            lower.contains(".mp4")
+                            lower.contains(".mp4") ||
+                            lower.contains(".mpd")
                         ) &&
                             !lower.contains("google") &&
                             !lower.contains("doubleclick") &&
