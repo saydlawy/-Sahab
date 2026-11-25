@@ -4,7 +4,10 @@ import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaType
 
 enum class EmbedServer(val label: String) {
     VIDLINK("VidLink"),
-    VIDSRC("VidSrc");
+    VIDSRC("VidSrc"),
+    EMBED_SU("Embed.su"),
+    AUTOEMBED("AutoEmbed"),
+    TWO_EMBED("2Embed");
 
     fun buildUrl(
         defaultVidLinkUrl: String,
@@ -22,6 +25,21 @@ enum class EmbedServer(val label: String) {
                 "https://vidsrc.cc/v2/embed/tv/$tmdbId/$s/$e"
             } else {
                 "https://vidsrc.cc/v2/embed/movie/$tmdbId"
+            }
+            EMBED_SU -> if (isTv) {
+                "https://embed.su/embed/tv/$tmdbId/$s/$e"
+            } else {
+                "https://embed.su/embed/movie/$tmdbId"
+            }
+            AUTOEMBED -> if (isTv) {
+                "https://player.autoembed.cc/embed/tv/$tmdbId/$s/$e"
+            } else {
+                "https://player.autoembed.cc/embed/movie/$tmdbId"
+            }
+            TWO_EMBED -> if (isTv) {
+                "https://www.2embed.cc/embedtv/$tmdbId&s=$s&e=$e"
+            } else {
+                "https://www.2embed.cc/embed/$tmdbId"
             }
         }
     }
