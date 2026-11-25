@@ -283,9 +283,13 @@ fun InstantPlayerScreen(
                     scope.launch {
                         onlineSearching = true
                         onlineStatus = "جارٍ البحث عن ترجمة عربية..."
+                        val resolvedImdbId = session.item.imdbId?.takeIf { it.isNotBlank() }
+                            ?: sessionManager.tmdbRepository
+                                .getDetails(session.item.tmdbId, session.item.mediaType)
+                                ?.imdbId
                         val found = sessionManager.onlineSubtitleFetcher.searchArabic(
                             tmdbId = session.item.tmdbId,
-                            imdbId = session.item.imdbId,
+                            imdbId = resolvedImdbId,
                             seasonNumber = session.seasonNumber,
                             episodeNumber = session.episodeNumber,
                         )
