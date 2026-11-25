@@ -140,6 +140,7 @@ class StreamSecurityPolicy(
             "embed.su",
             "player.autoembed.cc",
             "autoembed.cc",
+            "autoembed.sbs",
             "2embed.cc",
             "www.2embed.cc",
             "tmdb.org",

@@ -32,9 +32,9 @@ enum class EmbedServer(val label: String) {
                 "https://embed.su/embed/movie/$tmdbId"
             }
             AUTOEMBED -> if (isTv) {
-                "https://player.autoembed.cc/embed/tv/$tmdbId/$s/$e"
+                "https://autoembed.sbs/embed/tv/$tmdbId/$s/$e/"
             } else {
-                "https://player.autoembed.cc/embed/movie/$tmdbId"
+                "https://autoembed.sbs/embed/movie/$tmdbId/"
             }
             TWO_EMBED -> if (isTv) {
                 "https://www.2embed.cc/embedtv/$tmdbId&s=$s&e=$e"
