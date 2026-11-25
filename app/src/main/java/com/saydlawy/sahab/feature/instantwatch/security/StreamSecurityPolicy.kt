@@ -137,11 +137,6 @@ class StreamSecurityPolicy(
         val DEFAULT_TRUSTED_PLAYER_HOSTS = setOf(
             "vidlink.pro",
             "vidsrc.cc",
-            "embed.su",
-            "player.autoembed.cc",
-            "autoembed.cc",
-            "2embed.cc",
-            "www.2embed.cc",
             "tmdb.org",
             "themoviedb.org",
             "opensubtitles.com",

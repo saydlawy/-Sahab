@@ -121,8 +121,13 @@ fun InstantPlayerScreen(
 
     var selectedServer by remember(session) { mutableStateOf(EmbedServer.VIDLINK) }
     var showServerPanel by remember { mutableStateOf(false) }
+    var showEnginePanel by remember { mutableStateOf(false) }
+    var useExoPlayer by remember(session, selectedServer) { mutableStateOf(false) }
+    var sniffedStream by remember(session, selectedServer, reloadKey) { mutableStateOf<SniffedStream?>(null) }
+    var exoStatusMessage by remember(session, selectedServer, reloadKey) { mutableStateOf<String?>(null) }
     val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed
     val serverPanelFocus = remember { FocusRequester() }
+    val enginePanelFocus = remember { FocusRequester() }
     val subtitlePanelFocus = remember { FocusRequester() }
 
     // True full-screen (hide system status & navigation bars while playing)
@@ -143,8 +148,15 @@ fun InstantPlayerScreen(
         when {
             showSubtitlePanel -> showSubtitlePanel = false
             showServerPanel -> showServerPanel = false
+            showEnginePanel -> showEnginePanel = false
             !showTopBar -> showTopBar = true
             else -> onClose()
+        }
+    }
+
+    LaunchedEffect(showEnginePanel) {
+        if (showEnginePanel) {
+            runCatching { enginePanelFocus.requestFocus() }
         }
     }
 
@@ -252,26 +264,53 @@ fun InstantPlayerScreen(
                             episodeNumber = session.episodeNumber,
                         )
                     }
-                    IsolatedPlayerWebView(
-                        embedUrl = activeEmbedUrl,
-                        reloadKey = reloadKey,
-                        navigationGuard = sessionManager.navigationGuard,
-                        securityPolicy = sessionManager.webViewSecurityPolicy,
-                        securityMonitor = sessionManager.securityMonitor,
-                        onPlaybackError = { err -> errorMessage = err },
-                        onStreamSniffed = null,
-                        onPlaybackSync = { sync ->
-                            autoSyncActive = true
-                            playbackPosMs = sync.positionMs
-                            embedTimerRunning = sync.isPlaying
-                            val now = System.currentTimeMillis()
-                            if (sync.durationMs > 60_000L && sync.positionMs > 0L && now - lastSavedProgressAt > 10_000L) {
-                                lastSavedProgressAt = now
-                                onProgressUpdate(sync.positionMs, sync.durationMs)
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    val captured = sniffedStream
+                    if (useExoPlayer && captured != null) {
+                        NativeMedia3Player(
+                            streamUrl = captured.url,
+                            subtitle = null,
+                            resumePositionMs = playbackPosMs.takeIf { it > 0L } ?: session.resumePositionMs,
+                            onProgressUpdate = { pos, dur ->
+                                playbackPosMs = pos
+                                onProgressUpdate(pos, dur)
+                            },
+                            onPlaybackError = { err ->
+                                exoStatusMessage = "رفض السيرفر التشغيل في ExoPlayer: $err"
+                                useExoPlayer = false
+                                showEnginePanel = true
+                            },
+                            headers = captured.headers,
+                            onPositionTick = { pos ->
+                                autoSyncActive = true
+                                playbackPosMs = pos
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        IsolatedPlayerWebView(
+                            embedUrl = activeEmbedUrl,
+                            reloadKey = reloadKey,
+                            navigationGuard = sessionManager.navigationGuard,
+                            securityPolicy = sessionManager.webViewSecurityPolicy,
+                            securityMonitor = sessionManager.securityMonitor,
+                            onPlaybackError = { err -> errorMessage = err },
+                            onStreamSniffed = { stream ->
+                                sniffedStream = stream
+                                exoStatusMessage = null
+                            },
+                            onPlaybackSync = { sync ->
+                                autoSyncActive = true
+                                playbackPosMs = sync.positionMs
+                                embedTimerRunning = sync.isPlaying
+                                val now = System.currentTimeMillis()
+                                if (sync.durationMs > 60_000L && sync.positionMs > 0L && now - lastSavedProgressAt > 10_000L) {
+                                    lastSavedProgressAt = now
+                                    onProgressUpdate(sync.positionMs, sync.durationMs)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 is ResolvedPlaybackSource.Rejected -> {
                     errorMessage = src.reason
@@ -325,12 +364,27 @@ fun InstantPlayerScreen(
                     )
                     if (isEmbedSource) {
                         CompactBarChip(
+                            label = if (useExoPlayer) "المشغل: Exo ✓" else if (sniffedStream != null) "المشغل: Web • Exo جاهز" else "المشغل: WebView",
+                            bgColor = if (useExoPlayer) Color(0xFF065F46) else Color(0xFF1E3A8A),
+                            textColor = if (useExoPlayer) Color(0xFF6EE7B7) else Color(0xFFBFDBFE),
+                            onClick = {
+                                showEnginePanel = !showEnginePanel
+                                if (showEnginePanel) {
+                                    showServerPanel = false
+                                    showSubtitlePanel = false
+                                }
+                            },
+                        )
+                        CompactBarChip(
                             label = "سيرفر: ${selectedServer.label}",
                             bgColor = Color(0xFF312E81),
                             textColor = Color(0xFFC7D2FE),
                             onClick = {
                                 showServerPanel = !showServerPanel
-                                if (showServerPanel) showSubtitlePanel = false
+                                if (showServerPanel) {
+                                    showEnginePanel = false
+                                    showSubtitlePanel = false
+                                }
                             },
                         )
                     }
@@ -364,6 +418,140 @@ fun InstantPlayerScreen(
                     .align(Alignment.TopEnd)
                     .padding(8.dp),
             )
+        }
+
+        if (showEnginePanel && isEmbedSource) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 16.dp)
+                    .widthIn(max = 360.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xF50F172A))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "اختر مشغل الفيديو",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    CompactBarChip(
+                        label = "إغلاق",
+                        bgColor = Color(0xFF1E293B),
+                        textColor = Color(0xFF60A5FA),
+                        onClick = { showEnginePanel = false },
+                    )
+                }
+
+                // Option 1: WebView
+                run {
+                    val active = !useExoPlayer
+                    var focused by remember { mutableStateOf(false) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(enginePanelFocus)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(
+                                width = if (focused) 2.dp else 0.dp,
+                                color = if (focused) Color(0xFF60A5FA) else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .background(if (active) Color(0xFF2563EB) else if (focused) Color(0xFF334155) else Color(0xFF1E293B))
+                            .onFocusChanged { focused = it.isFocused }
+                            .focusable()
+                            .clickable {
+                                useExoPlayer = false
+                                showEnginePanel = false
+                            }
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = if (active) "مشغل الويب المحمي (WebView)  ✓" else "مشغل الويب المحمي (WebView)",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "الأكثر استقراراً مع السيرفرات المحمية + مزامنة تلقائية للترجمة وحظر للإعلانات.",
+                            color = Color(0xFFCBD5E1),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+
+                // Option 2: ExoPlayer
+                run {
+                    val active = useExoPlayer
+                    val ready = sniffedStream != null
+                    var focused by remember { mutableStateOf(false) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(
+                                width = if (focused) 2.dp else 0.dp,
+                                color = if (focused) Color(0xFF60A5FA) else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .background(if (active) Color(0xFF059669) else if (focused) Color(0xFF334155) else Color(0xFF1E293B))
+                            .onFocusChanged { focused = it.isFocused }
+                            .focusable()
+                            .clickable {
+                                if (ready) {
+                                    exoStatusMessage = null
+                                    useExoPlayer = true
+                                    showEnginePanel = false
+                                } else {
+                                    exoStatusMessage = "شغّل الفيديو في WebView لثوانٍ أولاً حتى يتم التقاط رابط البث (.m3u8)."
+                                }
+                            }
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = when {
+                                active -> "المشغل الأصلي (ExoPlayer)  ✓"
+                                ready -> "المشغل الأصلي (ExoPlayer) — جاهز ✓"
+                                else -> "المشغل الأصلي (ExoPlayer) — بانتظار الرابط"
+                            },
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = if (ready) {
+                                "تم التقاط رابط البث المباشر مع الـ Cookies. اضغط للتبديل إلى ExoPlayer."
+                            } else {
+                                "ينتظر التقاط رابط البث (.m3u8) من السيرفر؛ ابدأ تشغيل الفيديو في WebView ثم جرّب التبديل."
+                            },
+                            color = if (ready) Color(0xFFA7F3D0) else Color(0xFF94A3B8),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+
+                if (!exoStatusMessage.isNullOrBlank()) {
+                    Text(
+                        text = exoStatusMessage.orEmpty(),
+                        color = Color(0xFFFCA5A5),
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF450A0A))
+                            .padding(8.dp),
+                    )
+                }
+            }
         }
 
         if (showServerPanel && isEmbedSource) {

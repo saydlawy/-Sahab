@@ -1,6 +1,7 @@
 package com.saydlawy.sahab.feature.instantwatch.player
 
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -169,7 +170,7 @@ fun IsolatedPlayerWebView(
                     if (onStreamSniffed != null && !alreadySniffed) {
                         val reqUrl = request.url?.toString().orEmpty()
                         val lower = reqUrl.lowercase()
-                        val isVideoStream = (lower.contains(".m3u8") || lower.contains(".mp4")) &&
+                        val isVideoStream = (lower.contains(".m3u8") || lower.contains("master.txt")) &&
                             !lower.contains("google") &&
                             !lower.contains("doubleclick") &&
                             !lower.contains("ads") &&
@@ -186,6 +187,14 @@ fun IsolatedPlayerWebView(
                                     k.equals("Cookie", true)
                                 ) {
                                     hdrs[k] = v
+                                }
+                            }
+                            if (!hdrs.containsKey("Cookie")) {
+                                val cookie = runCatching {
+                                    CookieManager.getInstance().getCookie(reqUrl)
+                                }.getOrNull()
+                                if (!cookie.isNullOrBlank()) {
+                                    hdrs["Cookie"] = cookie
                                 }
                             }
                             view?.post {
