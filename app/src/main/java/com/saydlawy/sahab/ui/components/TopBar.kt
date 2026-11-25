@@ -86,6 +86,7 @@ internal val NavTabs = listOf(
     NavTabItem(Routes.MOVIES, "الأفلام", Ic.Movie),
     NavTabItem(Routes.SERIES, "المسلسلات", Ic.Series),
     NavTabItem(Routes.FAVORITES, Ar.favorites, Ic.Heart),
+    NavTabItem(Routes.INSTANT_WATCH, "فورية", Ic.Play),
 )
 
 /** The rounded-square gradient tile with the Sahab cloud + play symbol. */

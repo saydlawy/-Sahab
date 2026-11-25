@@ -42,6 +42,7 @@ private val chromeTabs = listOf(
     ChromeTab(Routes.MOVIES, "الأفلام", Ic.Movie),
     ChromeTab(Routes.SERIES, "المسلسلات", Ic.Series),
     ChromeTab(Routes.FAVORITES, Ar.favorites, Ic.Heart),
+    ChromeTab(Routes.INSTANT_WATCH, "فورية", Ic.Play),
 )
 
 @Composable

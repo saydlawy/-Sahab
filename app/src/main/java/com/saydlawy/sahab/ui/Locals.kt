@@ -112,6 +112,7 @@ object Routes {
     const val SERIES = "series"
     const val FAVORITES = "favorites"
     const val SETTINGS = "settings"
+    const val INSTANT_WATCH = "instant_watch"
     const val PLAYER = "player"
     const val MOVIE_PATTERN = "movie/{id}"
     const val SERIES_PATTERN = "series/{id}"

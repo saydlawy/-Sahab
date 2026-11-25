@@ -32,6 +32,7 @@ import com.saydlawy.sahab.data.channel.ChannelDatabase
 import com.saydlawy.sahab.data.channel.ChannelSync
 import com.saydlawy.sahab.data.channel.EpgSync
 import com.saydlawy.sahab.data.TmdbApi
+import com.saydlawy.sahab.feature.instantwatch.player.PlayerSessionManager
 import com.saydlawy.sahab.data.XtreamApi
 import com.saydlawy.sahab.ui.player.SahabPlayer
 import kotlinx.coroutines.CancellationException
@@ -126,6 +127,13 @@ class AppContainer(context: Context) {
 
     val tmdb by lazy { TmdbApi(client, BuildConfig.TMDB_API_KEY, diskCache) }
     val repo by lazy { Repository(XtreamApi(client), tmdb, diskCache, prefs, channelDao = channelDb.channelDao(), okHttpClient = client) }
+    val instantWatchSessionManager by lazy {
+        PlayerSessionManager(
+            context = appContext,
+            okHttpClient = client,
+            tmdbApiKey = BuildConfig.TMDB_API_KEY,
+        )
+    }
 
     private val appExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         runCatching { android.util.Log.e("SahabApp", "Uncaught coroutine error", throwable) }

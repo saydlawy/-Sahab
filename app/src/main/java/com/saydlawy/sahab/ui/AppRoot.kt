@@ -81,6 +81,7 @@ import com.saydlawy.sahab.ui.live.LiveScreen
 import com.saydlawy.sahab.ui.login.LoginScreen
 import com.saydlawy.sahab.ui.login.CloudLoginScreen
 import com.saydlawy.sahab.ui.player.PlayerScreen
+import com.saydlawy.sahab.feature.instantwatch.presentation.InstantWatchScreen
 import com.saydlawy.sahab.ui.settings.SettingsScreen
 import androidx.activity.compose.BackHandler
 import com.saydlawy.sahab.ui.focus.FocusNavigationController
@@ -452,6 +453,13 @@ private fun AppNavHost(nav: NavHostController, container: AppContainer, start: S
             )
         }
         composable(Routes.PLAYER) { PlayerScreen(container = container, onBack = back) }
+        composable(Routes.INSTANT_WATCH) {
+            InstantWatchScreen(
+                sessionManager = container.instantWatchSessionManager,
+                onRequireLogin = { nav.navigate(Routes.CLOUD_LOGIN) },
+                onBack = back,
+            )
+        }
     }
 }
 

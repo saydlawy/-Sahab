@@ -74,6 +74,7 @@ import com.saydlawy.sahab.ui.Routes
 import com.saydlawy.sahab.ui.components.DotTitle
 import com.saydlawy.sahab.ui.components.GlassButton
 import com.saydlawy.sahab.ui.components.GlassCard
+import com.saydlawy.sahab.feature.instantwatch.presentation.InstantWatchSettingsPanel
 import com.saydlawy.sahab.ui.components.GlassPanel
 import com.saydlawy.sahab.ui.components.GlassTextField
 import com.saydlawy.sahab.ui.components.Ic
@@ -248,6 +249,14 @@ fun SettingsScreen(
                         onClick = { selectCat("data_flow") },
                     )
                     SettingsMenuItem(
+                        title = "المشاهدة الفورية",
+                        subtitle = "التفعيل، الترجمة العربية، وسجل المشاهدة",
+                        icon = Ic.Cloud,
+                        isSelected = selectedCategory == "instant_watch",
+                        itemKey = "settings_menu_instant_watch",
+                        onClick = { selectCat("instant_watch") },
+                    )
+                    SettingsMenuItem(
                         title = "الذكاء الاصطناعي (Gemini)",
                         subtitle = "إدارة مفاتيح توليد قصص الأفلام",
                         icon = Ic.Cloud,
@@ -330,6 +339,14 @@ fun SettingsScreen(
                         isSelected = false,
                         itemKey = "settings_menu_data_flow",
                         onClick = { selectCat("data_flow") },
+                    )
+                    SettingsMenuItem(
+                        title = "المشاهدة الفورية",
+                        subtitle = "التفعيل، الترجمة العربية، وسجل المشاهدة",
+                        icon = Ic.Cloud,
+                        isSelected = false,
+                        itemKey = "settings_menu_instant_watch",
+                        onClick = { selectCat("instant_watch") },
                     )
                     SettingsMenuItem(
                         title = "الذكاء الاصطناعي (Gemini)",
@@ -507,6 +524,7 @@ private fun SettingsDetailContent(
             homeCustomChannelIds = homeCustomChannelIds,
         )
         "data_flow" -> SettingsDataFlowPanel(container = container)
+        "instant_watch" -> InstantWatchSettingsPanel(sessionManager = container.instantWatchSessionManager)
         "cloud" -> {
             val cloudScope = androidx.compose.runtime.rememberCoroutineScope()
             val cloudBgStatus by container.catalogSync.bgEnrichStatus.collectAsStateWithLifecycle()
