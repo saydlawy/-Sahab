@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaType
 import com.saydlawy.sahab.feature.instantwatch.data.OnlineSubtitleOption
 import com.saydlawy.sahab.feature.instantwatch.data.SubtitleSourceFilter
+import com.saydlawy.sahab.feature.instantwatch.domain.EmbedServer
 import com.saydlawy.sahab.feature.instantwatch.domain.ResolvedPlaybackSource
 import com.saydlawy.sahab.feature.instantwatch.player.ActivePlaybackSession
 import com.saydlawy.sahab.feature.instantwatch.player.IsolatedPlayerWebView
@@ -92,6 +93,8 @@ fun InstantPlayerScreen(
     var subtitleFontSizeSp by remember { mutableIntStateOf(18) }
     var playbackPosMs by remember(session) { mutableLongStateOf(session.resumePositionMs) }
     var embedTimerRunning by remember(session) { mutableStateOf(false) }
+    var autoSyncActive by remember(session, reloadKey) { mutableStateOf(false) }
+    var lastSavedProgressAt by remember(session) { mutableLongStateOf(0L) }
 
     // Full subtitle control panel state
     var selectedSource by remember { mutableStateOf(SubtitleSourceFilter.ALL) }
@@ -105,13 +108,12 @@ fun InstantPlayerScreen(
     var previewText by remember(session) { mutableStateOf<String?>(null) }
     val downloadedCache = remember(session) { mutableStateMapOf<String, String>() }
 
-    var sniffedStream by remember(session, reloadKey) { mutableStateOf<SniffedStream?>(null) }
-    var nativeFallbackFailed by remember(session, reloadKey) { mutableStateOf(false) }
-    val usingSniffedNative = sniffedStream != null && !nativeFallbackFailed
-    val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed && !usingSniffedNative
+    var selectedServer by remember(session) { mutableStateOf(EmbedServer.VIDLINK) }
+    var showServerPanel by remember { mutableStateOf(false) }
+    val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed
 
-    LaunchedEffect(isEmbedSource, embedTimerRunning, subtitleCues.isNotEmpty()) {
-        if (isEmbedSource && embedTimerRunning && subtitleCues.isNotEmpty()) {
+    LaunchedEffect(isEmbedSource, embedTimerRunning, autoSyncActive, subtitleCues.isNotEmpty()) {
+        if (isEmbedSource && embedTimerRunning && !autoSyncActive && subtitleCues.isNotEmpty()) {
             while (true) {
                 delay(250L)
                 playbackPosMs += 250L
@@ -193,40 +195,35 @@ fun InstantPlayerScreen(
                     )
                 }
                 is ResolvedPlaybackSource.IsolatedEmbed -> {
-                    val activeSniffed = sniffedStream
-                    if (activeSniffed != null && !nativeFallbackFailed) {
-                        NativeMedia3Player(
-                            streamUrl = activeSniffed.url,
-                            subtitle = null,
-                            resumePositionMs = session.resumePositionMs,
-                            onProgressUpdate = { pos, dur ->
-                                playbackPosMs = pos
-                                onProgressUpdate(pos, dur)
-                            },
-                            onPlaybackError = {
-                                nativeFallbackFailed = true
-                                sniffedStream = null
-                            },
-                            headers = activeSniffed.headers,
-                            onPositionTick = { pos -> playbackPosMs = pos },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        IsolatedPlayerWebView(
-                            embedUrl = src.embedUrl,
-                            reloadKey = reloadKey,
-                            navigationGuard = sessionManager.navigationGuard,
-                            securityPolicy = sessionManager.webViewSecurityPolicy,
-                            securityMonitor = sessionManager.securityMonitor,
-                            onPlaybackError = { err -> errorMessage = err },
-                            onStreamSniffed = if (!nativeFallbackFailed) {
-                                { captured -> sniffedStream = captured }
-                            } else {
-                                null
-                            },
-                            modifier = Modifier.fillMaxSize(),
+                    val activeEmbedUrl = remember(src.embedUrl, selectedServer, session) {
+                        selectedServer.buildUrl(
+                            defaultVidLinkUrl = src.embedUrl,
+                            tmdbId = session.item.tmdbId,
+                            mediaType = session.item.mediaType,
+                            seasonNumber = session.seasonNumber,
+                            episodeNumber = session.episodeNumber,
                         )
                     }
+                    IsolatedPlayerWebView(
+                        embedUrl = activeEmbedUrl,
+                        reloadKey = reloadKey,
+                        navigationGuard = sessionManager.navigationGuard,
+                        securityPolicy = sessionManager.webViewSecurityPolicy,
+                        securityMonitor = sessionManager.securityMonitor,
+                        onPlaybackError = { err -> errorMessage = err },
+                        onStreamSniffed = null,
+                        onPlaybackSync = { sync ->
+                            autoSyncActive = true
+                            playbackPosMs = sync.positionMs
+                            embedTimerRunning = sync.isPlaying
+                            val now = System.currentTimeMillis()
+                            if (sync.durationMs > 60_000L && sync.positionMs > 0L && now - lastSavedProgressAt > 10_000L) {
+                                lastSavedProgressAt = now
+                                onProgressUpdate(sync.positionMs, sync.durationMs)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
                 is ResolvedPlaybackSource.Rejected -> {
                     errorMessage = src.reason
@@ -278,8 +275,19 @@ fun InstantPlayerScreen(
                         textColor = Color(0xFF93C5FD),
                         onClick = { showSubtitlePanel = !showSubtitlePanel },
                     )
+                    if (isEmbedSource) {
+                        CompactBarChip(
+                            label = "سيرفر: ${selectedServer.label}",
+                            bgColor = Color(0xFF312E81),
+                            textColor = Color(0xFFC7D2FE),
+                            onClick = {
+                                showServerPanel = !showServerPanel
+                                if (showServerPanel) showSubtitlePanel = false
+                            },
+                        )
+                    }
                     CompactBarChip(
-                        label = if (usingSniffedNative) "ExoPlayer ✓" else "حماية ${securityState.blockedCount}",
+                        label = "حماية ${securityState.blockedCount}",
                         bgColor = Color(0xFF064E3B),
                         textColor = Color(0xFF6EE7B7),
                         onClick = { showTopBar = false },
@@ -310,6 +318,61 @@ fun InstantPlayerScreen(
             )
         }
 
+        if (showServerPanel && isEmbedSource) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 16.dp)
+                    .widthIn(max = 320.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xF50F172A))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "اختر سيرفر التشغيل",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    CompactBarChip(
+                        label = "إغلاق",
+                        bgColor = Color(0xFF1E293B),
+                        textColor = Color(0xFF60A5FA),
+                        onClick = { showServerPanel = false },
+                    )
+                }
+                EmbedServer.entries.forEach { server ->
+                    val active = server == selectedServer
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (active) Color(0xFF2563EB) else Color(0xFF1E293B))
+                            .clickable {
+                                selectedServer = server
+                                showServerPanel = false
+                                errorMessage = null
+                                reloadKey++
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            text = if (active) "${server.label}  ✓" else server.label,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        }
+
         if (showSubtitlePanel) {
             SubtitleSyncControlPanel(
                 hasSubtitles = subtitleCues.isNotEmpty(),
@@ -319,6 +382,7 @@ fun InstantPlayerScreen(
                 fontSizeSp = subtitleFontSizeSp,
                 isEmbedSource = isEmbedSource,
                 embedTimerRunning = embedTimerRunning,
+                autoSyncActive = autoSyncActive,
                 selectedSource = selectedSource,
                 manualQuery = manualQuery,
                 onlineSearching = onlineSearching,
@@ -460,6 +524,7 @@ private fun SubtitleSyncControlPanel(
     fontSizeSp: Int,
     isEmbedSource: Boolean,
     embedTimerRunning: Boolean,
+    autoSyncActive: Boolean,
     selectedSource: SubtitleSourceFilter,
     manualQuery: String,
     onlineSearching: Boolean,
@@ -682,12 +747,24 @@ private fun SubtitleSyncControlPanel(
         }
 
         // Sync controls
-        Text(
-            text = "المزامنة: ${String.format("%+.1f", offsetSec)} ثانية",
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "المزامنة: ${String.format("%+.1f", offsetSec)} ثانية",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = if (autoSyncActive) "مزامنة تلقائية ✓" else "مؤقت يدوي",
+                color = if (autoSyncActive) Color(0xFF34D399) else Color(0xFFFBBF24),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -697,6 +774,15 @@ private fun SubtitleSyncControlPanel(
             SyncStepButton("0", Modifier.weight(1f), highlight = true) { onResetOffset() }
             SyncStepButton("+0.5ث", Modifier.weight(1f)) { onAdjustOffset(500L) }
             SyncStepButton("+2ث", Modifier.weight(1f)) { onAdjustOffset(2000L) }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SyncStepButton("-30ث", Modifier.weight(1f)) { onAdjustOffset(-30_000L) }
+            SyncStepButton("-10ث", Modifier.weight(1f)) { onAdjustOffset(-10_000L) }
+            SyncStepButton("+10ث", Modifier.weight(1f)) { onAdjustOffset(10_000L) }
+            SyncStepButton("+30ث", Modifier.weight(1f)) { onAdjustOffset(30_000L) }
         }
 
         // Font size

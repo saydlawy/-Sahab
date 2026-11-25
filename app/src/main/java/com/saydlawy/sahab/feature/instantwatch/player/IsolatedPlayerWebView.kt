@@ -2,6 +2,7 @@ package com.saydlawy.sahab.feature.instantwatch.player
 
 import android.view.ViewGroup
 import android.webkit.GeolocationPermissions
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -25,6 +26,62 @@ data class SniffedStream(
     val headers: Map<String, String>,
 )
 
+data class EmbedPlaybackSync(
+    val positionMs: Long,
+    val durationMs: Long,
+    val isPlaying: Boolean,
+)
+
+private const val SMART_SYNC_JS = """
+(function() {
+  if (window.__sahabSyncInstalled) return;
+  window.__sahabSyncInstalled = true;
+  var lastSent = 0;
+  function send(posSec, durSec, playing) {
+    if (!window.SahabSyncBridge || typeof posSec !== 'number' || isNaN(posSec) || posSec < 0) return;
+    var now = Date.now();
+    if (now - lastSent < 220) return;
+    lastSent = now;
+    var d = (typeof durSec === 'number' && isFinite(durSec) && durSec > 0) ? durSec : 0;
+    window.SahabSyncBridge.onTimeUpdate(Math.floor(posSec * 1000), Math.floor(d * 1000), !!playing);
+  }
+  window.addEventListener('message', function(e) {
+    try {
+      var msg = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+      if (!msg || typeof msg !== 'object') return;
+      var payload = msg.data || msg;
+      if (typeof payload.currentTime === 'number') {
+        var playing = payload.event !== 'pause' && payload.event !== 'ended';
+        send(payload.currentTime, payload.duration || 0, playing);
+      } else if (payload.progress && typeof payload.progress.watched === 'number') {
+        send(payload.progress.watched, payload.progress.duration || 0, true);
+      }
+    } catch (_) {}
+  });
+  setInterval(function() {
+    try {
+      var vids = document.querySelectorAll('video');
+      if (!vids || vids.length === 0) return;
+      var main = null;
+      for (var i = 0; i < vids.length; i++) {
+        var v = vids[i];
+        if (!v || isNaN(v.currentTime)) continue;
+        var dur = isFinite(v.duration) ? v.duration : 0;
+        if (!main || dur > (isFinite(main.duration) ? main.duration : 0)) {
+          main = v;
+        }
+      }
+      if (main) {
+        var d = isFinite(main.duration) ? main.duration : 0;
+        if (d === 0 || d > 30 || vids.length === 1) {
+          send(main.currentTime, d, !main.paused && !main.ended && main.readyState > 2);
+        }
+      }
+    } catch (_) {}
+  }, 300);
+})();
+"""
+
 @Composable
 fun IsolatedPlayerWebView(
     embedUrl: String,
@@ -35,6 +92,7 @@ fun IsolatedPlayerWebView(
     onPlaybackError: (String) -> Unit,
     modifier: Modifier = Modifier,
     onStreamSniffed: ((SniffedStream) -> Unit)? = null,
+    onPlaybackSync: ((EmbedPlaybackSync) -> Unit)? = null,
 ) {
     var alreadySniffed = remember(embedUrl, reloadKey) { false }
     val context = LocalContext.current
@@ -45,6 +103,20 @@ fun IsolatedPlayerWebView(
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
             securityPolicy.applyIsolatedSettings(this)
+
+            addJavascriptInterface(
+                object {
+                    @JavascriptInterface
+                    fun onTimeUpdate(posMs: Long, durMs: Long, playing: Boolean) {
+                        if (onPlaybackSync != null && posMs >= 0L) {
+                            post {
+                                onPlaybackSync(EmbedPlaybackSync(posMs, durMs.coerceAtLeast(0L), playing))
+                            }
+                        }
+                    }
+                },
+                "SahabSyncBridge",
+            )
 
             setDownloadListener { url, _, _, _, _ ->
                 navigationGuard.onExecutableDownloadBlocked(url.orEmpty())
@@ -122,6 +194,13 @@ fun IsolatedPlayerWebView(
                         }
                     }
                     return null
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    if (onPlaybackSync != null) {
+                        view?.evaluateJavascript(SMART_SYNC_JS, null)
+                    }
                 }
 
                 override fun onReceivedError(
