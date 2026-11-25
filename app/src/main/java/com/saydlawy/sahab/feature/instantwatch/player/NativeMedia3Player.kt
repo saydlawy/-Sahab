@@ -2,6 +2,7 @@ package com.saydlawy.sahab.feature.instantwatch.player
 
 import android.net.Uri
 import android.view.ViewGroup
+import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -13,11 +14,15 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.saydlawy.sahab.feature.instantwatch.domain.ResolvedSubtitleTrack
 import kotlinx.coroutines.delay
 
+@OptIn(UnstableApi::class)
 @Composable
 fun NativeMedia3Player(
     streamUrl: String,
@@ -26,15 +31,33 @@ fun NativeMedia3Player(
     onProgressUpdate: (positionMs: Long, durationMs: Long) -> Unit,
     onPlaybackError: (String) -> Unit,
     modifier: Modifier = Modifier,
+    headers: Map<String, String> = emptyMap(),
+    onPositionTick: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
-    val exoPlayer = remember(context) {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
+    val exoPlayer = remember(context, headers) {
+        val userAgent = headers["User-Agent"] ?: headers["user-agent"]
+            ?: "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        val cleanHeaders = headers.filterKeys {
+            !it.equals("User-Agent", ignoreCase = true)
         }
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(userAgent)
+            .setAllowCrossProtocolRedirects(true)
+            .apply {
+                if (cleanHeaders.isNotEmpty()) {
+                    setDefaultRequestProperties(cleanHeaders)
+                }
+            }
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .build()
+            .apply {
+                playWhenReady = true
+            }
     }
 
-    LaunchedEffect(streamUrl, subtitle?.url) {
+    LaunchedEffect(streamUrl, subtitle?.url, exoPlayer) {
         val builder = MediaItem.Builder().setUri(Uri.parse(streamUrl))
         if (subtitle != null && subtitle.url.isNotBlank()) {
             val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
@@ -52,6 +75,16 @@ fun NativeMedia3Player(
         exoPlayer.prepare()
     }
 
+    // Fast tick for real-time subtitle synchronization
+    LaunchedEffect(exoPlayer) {
+        while (true) {
+            delay(250L)
+            val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
+            onPositionTick(pos)
+        }
+    }
+
+    // Periodic progress persistence
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(5_000L)
@@ -88,8 +121,9 @@ fun NativeMedia3Player(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
-                player = exoPlayer
                 useController = true
+                keepScreenOn = true
+                player = exoPlayer
             }
         },
         update = { view ->

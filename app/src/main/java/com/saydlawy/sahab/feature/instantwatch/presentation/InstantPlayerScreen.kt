@@ -57,6 +57,7 @@ import com.saydlawy.sahab.feature.instantwatch.data.SubtitleSourceFilter
 import com.saydlawy.sahab.feature.instantwatch.domain.ResolvedPlaybackSource
 import com.saydlawy.sahab.feature.instantwatch.player.ActivePlaybackSession
 import com.saydlawy.sahab.feature.instantwatch.player.IsolatedPlayerWebView
+import com.saydlawy.sahab.feature.instantwatch.player.SniffedStream
 import com.saydlawy.sahab.feature.instantwatch.player.NativeMedia3Player
 import com.saydlawy.sahab.feature.instantwatch.player.PlayerSessionManager
 import com.saydlawy.sahab.feature.instantwatch.player.SubtitleCue
@@ -104,7 +105,10 @@ fun InstantPlayerScreen(
     var previewText by remember(session) { mutableStateOf<String?>(null) }
     val downloadedCache = remember(session) { mutableStateMapOf<String, String>() }
 
-    val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed
+    var sniffedStream by remember(session, reloadKey) { mutableStateOf<SniffedStream?>(null) }
+    var nativeFallbackFailed by remember(session, reloadKey) { mutableStateOf(false) }
+    val usingSniffedNative = sniffedStream != null && !nativeFallbackFailed
+    val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed && !usingSniffedNative
 
     LaunchedEffect(isEmbedSource, embedTimerRunning, subtitleCues.isNotEmpty()) {
         if (isEmbedSource && embedTimerRunning && subtitleCues.isNotEmpty()) {
@@ -184,19 +188,45 @@ fun InstantPlayerScreen(
                             onProgressUpdate(pos, dur)
                         },
                         onPlaybackError = { err -> errorMessage = err },
+                        onPositionTick = { pos -> playbackPosMs = pos },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
                 is ResolvedPlaybackSource.IsolatedEmbed -> {
-                    IsolatedPlayerWebView(
-                        embedUrl = src.embedUrl,
-                        reloadKey = reloadKey,
-                        navigationGuard = sessionManager.navigationGuard,
-                        securityPolicy = sessionManager.webViewSecurityPolicy,
-                        securityMonitor = sessionManager.securityMonitor,
-                        onPlaybackError = { err -> errorMessage = err },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    val activeSniffed = sniffedStream
+                    if (activeSniffed != null && !nativeFallbackFailed) {
+                        NativeMedia3Player(
+                            streamUrl = activeSniffed.url,
+                            subtitle = null,
+                            resumePositionMs = session.resumePositionMs,
+                            onProgressUpdate = { pos, dur ->
+                                playbackPosMs = pos
+                                onProgressUpdate(pos, dur)
+                            },
+                            onPlaybackError = {
+                                nativeFallbackFailed = true
+                                sniffedStream = null
+                            },
+                            headers = activeSniffed.headers,
+                            onPositionTick = { pos -> playbackPosMs = pos },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        IsolatedPlayerWebView(
+                            embedUrl = src.embedUrl,
+                            reloadKey = reloadKey,
+                            navigationGuard = sessionManager.navigationGuard,
+                            securityPolicy = sessionManager.webViewSecurityPolicy,
+                            securityMonitor = sessionManager.securityMonitor,
+                            onPlaybackError = { err -> errorMessage = err },
+                            onStreamSniffed = if (!nativeFallbackFailed) {
+                                { captured -> sniffedStream = captured }
+                            } else {
+                                null
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 is ResolvedPlaybackSource.Rejected -> {
                     errorMessage = src.reason
@@ -249,7 +279,7 @@ fun InstantPlayerScreen(
                         onClick = { showSubtitlePanel = !showSubtitlePanel },
                     )
                     CompactBarChip(
-                        label = "حماية ${securityState.blockedCount}",
+                        label = if (usingSniffedNative) "ExoPlayer ✓" else "حماية ${securityState.blockedCount}",
                         bgColor = Color(0xFF064E3B),
                         textColor = Color(0xFF6EE7B7),
                         onClick = { showTopBar = false },

@@ -20,6 +20,11 @@ import com.saydlawy.sahab.feature.instantwatch.security.SecurityEventType
 import com.saydlawy.sahab.feature.instantwatch.security.SecurityMonitor
 import com.saydlawy.sahab.feature.instantwatch.security.WebViewSecurityPolicy
 
+data class SniffedStream(
+    val url: String,
+    val headers: Map<String, String>,
+)
+
 @Composable
 fun IsolatedPlayerWebView(
     embedUrl: String,
@@ -29,7 +34,9 @@ fun IsolatedPlayerWebView(
     securityMonitor: SecurityMonitor,
     onPlaybackError: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onStreamSniffed: ((SniffedStream) -> Unit)? = null,
 ) {
+    var alreadySniffed = remember(embedUrl, reloadKey) { false }
     val context = LocalContext.current
     val webView = remember(context) {
         WebView(context).apply {
@@ -84,7 +91,37 @@ fun IsolatedPlayerWebView(
                     request: WebResourceRequest?,
                 ): WebResourceResponse? {
                     request ?: return null
-                    return navigationGuard.interceptRequest(request)
+                    val blocked = navigationGuard.interceptRequest(request)
+                    if (blocked != null) return blocked
+
+                    if (onStreamSniffed != null && !alreadySniffed) {
+                        val reqUrl = request.url?.toString().orEmpty()
+                        val lower = reqUrl.lowercase()
+                        val isVideoStream = (lower.contains(".m3u8") || lower.contains(".mp4")) &&
+                            !lower.contains("google") &&
+                            !lower.contains("doubleclick") &&
+                            !lower.contains("ads") &&
+                            !lower.contains("analytics") &&
+                            !lower.contains("banner") &&
+                            !lower.contains("thumb")
+                        if (isVideoStream && reqUrl.startsWith("http")) {
+                            alreadySniffed = true
+                            val hdrs = HashMap<String, String>()
+                            request.requestHeaders?.forEach { (k, v) ->
+                                if (k.equals("Referer", true) ||
+                                    k.equals("Origin", true) ||
+                                    k.equals("User-Agent", true) ||
+                                    k.equals("Cookie", true)
+                                ) {
+                                    hdrs[k] = v
+                                }
+                            }
+                            view?.post {
+                                onStreamSniffed(SniffedStream(reqUrl, hdrs))
+                            }
+                        }
+                    }
+                    return null
                 }
 
                 override fun onReceivedError(
