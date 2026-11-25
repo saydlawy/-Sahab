@@ -101,7 +101,7 @@ class PlaybackOrchestrator(
                     episodeNumber = request.episodeNumber,
                     positionMs = resumePos,
                     durationMs = saved?.durationMs ?: 0L,
-                    lastWatchedAt = System.currentTimeMillis(),
+                    updatedAtMs = System.currentTimeMillis(),
                 )
             )
         }
