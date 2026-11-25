@@ -170,7 +170,13 @@ fun IsolatedPlayerWebView(
                     if (onStreamSniffed != null && !alreadySniffed) {
                         val reqUrl = request.url?.toString().orEmpty()
                         val lower = reqUrl.lowercase()
-                        val isVideoStream = (lower.contains(".m3u8") || lower.contains("master.txt")) &&
+                        val isVideoStream = (
+                            lower.contains("m3u8") ||
+                            lower.contains("master.txt") ||
+                            lower.contains("playlist") ||
+                            lower.contains("manifest") ||
+                            lower.contains(".mp4")
+                        ) &&
                             !lower.contains("google") &&
                             !lower.contains("doubleclick") &&
                             !lower.contains("ads") &&
