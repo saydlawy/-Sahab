@@ -9,9 +9,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +41,9 @@ fun InstantWatchSettingsPanel(
     val scope = rememberCoroutineScope()
     val settings by sessionManager.preferences.settings.collectAsState()
     var feedback by remember { mutableStateOf<String?>(null) }
+
+    var subdlKey by remember(settings.subdlApiKey) { mutableStateOf(settings.subdlApiKey) }
+    var openSubKey by remember(settings.openSubtitlesApiKey) { mutableStateOf(settings.openSubtitlesApiKey) }
 
     Column(
         modifier = modifier
@@ -81,7 +88,63 @@ fun InstantWatchSettingsPanel(
             onCheckedChange = { sessionManager.preferences.setSaveProgressLocally(it) },
         )
 
-        Spacer(Modifier.height(4.dp))
+        HorizontalDivider(color = Color(0xFF1E293B))
+
+        Text(
+            text = "مفاتيح محركات الترجمة (اختياري)",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "أضف مفتاح SubDL أو OpenSubtitles الرسمي للحصول على ترجمات عربية بشرية أدق. بدون مفاتيح يعمل المصدر المجاني تلقائياً.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF94A3B8),
+        )
+
+        val fieldColors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            focusedBorderColor = Color(0xFF3B82F6),
+            unfocusedBorderColor = Color(0xFF334155),
+            focusedLabelColor = Color(0xFF93C5FD),
+            unfocusedLabelColor = Color(0xFF94A3B8),
+            cursorColor = Color(0xFF60A5FA),
+        )
+
+        OutlinedTextField(
+            value = subdlKey,
+            onValueChange = { subdlKey = it },
+            label = { Text("مفتاح SubDL API") },
+            placeholder = { Text("اختياري — الأفضل للترجمات العربية", color = Color(0xFF64748B)) },
+            singleLine = true,
+            colors = fieldColors,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        OutlinedTextField(
+            value = openSubKey,
+            onValueChange = { openSubKey = it },
+            label = { Text("مفتاح OpenSubtitles API") },
+            placeholder = { Text("اختياري — لاستبعاد الترجمة الآلية", color = Color(0xFF64748B)) },
+            singleLine = true,
+            colors = fieldColors,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Button(
+            onClick = {
+                sessionManager.preferences.setSubtitleApiKeys(subdlKey, openSubKey)
+                feedback = "تم حفظ مفاتيح الترجمة بنجاح."
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+        ) {
+            Text("حفظ مفاتيح الترجمة", color = Color.White)
+        }
+
+        HorizontalDivider(color = Color(0xFF1E293B))
+
+        Spacer(Modifier.height(2.dp))
 
         OutlinedButton(
             onClick = {

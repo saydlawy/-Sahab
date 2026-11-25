@@ -26,6 +26,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,7 +51,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaType
 import com.saydlawy.sahab.feature.instantwatch.data.OnlineSubtitleOption
+import com.saydlawy.sahab.feature.instantwatch.data.SubtitleSourceFilter
 import com.saydlawy.sahab.feature.instantwatch.domain.ResolvedPlaybackSource
 import com.saydlawy.sahab.feature.instantwatch.player.ActivePlaybackSession
 import com.saydlawy.sahab.feature.instantwatch.player.IsolatedPlayerWebView
@@ -71,6 +76,7 @@ fun InstantPlayerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val securityState by sessionManager.securityMonitor.state.collectAsState()
+    val settings by sessionManager.preferences.settings.collectAsState()
     var reloadKey by remember { mutableIntStateOf(0) }
     var errorMessage by remember(session) { mutableStateOf<String?>(null) }
 
@@ -86,10 +92,17 @@ fun InstantPlayerScreen(
     var playbackPosMs by remember(session) { mutableLongStateOf(session.resumePositionMs) }
     var embedTimerRunning by remember(session) { mutableStateOf(false) }
 
-    // Online subtitle search state
+    // Full subtitle control panel state
+    var selectedSource by remember { mutableStateOf(SubtitleSourceFilter.ALL) }
+    var manualQuery by remember(session) {
+        mutableStateOf(session.item.originalTitle.ifBlank { session.item.title })
+    }
     var onlineSearching by remember { mutableStateOf(false) }
     var onlineOptions by remember(session) { mutableStateOf<List<OnlineSubtitleOption>>(emptyList()) }
     var onlineStatus by remember(session) { mutableStateOf<String?>(null) }
+    var previewOptionId by remember(session) { mutableStateOf<String?>(null) }
+    var previewText by remember(session) { mutableStateOf<String?>(null) }
+    val downloadedCache = remember(session) { mutableStateMapOf<String, String>() }
 
     val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed
 
@@ -199,7 +212,7 @@ fun InstantPlayerScreen(
             )
         }
 
-        // Compact floating top bar (doesn't push video down)
+        // Compact floating top bar
         if (showTopBar) {
             Row(
                 modifier = Modifier
@@ -276,12 +289,20 @@ fun InstantPlayerScreen(
                 fontSizeSp = subtitleFontSizeSp,
                 isEmbedSource = isEmbedSource,
                 embedTimerRunning = embedTimerRunning,
+                selectedSource = selectedSource,
+                manualQuery = manualQuery,
                 onlineSearching = onlineSearching,
                 onlineOptions = onlineOptions,
                 onlineStatus = onlineStatus,
-                onSearchOnline = {
+                previewOptionId = previewOptionId,
+                previewText = previewText,
+                onSelectSource = { selectedSource = it },
+                onManualQueryChange = { manualQuery = it },
+                onSearchOnline = { useManualQuery ->
                     scope.launch {
                         onlineSearching = true
+                        previewOptionId = null
+                        previewText = null
                         onlineStatus = "جارٍ البحث عن ترجمة عربية..."
                         val resolvedImdbId = session.item.imdbId?.takeIf { it.isNotBlank() }
                             ?: sessionManager.tmdbRepository
@@ -290,14 +311,42 @@ fun InstantPlayerScreen(
                         val found = sessionManager.onlineSubtitleFetcher.searchArabic(
                             tmdbId = session.item.tmdbId,
                             imdbId = resolvedImdbId,
+                            isTv = session.item.mediaType == InstantMediaType.TV,
                             seasonNumber = session.seasonNumber,
                             episodeNumber = session.episodeNumber,
+                            manualQuery = if (useManualQuery) manualQuery else null,
+                            sourceFilter = selectedSource,
+                            subdlApiKey = settings.subdlApiKey,
+                            openSubtitlesApiKey = settings.openSubtitlesApiKey,
                         )
                         onlineOptions = found
-                        onlineStatus = if (found.isEmpty()) {
-                            "لم يتم العثور على ترجمة عربية أونلاين لهذا العمل."
+                        onlineStatus = when {
+                            found.isNotEmpty() -> "تم العثور على ${found.size} ترجمة، اضغط معاينة أو تطبيق:"
+                            selectedSource == SubtitleSourceFilter.SUBDL && settings.subdlApiKey.isBlank() ->
+                                "أضف مفتاح SubDL API من إعدادات المشاهدة الفورية أولاً."
+                            selectedSource == SubtitleSourceFilter.OPENSUB_OFFICIAL && settings.openSubtitlesApiKey.isBlank() ->
+                                "أضف مفتاح OpenSubtitles API من إعدادات المشاهدة الفورية أولاً."
+                            else -> "لم يتم العثور على ترجمة عربية. جرّب البحث اليدوي أو تغيير المصدر."
+                        }
+                        onlineSearching = false
+                    }
+                },
+                onPreviewOnline = { option ->
+                    scope.launch {
+                        onlineSearching = true
+                        val cached = downloadedCache[option.id]
+                            ?: sessionManager.onlineSubtitleFetcher.downloadSubtitleText(
+                                option = option,
+                                openSubtitlesApiKey = settings.openSubtitlesApiKey,
+                            )?.also { downloadedCache[option.id] = it }
+
+                        if (cached == null) {
+                            onlineStatus = "تعذر تحميل المعاينة لهذا الخيار."
                         } else {
-                            "تم العثور على ${found.size} ترجمة عربية، اختر واحدة:"
+                            previewOptionId = option.id
+                            val isPersian = sessionManager.onlineSubtitleFetcher.isLikelyPersian(cached)
+                            val sample = sessionManager.onlineSubtitleFetcher.extractPreviewLines(cached)
+                            previewText = if (isPersian) "⚠️ تحذير: يبدو أن النص فارسي:\n$sample" else sample
                         }
                         onlineSearching = false
                     }
@@ -305,10 +354,18 @@ fun InstantPlayerScreen(
                 onSelectOnline = { option ->
                     scope.launch {
                         onlineSearching = true
-                        onlineStatus = "جارٍ تحميل الترجمة..."
-                        val text = sessionManager.onlineSubtitleFetcher.downloadSubtitleText(option.url)
-                        val parsed = text?.let { SubtitleParser.parse(it) }.orEmpty()
-                        if (parsed.isNotEmpty()) {
+                        onlineStatus = "جارٍ تطبيق الترجمة..."
+                        val text = downloadedCache[option.id]
+                            ?: sessionManager.onlineSubtitleFetcher.downloadSubtitleText(
+                                option = option,
+                                openSubtitlesApiKey = settings.openSubtitlesApiKey,
+                            )?.also { downloadedCache[option.id] = it }
+
+                        val isPersian = text != null && sessionManager.onlineSubtitleFetcher.isLikelyPersian(text)
+                        val parsed = if (isPersian) emptyList() else text?.let { SubtitleParser.parse(it) }.orEmpty()
+                        if (isPersian) {
+                            onlineStatus = "تم رفض هذه الترجمة لأنها فارسية، جرّب خياراً آخر."
+                        } else if (parsed.isNotEmpty()) {
                             subtitleCues = parsed
                             subtitlesVisible = true
                             onlineStatus = "تم تفعيل: ${option.label} (${parsed.size} سطر)"
@@ -331,8 +388,8 @@ fun InstantPlayerScreen(
                 onClose = { showSubtitlePanel = false },
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(horizontal = 16.dp, vertical = 48.dp)
-                    .widthIn(max = 360.dp),
+                    .padding(horizontal = 14.dp, vertical = 44.dp)
+                    .widthIn(max = 390.dp),
             )
         }
     }
@@ -373,10 +430,17 @@ private fun SubtitleSyncControlPanel(
     fontSizeSp: Int,
     isEmbedSource: Boolean,
     embedTimerRunning: Boolean,
+    selectedSource: SubtitleSourceFilter,
+    manualQuery: String,
     onlineSearching: Boolean,
     onlineOptions: List<OnlineSubtitleOption>,
     onlineStatus: String?,
-    onSearchOnline: () -> Unit,
+    previewOptionId: String?,
+    previewText: String?,
+    onSelectSource: (SubtitleSourceFilter) -> Unit,
+    onManualQueryChange: (String) -> Unit,
+    onSearchOnline: (useManualQuery: Boolean) -> Unit,
+    onPreviewOnline: (OnlineSubtitleOption) -> Unit,
     onSelectOnline: (OnlineSubtitleOption) -> Unit,
     onPickFile: () -> Unit,
     onToggleVisible: (Boolean) -> Unit,
@@ -392,9 +456,9 @@ private fun SubtitleSyncControlPanel(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 460.dp)
+            .heightIn(max = 520.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xF20F172A))
+            .background(Color(0xF50F172A))
             .verticalScroll(rememberScrollState())
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -405,7 +469,7 @@ private fun SubtitleSyncControlPanel(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "الترجمة والمزامنة",
+                text = "لوحة تحكم الترجمة",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
@@ -418,34 +482,85 @@ private fun SubtitleSyncControlPanel(
             )
         }
 
-        // Source actions: Online search + Local file
+        // Source selector row
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SubtitleSourceFilter.entries.forEach { src ->
+                val isSelected = src == selectedSource
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B))
+                        .clickable { onSelectSource(src) }
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = src.label,
+                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+
+        // Manual search input
+        OutlinedTextField(
+            value = manualQuery,
+            onValueChange = onManualQueryChange,
+            placeholder = { Text("بحث يدوي باسم الفيلم أو النسخة...", color = Color(0xFF64748B), fontSize = 12.sp) },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF3B82F6),
+                unfocusedBorderColor = Color(0xFF334155),
+                cursorColor = Color(0xFF60A5FA),
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // Action buttons: Auto search | Manual search | Local file
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Button(
-                onClick = onSearchOnline,
+                onClick = { onSearchOnline(false) },
                 enabled = !onlineSearching,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 modifier = Modifier.weight(1f),
             ) {
                 if (onlineSearching) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(15.dp),
                         color = Color.White,
                         strokeWidth = 2.dp,
                     )
                 } else {
-                    Text("بحث أونلاين (عربي)", color = Color.White, fontSize = 12.sp, maxLines = 1)
+                    Text("بحث تلقائي", color = Color.White, fontSize = 11.sp, maxLines = 1)
                 }
             }
             OutlinedButton(
-                onClick = onPickFile,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                onClick = { onSearchOnline(true) },
+                enabled = !onlineSearching && manualQuery.isNotBlank(),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                Text("ملف SRT/VTT", color = Color(0xFFCBD5E1), fontSize = 12.sp, maxLines = 1)
+                Text("بحث بالاسم", color = Color(0xFF93C5FD), fontSize = 11.sp, maxLines = 1)
+            }
+            OutlinedButton(
+                onClick = onPickFile,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("ملف محلي", color = Color(0xFFCBD5E1), fontSize = 11.sp, maxLines = 1)
             }
         }
 
@@ -464,24 +579,58 @@ private fun SubtitleSyncControlPanel(
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color(0xFF1E293B))
                     .padding(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                onlineOptions.take(5).forEach { opt ->
-                    Box(
+                onlineOptions.take(8).forEach { opt ->
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color(0xFF0F172A))
-                            .clickable { onSelectOnline(opt) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(
-                            text = opt.label,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "[${opt.sourceTag}] ${opt.label}",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).padding(end = 6.dp),
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                CompactBarChip(
+                                    label = "معاينة",
+                                    bgColor = Color(0xFF334155),
+                                    textColor = Color(0xFFE2E8F0),
+                                    onClick = { onPreviewOnline(opt) },
+                                )
+                                CompactBarChip(
+                                    label = "تطبيق",
+                                    bgColor = Color(0xFF1D4ED8),
+                                    textColor = Color.White,
+                                    onClick = { onSelectOnline(opt) },
+                                )
+                            }
+                        }
+
+                        if (previewOptionId == opt.id && !previewText.isNullOrBlank()) {
+                            Text(
+                                text = previewText,
+                                color = Color(0xFFFDE68A),
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFF1E293B))
+                                    .padding(6.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -502,7 +651,7 @@ private fun SubtitleSyncControlPanel(
             Switch(checked = visible, onCheckedChange = onToggleVisible)
         }
 
-        // Sync controls: evenly spaced, zero squishing
+        // Sync controls
         Text(
             text = "المزامنة: ${String.format("%+.1f", offsetSec)} ثانية",
             color = Color.White,

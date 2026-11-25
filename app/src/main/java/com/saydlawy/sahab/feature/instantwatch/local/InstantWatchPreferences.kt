@@ -11,6 +11,8 @@ data class InstantWatchSettings(
     val autoArabicSubtitles: Boolean = true,
     val saveProgressLocally: Boolean = true,
     val externalSource: String = SOURCE_VIDLINK,
+    val subdlApiKey: String = "",
+    val openSubtitlesApiKey: String = "",
 ) {
     companion object {
         const val SOURCE_VIDLINK = "VidLink"
@@ -48,6 +50,14 @@ class InstantWatchPreferences(context: Context) {
         _settings.value = readSettings()
     }
 
+    fun setSubtitleApiKeys(subdlKey: String, openSubtitlesKey: String) {
+        prefs.edit()
+            .putString(KEY_SUBDL_API, subdlKey.trim())
+            .putString(KEY_OPENSUB_API, openSubtitlesKey.trim())
+            .apply()
+        _settings.value = readSettings()
+    }
+
     private fun readSettings(): InstantWatchSettings = InstantWatchSettings(
         enabled = prefs.getBoolean(KEY_ENABLED, true),
         securityProtectionAlwaysOn = true,
@@ -55,6 +65,8 @@ class InstantWatchPreferences(context: Context) {
         saveProgressLocally = prefs.getBoolean(KEY_SAVE_PROGRESS, true),
         externalSource = prefs.getString(KEY_EXTERNAL_SOURCE, InstantWatchSettings.SOURCE_VIDLINK)
             ?: InstantWatchSettings.SOURCE_VIDLINK,
+        subdlApiKey = prefs.getString(KEY_SUBDL_API, "") ?: "",
+        openSubtitlesApiKey = prefs.getString(KEY_OPENSUB_API, "") ?: "",
     )
 
     companion object {
@@ -63,5 +75,7 @@ class InstantWatchPreferences(context: Context) {
         private const val KEY_AUTO_AR_SUBS = "auto_arabic_subtitles"
         private const val KEY_SAVE_PROGRESS = "save_progress_locally"
         private const val KEY_EXTERNAL_SOURCE = "external_source"
+        private const val KEY_SUBDL_API = "subdl_api_key"
+        private const val KEY_OPENSUB_API = "opensubtitles_api_key"
     }
 }
