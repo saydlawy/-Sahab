@@ -491,10 +491,10 @@ class BrowseViewModel(
             }
             val list = if (fromProvider.isNotEmpty()) {
                 val capped = if (itemsPerGroup == Int.MAX_VALUE) fromProvider else fromProvider.take(itemsPerGroup)
-                if (capped.size <= 120) {
+                if (capped.size <= 450) {
                     enrichSliceWithRoom(capped)
                 } else {
-                    enrichSliceWithRoom(capped.subList(0, 120)) + capped.subList(120, capped.size)
+                    enrichSliceWithRoom(capped.subList(0, 450)) + capped.subList(450, capped.size)
                 }
             } else {
                 val safeLimit = if (itemsPerGroup == Int.MAX_VALUE) 500 else itemsPerGroup
@@ -843,7 +843,7 @@ class BrowseViewModel(
                 } else {
                     emptyList()
                 }
-                val combined = (roomMatches + enrichSliceWithRoom(providerMatches))
+                val combined = (enrichSliceWithRoom(providerMatches) + roomMatches)
                     .distinctBy { it.id }
                     .take(SEARCH_LIMIT)
                 searchOffset = roomMatches.size

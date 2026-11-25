@@ -191,52 +191,80 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
                 var currentDetails = fromRoom.toMovieDetails()
                 _state.update { DetailUiState(loading = false, data = currentDetails) }
 
-                // 2. Background TMDB enrichment (Admin-only) if needed or if plot is missing in Room
-                if (container.authManager.isAdmin && fromRoom.plotSource != "admin_locked" && (fromRoom.needsEnrichment == 1 || currentDetails.plot.isBlank())) {
-                    try {
-                        container.catalogSync.enrichOne(container.repo, container.tmdb, id)
-                        val updated = withContext(Dispatchers.IO) {
-                            runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
+                // 2. Run IPTV fast details and Admin TMDB enrichment in parallel — show whichever arrives first
+                val shouldFetchRemote = currentDetails.plot.isBlank()
+                val shouldEnrich = container.authManager.isAdmin &&
+                    fromRoom.plotSource != "admin_locked" &&
+                    (fromRoom.needsEnrichment == 1 || currentDetails.plot.isBlank())
+
+                if (shouldFetchRemote) {
+                    launch {
+                        try {
+                            val remote = container.repo.movieDetails(id)
+                            if (remote.ext.isNotBlank()) {
+                                withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        container.catalogDb.movieDao().updateMovieExtension(id, remote.ext, System.currentTimeMillis())
+                                    }
+                                }
+                            }
+                            _state.update { st ->
+                                val base = st.data ?: currentDetails
+                                val merged = base.copy(
+                                    image = base.image.ifBlank { remote.image },
+                                    backdrop = if (base.backdrop.isBlank() || base.backdrop == base.image) {
+                                        remote.backdrop.ifBlank { base.backdrop }
+                                    } else {
+                                        base.backdrop
+                                    },
+                                    plot = base.plot.ifBlank { remote.plot },
+                                    cast = base.cast.ifBlank { remote.cast },
+                                    director = base.director.ifBlank { remote.director },
+                                    genre = base.genre.ifBlank { remote.genre },
+                                    year = base.year.ifBlank { remote.year },
+                                    duration = base.duration.ifBlank { remote.duration },
+                                    rating = RatingSanitizer.format(base.rating).ifBlank { RatingSanitizer.format(remote.rating) },
+                                    ext = remote.ext.ifBlank { base.ext },
+                                )
+                                DetailUiState(loading = false, data = merged)
+                            }
+                        } catch (_: Exception) {
+                            // Keep existing details if remote fallback fails
                         }
-                        if (updated != null) {
-                            currentDetails = updated.toMovieDetails()
-                            _state.update { DetailUiState(loading = false, data = currentDetails) }
-                        }
-                    } catch (_: Exception) {
-                        // Keep showing basic data on enrichment failure
                     }
                 }
 
-                // 3. Fallback to repo.movieDetails when plot is still blank after Room lookup/enrichment
-                if (currentDetails.plot.isBlank()) {
-                    try {
-                        val remote = container.repo.movieDetails(id)
-                        if (remote.ext.isNotBlank()) {
-                            withContext(Dispatchers.IO) {
-                                runCatching {
-                                    container.catalogDb.movieDao().updateMovieExtension(id, remote.ext, System.currentTimeMillis())
+                if (shouldEnrich) {
+                    launch {
+                        try {
+                            container.catalogSync.enrichOne(container.repo, container.tmdb, id)
+                            val updated = withContext(Dispatchers.IO) {
+                                runCatching { container.catalogDb.movieDao().findByStreamId(id, "movie") }.getOrNull()
+                            }
+                            if (updated != null) {
+                                val enriched = updated.toMovieDetails()
+                                _state.update { st ->
+                                    val prev = st.data
+                                    val merged = if (prev != null) {
+                                        enriched.copy(
+                                            plot = enriched.plot.ifBlank { prev.plot },
+                                            cast = enriched.cast.ifBlank { prev.cast },
+                                            director = enriched.director.ifBlank { prev.director },
+                                            genre = enriched.genre.ifBlank { prev.genre },
+                                            year = enriched.year.ifBlank { prev.year },
+                                            duration = enriched.duration.ifBlank { prev.duration },
+                                            rating = RatingSanitizer.format(enriched.rating).ifBlank { prev.rating },
+                                            ext = enriched.ext.ifBlank { prev.ext },
+                                        )
+                                    } else {
+                                        enriched
+                                    }
+                                    DetailUiState(loading = false, data = merged)
                                 }
                             }
+                        } catch (_: Exception) {
+                            // Keep showing basic data on enrichment failure
                         }
-                        val merged = currentDetails.copy(
-                            image = currentDetails.image.ifBlank { remote.image },
-                            backdrop = if (currentDetails.backdrop.isBlank() || currentDetails.backdrop == currentDetails.image) {
-                                remote.backdrop.ifBlank { currentDetails.backdrop }
-                            } else {
-                                currentDetails.backdrop
-                            },
-                            plot = remote.plot.ifBlank { currentDetails.plot },
-                            cast = currentDetails.cast.ifBlank { remote.cast },
-                            director = currentDetails.director.ifBlank { remote.director },
-                            genre = currentDetails.genre.ifBlank { remote.genre },
-                            year = currentDetails.year.ifBlank { remote.year },
-                            duration = currentDetails.duration.ifBlank { remote.duration },
-                            rating = RatingSanitizer.format(currentDetails.rating).ifBlank { RatingSanitizer.format(remote.rating) },
-                            ext = remote.ext.ifBlank { currentDetails.ext },
-                        )
-                        _state.update { DetailUiState(loading = false, data = merged) }
-                    } catch (_: Exception) {
-                        // Keep existing details if remote fallback fails
                     }
                 }
                 return@launch

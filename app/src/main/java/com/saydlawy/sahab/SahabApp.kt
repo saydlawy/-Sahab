@@ -91,49 +91,35 @@ class AppContainer(context: Context) {
         .addInterceptor(RetryInterceptor())
         .build()
 
-    private val failedImageUrls = ConcurrentHashMap<String, Long>()
-
     fun newImageHttpClient(): OkHttpClient {
         val imageDispatcher = Dispatcher().apply {
-            maxRequests = 48
+            maxRequests = 64
             maxRequestsPerHost = 16
         }
         return OkHttpClient.Builder()
             .dispatcher(imageDispatcher)
             .connectionPool(client.connectionPool)
-            .connectTimeout(3, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
-            .callTimeout(8, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val req = chain.request()
-                val url = req.url.toString()
-                val now = System.currentTimeMillis()
-                val failedAt = failedImageUrls[url]
-                if (failedAt != null && now - failedAt < 5L * 60L * 1000L) {
-                    return@addInterceptor Response.Builder()
-                        .request(req)
-                        .protocol(Protocol.HTTP_1_1)
-                        .code(404)
-                        .message("Cached image failure")
-                        .body(ByteArray(0).toResponseBody(null))
-                        .build()
-                }
-                try {
-                    val resp = chain.proceed(req)
-                    if (resp.code == 400 || resp.code == 403 || resp.code == 404 || resp.code == 410) {
-                        if (failedImageUrls.size > 500) failedImageUrls.clear()
-                        failedImageUrls[url] = now
+                val upgradedReq = if (req.url.scheme.equals("http", ignoreCase = true)) {
+                    val host = req.url.host.lowercase(Locale.US)
+                    if (STRICT_HTTPS_DOMAINS.any { host == it || host.endsWith(".$it") }) {
+                        val httpsUrl = req.url.newBuilder().scheme("https").build()
+                        req.newBuilder().url(httpsUrl).build()
+                    } else {
+                        req
                     }
-                    resp
-                } catch (e: Exception) {
-                    if (failedImageUrls.size > 500) failedImageUrls.clear()
-                    failedImageUrls[url] = now
-                    throw e
+                } else {
+                    req
                 }
+                chain.proceed(upgradedReq)
             }
             .addInterceptor(CleartextGuardInterceptor())
             .addInterceptor { chain ->
-                chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build())
+                chain.proceed(chain.request().newBuilder().header("User-Agent", IMAGE_USER_AGENT).build())
             }
             .build()
     }
@@ -457,6 +443,7 @@ class AppContainer(context: Context) {
 
     private companion object {
         const val USER_AGENT = "Sahab/1.0 (Android)"
+        const val IMAGE_USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         const val RETRY_SLEEP_SLICE_MS = 100L
         val RETRY_BACKOFFS_MS = longArrayOf(500L, 1500L)
         val STRICT_HTTPS_DOMAINS = listOf(
