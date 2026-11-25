@@ -1,6 +1,17 @@
 package com.saydlawy.sahab.feature.instantwatch.presentation
 
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -111,6 +122,43 @@ fun InstantPlayerScreen(
     var selectedServer by remember(session) { mutableStateOf(EmbedServer.VIDLINK) }
     var showServerPanel by remember { mutableStateOf(false) }
     val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed
+    val serverPanelFocus = remember { FocusRequester() }
+    val subtitlePanelFocus = remember { FocusRequester() }
+
+    // True full-screen (hide system status & navigation bars while playing)
+    DisposableEffect(context) {
+        val window = (context as? Activity)?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
+        controller?.apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    // Tiered BackHandler: Close panels -> Show top bar -> Close player
+    BackHandler(enabled = true) {
+        when {
+            showSubtitlePanel -> showSubtitlePanel = false
+            showServerPanel -> showServerPanel = false
+            !showTopBar -> showTopBar = true
+            else -> onClose()
+        }
+    }
+
+    LaunchedEffect(showServerPanel) {
+        if (showServerPanel) {
+            runCatching { serverPanelFocus.requestFocus() }
+        }
+    }
+
+    LaunchedEffect(showSubtitlePanel) {
+        if (showSubtitlePanel) {
+            runCatching { subtitlePanelFocus.requestFocus() }
+        }
+    }
 
     LaunchedEffect(isEmbedSource, embedTimerRunning, autoSyncActive, subtitleCues.isNotEmpty()) {
         if (isEmbedSource && embedTimerRunning && !autoSyncActive && subtitleCues.isNotEmpty()) {
@@ -347,13 +395,28 @@ fun InstantPlayerScreen(
                         onClick = { showServerPanel = false },
                     )
                 }
-                EmbedServer.entries.forEach { server ->
+                EmbedServer.entries.forEachIndexed { idx, server ->
                     val active = server == selectedServer
+                    var focused by remember { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .then(if (idx == 0) Modifier.focusRequester(serverPanelFocus) else Modifier)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (active) Color(0xFF2563EB) else Color(0xFF1E293B))
+                            .border(
+                                width = if (focused) 2.dp else 0.dp,
+                                color = if (focused) Color(0xFF60A5FA) else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .background(
+                                when {
+                                    active -> Color(0xFF2563EB)
+                                    focused -> Color(0xFF334155)
+                                    else -> Color(0xFF1E293B)
+                                }
+                            )
+                            .onFocusChanged { focused = it.isFocused }
+                            .focusable()
                             .clickable {
                                 selectedServer = server
                                 showServerPanel = false
@@ -483,7 +546,8 @@ fun InstantPlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(horizontal = 14.dp, vertical = 44.dp)
-                    .widthIn(max = 390.dp),
+                    .widthIn(max = 390.dp)
+                    .focusRequester(subtitlePanelFocus),
             )
         }
     }
@@ -497,10 +561,18 @@ private fun CompactBarChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(bgColor)
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) Color(0xFF93C5FD) else Color.Transparent,
+                shape = RoundedCornerShape(6.dp),
+            )
+            .background(if (focused) bgColor.copy(alpha = 1f) else bgColor)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
@@ -834,10 +906,24 @@ private fun SyncStepButton(
     highlight: Boolean = false,
     onClick: () -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(if (highlight) Color(0xFF1E3A8A) else Color(0xFF1E293B))
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) Color(0xFF60A5FA) else Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+            )
+            .background(
+                when {
+                    focused -> Color(0xFF2563EB)
+                    highlight -> Color(0xFF1E3A8A)
+                    else -> Color(0xFF1E293B)
+                }
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,

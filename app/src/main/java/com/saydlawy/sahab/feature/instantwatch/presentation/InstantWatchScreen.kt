@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.feature.instantwatch.presentation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -80,6 +81,10 @@ fun InstantWatchScreen(
     val recentHistory by sessionManager.orchestrator.observeRecentHistory().collectAsState(initial = emptyList())
 
     var route by remember { mutableStateOf<InstantWatchRoute>(InstantWatchRoute.Home) }
+
+    BackHandler(enabled = activeSession == null && route !is InstantWatchRoute.Home) {
+        route = InstantWatchRoute.Home
+    }
     var inputText by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
