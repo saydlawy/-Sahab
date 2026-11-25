@@ -285,6 +285,7 @@ fun InstantPlayerScreen(
                         onlineStatus = "جارٍ البحث عن ترجمة عربية..."
                         val found = sessionManager.onlineSubtitleFetcher.searchArabic(
                             tmdbId = session.item.tmdbId,
+                            imdbId = session.item.imdbId,
                             seasonNumber = session.seasonNumber,
                             episodeNumber = session.episodeNumber,
                         )
