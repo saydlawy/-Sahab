@@ -69,7 +69,7 @@ class StreamSecurityPolicy(
             )
         }
 
-        if (matchesHostSet(host, blockedAdHosts)) {
+        if (matchesHostSet(host, blockedAdHosts) || host.contains("flaxfer")) {
             return SecurityCheckResult(
                 PolicyVerdict.BLOCK_UNTRUSTED_DOMAIN,
                 "Blocked known ad/redirect host: $host",
