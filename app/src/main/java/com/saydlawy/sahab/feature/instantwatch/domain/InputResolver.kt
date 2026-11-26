@@ -73,10 +73,10 @@ class InputResolver(
     }
 
     companion object {
-        private val NUMERIC_TMDB_REGEX = Regex("^\d{1,9}$")
-        private val IMDB_ANYWHERE_REGEX = Regex("\btt\d{6,10}\b", RegexOption.IGNORE_CASE)
+        private val NUMERIC_TMDB_REGEX = Regex("""^\d{1,9}$""")
+        private val IMDB_ANYWHERE_REGEX = Regex("""\btt\d{6,10}\b""", RegexOption.IGNORE_CASE)
         private val TYPED_MEDIA_URL_REGEX = Regex(
-            "(?:themoviedb\.org|tmdb\.org|https?://[^\s]+)/(movie|tv|series)/(?:tmdb/)?(\d{1,9})",
+            """(?:themoviedb\.org|tmdb\.org|https?://[^\s]+)/(movie|tv|series)/(?:tmdb/)?(\d{1,9})""",
             RegexOption.IGNORE_CASE,
         )
     }
