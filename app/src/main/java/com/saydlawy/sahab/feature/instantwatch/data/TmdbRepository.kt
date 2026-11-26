@@ -48,7 +48,7 @@ data class InstantDiscoverFeed(
 
 class TmdbRepository(
     private val client: OkHttpClient,
-    private val apiKey: String,
+    internal val apiKey: String,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true

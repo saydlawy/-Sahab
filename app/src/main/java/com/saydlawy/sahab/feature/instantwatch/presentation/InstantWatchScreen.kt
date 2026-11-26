@@ -33,6 +33,7 @@ private sealed class InstantWatchRoute {
     data object Home : InstantWatchRoute()
     data class SearchResults(val query: String, val items: List<InstantMediaItem>) : InstantWatchRoute()
     data class EpisodePicker(val series: InstantMediaItem) : InstantWatchRoute()
+    data class Details(val item: InstantMediaItem) : InstantWatchRoute()
 }
 
 @Composable
@@ -161,16 +162,7 @@ fun InstantWatchScreen(
     }
 
     fun handleMediaSelected(item: InstantMediaItem) {
-        if (item.mediaType == InstantMediaType.TV) {
-            scope.launch {
-                isLoading = true
-                val detailed = sessionManager.tmdbRepository.getDetails(item.tmdbId, InstantMediaType.TV) ?: item
-                isLoading = false
-                route = InstantWatchRoute.EpisodePicker(detailed)
-            }
-        } else {
-            startPlayback(item)
-        }
+        route = InstantWatchRoute.Details(item)
     }
 
     fun performSearch(overrideQuery: String? = null) {
@@ -236,6 +228,18 @@ fun InstantWatchScreen(
             EpisodePickerScreen(
                 series = r.series,
                 onSelectEpisode = { s, e -> startPlayback(r.series, s, e) },
+                onBack = { route = InstantWatchRoute.Home },
+                modifier = modifier,
+            )
+            return
+        }
+        is InstantWatchRoute.Details -> {
+            InstantMediaDetailScreen(
+                initialItem = r.item,
+                tmdbRepository = sessionManager.tmdbRepository,
+                onPlayMovie = { startPlayback(it) },
+                onPlayEpisode = { series, season, ep -> startPlayback(series, season, ep) },
+                onSelectSimilar = { route = InstantWatchRoute.Details(it) },
                 onBack = { route = InstantWatchRoute.Home },
                 modifier = modifier,
             )
@@ -366,22 +370,22 @@ fun InstantWatchScreen(
 
                 if (showMovies && discoverFeed.latestMovies.isNotEmpty()) {
                     item {
-                        MediaCarouselSection("أحدث الأفلام", discoverFeed.latestMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                        MediaCarouselSection("أحدث الأفلام", discoverFeed.latestMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "أحدث الإصدارات المعروضة حالياً")
                     }
                 }
                 if (showTv && discoverFeed.latestTv.isNotEmpty()) {
                     item {
-                        MediaCarouselSection("أحدث المسلسلات", discoverFeed.latestTv, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                        MediaCarouselSection("أحدث المسلسلات", discoverFeed.latestTv, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "حلقات ومواسم تُعرض هذا الأسبوع")
                     }
                 }
                 if (showTrending && discoverFeed.trendingAll.isNotEmpty()) {
                     item {
-                        MediaCarouselSection("الأكثر رواجاً هذا الأسبوع", discoverFeed.trendingAll, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                        MediaCarouselSection("أفضل 10 أعمال رائجة", discoverFeed.trendingAll, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "الأكثر بحثاً ومشاهدة عالمياً", showRank = true)
                     }
                 }
                 if (showTopRated && discoverFeed.topRatedMovies.isNotEmpty()) {
                     item {
-                        MediaCarouselSection("أعلى التقييمات", discoverFeed.topRatedMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                        MediaCarouselSection("روائع السينما", discoverFeed.topRatedMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "الأعلى تقييماً في تاريخ TMDB")
                     }
                 }
             }

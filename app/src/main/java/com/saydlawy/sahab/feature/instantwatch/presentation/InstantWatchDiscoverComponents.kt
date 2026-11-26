@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -29,14 +30,40 @@ import com.saydlawy.sahab.feature.instantwatch.local.InstantWatchHistoryEntity
 import java.util.Locale
 
 @Composable
-internal fun SectionHeader(title: String, horizontalPad: Dp) {
-    Text(
-        text = title,
-        color = Color.White,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(horizontal = horizontalPad),
-    )
+internal fun SectionHeader(
+    title: String,
+    horizontalPad: Dp,
+    subtitle: String? = null,
+    accentColor: Color = Color(0xFFFBBF24),
+) {
+    Column(modifier = Modifier.padding(horizontal = horizontalPad)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(20.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(accentColor),
+            )
+            Text(
+                text = title,
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+        if (!subtitle.isNullOrBlank()) {
+            Text(
+                text = subtitle,
+                color = Color(0xFF94A3B8),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(start = 12.dp, top = 2.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -48,19 +75,27 @@ internal fun MediaCarouselSection(
     cardImageHeight: Dp,
     onSelect: (InstantMediaItem) -> Unit,
     onFocusItem: (InstantMediaItem) -> Unit,
+    subtitle: String? = null,
+    showRank: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(title = title, horizontalPad = horizontalPad)
-        Spacer(modifier = Modifier.height(8.dp))
+        SectionHeader(
+            title = title,
+            horizontalPad = horizontalPad,
+            subtitle = subtitle,
+            accentColor = if (showRank) Color(0xFF38BDF8) else Color(0xFFFBBF24),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
         LazyRow(
             contentPadding = PaddingValues(horizontal = horizontalPad),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(items, key = { "${title}:${it.contentKey}" }) { item ->
+            itemsIndexed(items, key = { _, it -> "${title}:${it.contentKey}" }) { index, item ->
                 MediaPosterCard(
                     item = item,
                     cardWidth = cardWidth,
                     imageHeight = cardImageHeight,
+                    rank = if (showRank && index < 10) index + 1 else null,
                     onClick = { onSelect(item) },
                     onFocused = { onFocusItem(item) },
                 )
@@ -76,6 +111,7 @@ internal fun MediaPosterCard(
     imageHeight: Dp,
     onClick: () -> Unit,
     onFocused: () -> Unit,
+    rank: Int? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     Card(
@@ -84,8 +120,8 @@ internal fun MediaPosterCard(
             .scale(if (isFocused) 1.05f else 1f)
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) Color(0xFF38BDF8) else Color(0xFF1E293B),
-                shape = RoundedCornerShape(12.dp),
+                color = if (isFocused) Color(0xFF38BDF8) else Color(0xFF263449),
+                shape = RoundedCornerShape(14.dp),
             )
             .onFocusChanged {
                 isFocused = it.isFocused
@@ -93,15 +129,14 @@ internal fun MediaPosterCard(
             }
             .focusable()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),
     ) {
-        Column(modifier = Modifier.padding(6.dp)) {
+        Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(imageHeight)
-                    .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF0F172A)),
             ) {
                 if (!item.posterUrl.isNullOrBlank()) {
@@ -112,51 +147,96 @@ internal fun MediaPosterCard(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                item.rating?.let { score ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color(0xEE162033)),
+                            ),
+                        ),
+                )
+                if (rank != null) {
                     Surface(
-                        color = Color(0xCC0F172A),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.align(Alignment.TopStart).padding(5.dp),
+                        color = Color(0xE6FBBF24),
+                        shape = RoundedCornerShape(bottomEnd = 10.dp),
+                        modifier = Modifier.align(Alignment.TopStart),
                     ) {
                         Text(
-                            text = "★ ${String.format(Locale.US, "%.1f", score)}",
-                            color = Color(0xFFFBBF24),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                            text = "#$rank",
+                            color = Color(0xFF0B1120),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
                 }
                 Surface(
-                    color = if (item.mediaType == InstantMediaType.TV) Color(0xCC1D4ED8) else Color(0xCC0F172A),
+                    color = if (item.mediaType == InstantMediaType.TV) Color(0xDD1D4ED8) else Color(0xCC0F172A),
                     shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
                 ) {
                     Text(
                         text = if (item.mediaType == InstantMediaType.TV) "مسلسل" else "فيلم",
                         color = Color.White,
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    item.rating?.let { score ->
+                        Text(
+                            text = "★ ${String.format(Locale.US, "%.1f", score)}",
+                            color = Color(0xFFFBBF24),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                    item.releaseYear?.let { year ->
+                        Text(
+                            text = "$year",
+                            color = Color(0xFFCBD5E1),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = item.title,
-                color = Color.White,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            item.releaseYear?.let { year ->
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Text(
-                    text = "$year",
-                    color = Color(0xFF94A3B8),
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
+                    text = item.title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    minLines = 2,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Surface(
+                    color = Color(0xFF1E293B),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "التفاصيل والمشاهدة",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(vertical = 5.dp, horizontal = 8.dp),
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
