@@ -1,61 +1,32 @@
 package com.saydlawy.sahab.feature.instantwatch.presentation
 
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
+import com.saydlawy.sahab.feature.instantwatch.data.InstantDiscoverFeed
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaItem
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaType
 import com.saydlawy.sahab.feature.instantwatch.domain.GateResult
 import com.saydlawy.sahab.feature.instantwatch.domain.InputResolutionResult
 import com.saydlawy.sahab.feature.instantwatch.domain.OrchestrationResult
 import com.saydlawy.sahab.feature.instantwatch.domain.PlaybackSessionRequest
-import com.saydlawy.sahab.feature.instantwatch.local.InstantWatchHistoryEntity
 import com.saydlawy.sahab.feature.instantwatch.player.ActivePlaybackSession
 import com.saydlawy.sahab.feature.instantwatch.player.PlayerSessionManager
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 private sealed class InstantWatchRoute {
@@ -73,6 +44,10 @@ fun InstantWatchScreen(
 ) {
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
+    val config = LocalConfiguration.current
+    val isLandscape = config.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isTv = (config.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION ||
+        config.screenWidthDp >= 840
 
     val settings by sessionManager.preferences.settings.collectAsState()
     val isSignedIn by sessionManager.authGate.observeAuthSignedIn()
@@ -81,22 +56,49 @@ fun InstantWatchScreen(
     val recentHistory by sessionManager.orchestrator.observeRecentHistory().collectAsState(initial = emptyList())
 
     var route by remember { mutableStateOf<InstantWatchRoute>(InstantWatchRoute.Home) }
+    var inputText by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    var discoverFeed by remember { mutableStateOf(InstantDiscoverFeed()) }
+    var isFeedLoading by remember { mutableStateOf(false) }
+    var selectedFilter by remember { mutableStateOf(InstantQuickFilter.ALL) }
+    var genreMovies by remember { mutableStateOf<List<InstantMediaItem>>(emptyList()) }
+    var genreTv by remember { mutableStateOf<List<InstantMediaItem>>(emptyList()) }
+    var isGenreLoading by remember { mutableStateOf(false) }
+    var focusedItem by remember { mutableStateOf<InstantMediaItem?>(null) }
 
     BackHandler(enabled = activeSession == null && route !is InstantWatchRoute.Home) {
         route = InstantWatchRoute.Home
     }
-    var inputText by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(isSignedIn, settings.enabled) {
         if (!isSignedIn || !settings.enabled) {
             sessionManager.onServiceDisabledOrSignedOut()
             route = InstantWatchRoute.Home
+        } else {
+            isFeedLoading = true
+            discoverFeed = sessionManager.tmdbRepository.loadDiscoverFeed()
+            isFeedLoading = false
         }
     }
 
-    // Level 1 UI Gate: Disabled service
+    LaunchedEffect(selectedFilter) {
+        val mGenre = selectedFilter.movieGenreId
+        val tGenre = selectedFilter.tvGenreId
+        if (mGenre != null || tGenre != null) {
+            isGenreLoading = true
+            val mDef = mGenre?.let { async { sessionManager.tmdbRepository.discoverByGenre(it, InstantMediaType.MOVIE) } }
+            val tDef = tGenre?.let { async { sessionManager.tmdbRepository.discoverByGenre(it, InstantMediaType.TV) } }
+            genreMovies = mDef?.await().orEmpty()
+            genreTv = tDef?.await().orEmpty()
+            isGenreLoading = false
+        } else {
+            genreMovies = emptyList()
+            genreTv = emptyList()
+        }
+    }
+
     if (!settings.enabled) {
         GateMessageView(
             title = "المشاهدة الفورية معطلة",
@@ -108,7 +110,6 @@ fun InstantWatchScreen(
         return
     }
 
-    // Level 1 UI Gate: Unauthenticated user
     if (!isSignedIn) {
         GateMessageView(
             title = "تسجيل الدخول مطلوب",
@@ -172,8 +173,8 @@ fun InstantWatchScreen(
         }
     }
 
-    fun performSearch() {
-        val q = inputText.trim()
+    fun performSearch(overrideQuery: String? = null) {
+        val q = (overrideQuery ?: inputText).trim()
         scope.launch {
             isLoading = true
             statusMessage = null
@@ -198,7 +199,6 @@ fun InstantWatchScreen(
         }
     }
 
-    // Active Player Screen
     val currentSession = activeSession
     if (currentSession != null) {
         InstantPlayerScreen(
@@ -244,134 +244,70 @@ fun InstantWatchScreen(
         InstantWatchRoute.Home -> Unit
     }
 
-    // Main Instant Watch Home Screen
+    val horizontalPad = if (isTv) 28.dp else if (isLandscape) 18.dp else 14.dp
+    val cardWidth = if (isTv) 156.dp else if (isLandscape) 128.dp else 134.dp
+    val cardImageHeight = if (isTv) 216.dp else if (isLandscape) 168.dp else 186.dp
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0B1120))
-            .padding(20.dp),
+            .background(Color(0xFF0B1120)),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+        InstantWatchTopBar(
+            inputText = inputText,
+            onInputChange = { inputText = it; statusMessage = null },
+            onSearch = { performSearch() },
+            onPasteAndSearch = {
+                val pasted = clipboard.getText()?.text?.trim().orEmpty()
+                if (pasted.isNotEmpty()) {
+                    inputText = pasted
+                    performSearch(pasted)
+                }
+            },
+            onRefresh = {
+                scope.launch {
+                    isFeedLoading = true
+                    discoverFeed = sessionManager.tmdbRepository.loadDiscoverFeed(forceRefresh = true)
+                    isFeedLoading = false
+                }
+            },
+            onBack = onBack,
+            isLoading = isLoading,
+            statusMessage = statusMessage,
+            selectedFilter = selectedFilter,
+            onFilterSelected = { selectedFilter = it },
+            focusedItem = focusedItem,
+            isLandscape = isLandscape,
+            isTv = isTv,
+            horizontalPad = horizontalPad,
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().weight(1f),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "المشاهدة الفورية",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "متصل",
-                    color = Color(0xFF34D399),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .background(Color(0xFF064E3B), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
-            TextButton(onClick = onBack) {
-                Text("رجوع", color = Color(0xFF60A5FA))
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "ماذا تريد أن تشاهد؟",
-            style = MaterialTheme.typography.titleLarge,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "اكتب اسم الفيلم أو المسلسل أو الصق رقم IMDb أو TMDB.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFF94A3B8),
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = inputText,
-            onValueChange = { inputText = it },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            label = { Text("اسم الفيلم أو TMDB / IMDb ID") },
-            placeholder = { Text("مثال: Interstellar أو tt0816692 أو 157336") },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedBorderColor = Color(0xFF3B82F6),
-                unfocusedBorderColor = Color(0xFF334155),
-                focusedLabelColor = Color(0xFF60A5FA),
-                unfocusedLabelColor = Color(0xFF94A3B8),
-            ),
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            OutlinedButton(
-                onClick = {
-                    val clip = clipboard.getText()?.text?.trim().orEmpty()
-                    if (clip.isNotEmpty()) inputText = clip
-                },
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("لصق", color = Color(0xFFCBD5E1))
-            }
-            Button(
-                onClick = { performSearch() },
-                enabled = !isLoading,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                modifier = Modifier.weight(2f),
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Text("بحث ومشاهدة", color = Color.White, fontWeight = FontWeight.SemiBold)
+            if (isFeedLoading || isGenreLoading) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color(0xFF38BDF8))
+                    }
                 }
             }
-        }
 
-        if (!statusMessage.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = statusMessage.orEmpty(),
-                color = Color(0xFFFCA5A5),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        if (recentHistory.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(28.dp))
-            Text(
-                text = "آخر المشاهدات",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(end = 8.dp),
-            ) {
-                items(recentHistory, key = { it.contentKey }) { entry ->
-                    RecentWatchCard(
-                        entry = entry,
-                        onClick = {
-                            val type = if (entry.mediaType == "tv") InstantMediaType.TV else InstantMediaType.MOVIE
+            if (selectedFilter == InstantQuickFilter.ALL && recentHistory.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "آخر المشاهدات", horizontalPad = horizontalPad)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = horizontalPad),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(recentHistory, key = { it.contentKey }) { entry ->
+                            RecentWatchCard(
+                                entry = entry,
+                                onClick = {
+                                    val type = if (entry.mediaType == "tv") InstantMediaType.TV else InstantMediaType.MOVIE
                             val item = InstantMediaItem(
                                 tmdbId = entry.tmdbId,
                                 mediaType = type,
@@ -386,63 +322,69 @@ fun InstantWatchScreen(
                             } else {
                                 startPlayback(item, entry.seasonNumber, entry.episodeNumber)
                             }
-                        },
-                    )
+                                },
+                            )
+                        }
+                    }
                 }
             }
-        }
-    }
-}
 
-@Composable
-private fun RecentWatchCard(
-    entry: InstantWatchHistoryEntity,
-    onClick: () -> Unit,
-) {
-    Card(
-        modifier = Modifier
-            .width(140.dp)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0F172A)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (!entry.posterUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = entry.posterUrl,
-                        contentDescription = entry.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+            if (selectedFilter.movieGenreId != null || selectedFilter.tvGenreId != null) {
+                if (genreMovies.isNotEmpty()) {
+                    item {
+                        MediaCarouselSection(
+                            title = "أفلام ${selectedFilter.label}",
+                            items = genreMovies,
+                            horizontalPad = horizontalPad,
+                            cardWidth = cardWidth,
+                            cardImageHeight = cardImageHeight,
+                            onSelect = ::handleMediaSelected,
+                            onFocusItem = { focusedItem = it },
+                        )
+                    }
+                }
+                if (genreTv.isNotEmpty()) {
+                    item {
+                        MediaCarouselSection(
+                            title = "مسلسلات ${selectedFilter.label}",
+                            items = genreTv,
+                            horizontalPad = horizontalPad,
+                            cardWidth = cardWidth,
+                            cardImageHeight = cardImageHeight,
+                            onSelect = ::handleMediaSelected,
+                            onFocusItem = { focusedItem = it },
+                        )
+                    }
+                }
+            } else {
+                val showMovies = selectedFilter == InstantQuickFilter.ALL || selectedFilter == InstantQuickFilter.MOVIES
+                val showTv = selectedFilter == InstantQuickFilter.ALL || selectedFilter == InstantQuickFilter.TV
+                val showTrending = selectedFilter == InstantQuickFilter.ALL
+                val showTopRated = selectedFilter == InstantQuickFilter.ALL ||
+                    selectedFilter == InstantQuickFilter.MOVIES ||
+                    selectedFilter == InstantQuickFilter.TOP_RATED
+
+                if (showMovies && discoverFeed.latestMovies.isNotEmpty()) {
+                    item {
+                        MediaCarouselSection("أحدث الأفلام", discoverFeed.latestMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                    }
+                }
+                if (showTv && discoverFeed.latestTv.isNotEmpty()) {
+                    item {
+                        MediaCarouselSection("أحدث المسلسلات", discoverFeed.latestTv, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                    }
+                }
+                if (showTrending && discoverFeed.trendingAll.isNotEmpty()) {
+                    item {
+                        MediaCarouselSection("الأكثر رواجاً هذا الأسبوع", discoverFeed.trendingAll, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                    }
+                }
+                if (showTopRated && discoverFeed.topRatedMovies.isNotEmpty()) {
+                    item {
+                        MediaCarouselSection("أعلى التقييمات", discoverFeed.topRatedMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected) { focusedItem = it }
+                    }
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = entry.title,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = if (entry.seasonNumber != null && entry.episodeNumber != null) {
-                    "متابعة • م${entry.seasonNumber} ح${entry.episodeNumber}"
-                } else {
-                    "متابعة المشاهدة"
-                },
-                color = Color(0xFF60A5FA),
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-            )
         }
     }
 }
