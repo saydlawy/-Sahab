@@ -40,6 +40,8 @@ internal fun InstantMediaDetailScreen(
     onPlayMovie: (InstantMediaItem) -> Unit,
     onPlayEpisode: (InstantMediaItem, Int, Int) -> Unit,
     onSelectSimilar: (InstantMediaItem) -> Unit,
+    onSelectPerson: (Int, String) -> Unit = { _, _ -> },
+    onSelectGenre: (Int, String) -> Unit = { _, _ -> },
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -118,17 +120,29 @@ internal fun InstantMediaDetailScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    var backFocused by remember { mutableStateOf(false) }
                     Surface(
-                        color = Color(0xCC1E293B),
+                        color = if (backFocused) Color(0xFF2563EB) else Color(0xCC1E293B),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.clickable(onClick = onBack),
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 44.dp)
+                            .border(
+                                width = if (backFocused) 2.dp else 1.dp,
+                                color = if (backFocused) Color(0xFF38BDF8) else Color(0xFF334155),
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .onFocusChanged { backFocused = it.isFocused }
+                            .focusable()
+                            .clickable(onClick = onBack),
                     ) {
-                        Text(
-                            text = "← رجوع",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                            Text(
+                                text = "← رجوع",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
                     }
                     Surface(
                         color = if (isTvSeries) Color(0xDD1D4ED8) else Color(0xCCFBBF24),
@@ -234,6 +248,8 @@ internal fun InstantMediaDetailScreen(
                         text = if (isTvSeries) "▶ تشغيل م$selectedSeason ح1" else "▶ مشاهدة فورية",
                         color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 OutlinedButton(
@@ -260,17 +276,30 @@ internal fun InstantMediaDetailScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPad),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                val genres = details?.genres.orEmpty()
-                if (genres.isNotEmpty()) {
+                val genrePairs = remember(item.genreIds, details?.genres) {
+                    val names = details?.genres.orEmpty()
+                    item.genreIds.mapIndexed { idx, gid ->
+                        gid to (names.getOrNull(idx) ?: TmdbCatalog.genreNamesAr[gid].orEmpty())
+                    }.filter { it.second.isNotBlank() }
+                }
+                if (genrePairs.isNotEmpty()) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(genres) { g ->
+                        items(genrePairs, key = { it.first }) { (gid, gName) ->
+                            var gFocused by remember { mutableStateOf(false) }
                             Surface(
                                 color = Color(0xFF1E293B),
                                 shape = RoundedCornerShape(999.dp),
-                                border = BorderStroke(1.dp, Color(0xFF334155)),
+                                border = BorderStroke(
+                                    if (gFocused) 2.dp else 1.dp,
+                                    if (gFocused) Color(0xFF38BDF8) else Color(0xFF334155),
+                                ),
+                                modifier = Modifier
+                                    .onFocusChanged { gFocused = it.isFocused }
+                                    .focusable()
+                                    .clickable { onSelectGenre(gid, gName) },
                             ) {
                                 Text(
-                                    text = g,
+                                    text = gName,
                                     color = Color(0xFFCBD5E1),
                                     style = MaterialTheme.typography.labelSmall,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
@@ -308,8 +337,20 @@ internal fun InstantMediaDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(cast, key = { it.id }) { member ->
+                        var cFocused by remember { mutableStateOf(false) }
                         Column(
-                            modifier = Modifier.width(84.dp),
+                            modifier = Modifier
+                                .width(88.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(
+                                    width = if (cFocused) 2.dp else 0.dp,
+                                    color = if (cFocused) Color(0xFF38BDF8) else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                .onFocusChanged { cFocused = it.isFocused }
+                                .focusable()
+                                .clickable { onSelectPerson(member.id, member.name) }
+                                .padding(4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {

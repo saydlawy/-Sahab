@@ -29,6 +29,7 @@ data class InstantMediaItem(
     val seasons: List<InstantSeasonSummary> = emptyList(),
     val rating: Double? = null,
     val genreIds: List<Int> = emptyList(),
+    val backdropUrl: String? = null,
 ) {
     val contentKey: String get() = "${mediaType.apiValue}:$tmdbId"
 }
@@ -155,6 +156,7 @@ class TmdbRepository(
                 originalTitle = origTitle,
                 releaseYear = year,
                 posterUrl = dto.posterPath?.let { "$POSTER_BASE$it" },
+                backdropUrl = dto.backdropPath?.let { "$BACKDROP_BASE$it" },
                 overview = dto.overview.orEmpty(),
                 rating = cleanRating,
                 genreIds = dto.genreIds.orEmpty(),
@@ -201,6 +203,7 @@ class TmdbRepository(
             originalTitle = origTitle,
             releaseYear = year,
             posterUrl = dto.posterPath?.let { "$POSTER_BASE$it" },
+                backdropUrl = dto.backdropPath?.let { "$BACKDROP_BASE$it" },
             overview = dto.overview.orEmpty(),
             imdbId = dto.imdbId ?: dto.externalIds?.imdbId,
             seasons = seasons,
@@ -240,6 +243,7 @@ class TmdbRepository(
         @SerialName("release_date") val releaseDate: String? = null,
         @SerialName("first_air_date") val firstAirDate: String? = null,
         @SerialName("poster_path") val posterPath: String? = null,
+        @SerialName("backdrop_path") val backdropPath: String? = null,
         val overview: String? = null,
         @SerialName("vote_average") val voteAverage: Double? = null,
         @SerialName("genre_ids") val genreIds: List<Int>? = null,
@@ -255,6 +259,7 @@ class TmdbRepository(
         @SerialName("release_date") val releaseDate: String? = null,
         @SerialName("first_air_date") val firstAirDate: String? = null,
         @SerialName("poster_path") val posterPath: String? = null,
+        @SerialName("backdrop_path") val backdropPath: String? = null,
         val overview: String? = null,
         @SerialName("imdb_id") val imdbId: String? = null,
         @SerialName("external_ids") val externalIds: ExternalIdsDto? = null,

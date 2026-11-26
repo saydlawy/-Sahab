@@ -57,6 +57,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -326,97 +330,167 @@ fun InstantPlayerScreen(
             )
         }
 
-        // Compact floating top bar
+        // Cinematic responsive floating top bar
+        val isCompactWidth = LocalConfiguration.current.screenWidthDp < 600
+        val playerTitle = remember(session) {
+            buildString {
+                append(session.item.title)
+                if (session.seasonNumber != null && session.episodeNumber != null) {
+                    append(" • م${session.seasonNumber} ح${session.episodeNumber}")
+                }
+            }
+        }
         if (showTopBar) {
-            Row(
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .background(Color(0xB80B1120))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = buildString {
-                        append(session.item.title)
-                        if (session.seasonNumber != null && session.episodeNumber != null) {
-                            append(" • م${session.seasonNumber} ح${session.episodeNumber}")
-                        }
-                    },
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(end = 6.dp),
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    CompactBarChip(
-                        label = if (subtitleCues.isNotEmpty()) "الترجمة ✓" else "الترجمة",
-                        bgColor = Color(0xFF1E3A8A),
-                        textColor = Color(0xFF93C5FD),
-                        onClick = { showSubtitlePanel = !showSubtitlePanel },
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xEE0B1120), Color(0xB80B1120), Color.Transparent),
+                        ),
                     )
-                    if (isEmbedSource) {
-                        CompactBarChip(
-                            label = if (useExoPlayer) "المشغل: Exo ✓" else if (sniffedStream != null) "المشغل: Web • Exo جاهز" else "المشغل: WebView",
-                            bgColor = if (useExoPlayer) Color(0xFF065F46) else Color(0xFF1E3A8A),
-                            textColor = if (useExoPlayer) Color(0xFF6EE7B7) else Color(0xFFBFDBFE),
-                            onClick = {
-                                showEnginePanel = !showEnginePanel
-                                if (showEnginePanel) {
-                                    showServerPanel = false
-                                    showSubtitlePanel = false
-                                }
-                            },
-                        )
-                        CompactBarChip(
-                            label = "سيرفر: ${selectedServer.label}",
-                            bgColor = Color(0xFF312E81),
-                            textColor = Color(0xFFC7D2FE),
-                            onClick = {
-                                showServerPanel = !showServerPanel
-                                if (showServerPanel) {
-                                    showEnginePanel = false
-                                    showSubtitlePanel = false
-                                }
-                            },
-                        )
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = playerTitle,
+                        color = Color.White,
+                        fontSize = if (isCompactWidth) 14.sp else 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!isCompactWidth) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            CompactBarChip(
+                                label = if (subtitleCues.isNotEmpty()) "الترجمة ✓" else "الترجمة",
+                                bgColor = Color(0xFF1E3A8A),
+                                textColor = Color(0xFF93C5FD),
+                                onClick = { showSubtitlePanel = !showSubtitlePanel },
+                            )
+                            if (isEmbedSource) {
+                                CompactBarChip(
+                                    label = if (useExoPlayer) "Exo ✓" else if (sniffedStream != null) "Web • Exo جاهز" else "WebView",
+                                    bgColor = if (useExoPlayer) Color(0xFF065F46) else Color(0xFF1E3A8A),
+                                    textColor = if (useExoPlayer) Color(0xFF6EE7B7) else Color(0xFFBFDBFE),
+                                    onClick = {
+                                        showEnginePanel = !showEnginePanel
+                                        if (showEnginePanel) {
+                                            showServerPanel = false
+                                            showSubtitlePanel = false
+                                        }
+                                    },
+                                )
+                                CompactBarChip(
+                                    label = "سيرفر: ${selectedServer.label}",
+                                    bgColor = Color(0xFF312E81),
+                                    textColor = Color(0xFFC7D2FE),
+                                    onClick = {
+                                        showServerPanel = !showServerPanel
+                                        if (showServerPanel) {
+                                            showEnginePanel = false
+                                            showSubtitlePanel = false
+                                        }
+                                    },
+                                )
+                            }
+                            CompactBarChip(
+                                label = "حماية ${securityState.blockedCount}",
+                                bgColor = Color(0xFF064E3B),
+                                textColor = Color(0xFF6EE7B7),
+                                onClick = { showTopBar = false },
+                            )
+                            CompactBarChip(
+                                label = "إخفاء",
+                                bgColor = Color(0xFF334155),
+                                textColor = Color(0xFFE2E8F0),
+                                onClick = { showTopBar = false },
+                            )
+                        }
                     }
                     CompactBarChip(
-                        label = "حماية ${securityState.blockedCount}",
-                        bgColor = Color(0xFF064E3B),
-                        textColor = Color(0xFF6EE7B7),
-                        onClick = { showTopBar = false },
-                    )
-                    CompactBarChip(
-                        label = "إخفاء",
-                        bgColor = Color(0xFF334155),
-                        textColor = Color(0xFFCBD5E1),
-                        onClick = { showTopBar = false },
-                    )
-                    CompactBarChip(
-                        label = "إغلاق",
+                        label = "إغلاق ✕",
                         bgColor = Color(0xFF7F1D1D),
-                        textColor = Color(0xFFFCA5A5),
+                        textColor = Color(0xFFFECACA),
                         onClick = onClose,
                     )
+                }
+
+                if (isCompactWidth) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        CompactBarChip(
+                            label = if (subtitleCues.isNotEmpty()) "الترجمة ✓" else "الترجمة",
+                            bgColor = Color(0xFF1E3A8A),
+                            textColor = Color(0xFF93C5FD),
+                            onClick = { showSubtitlePanel = !showSubtitlePanel },
+                        )
+                        if (isEmbedSource) {
+                            CompactBarChip(
+                                label = if (useExoPlayer) "Exo ✓" else if (sniffedStream != null) "Web • Exo جاهز" else "WebView",
+                                bgColor = if (useExoPlayer) Color(0xFF065F46) else Color(0xFF1E3A8A),
+                                textColor = if (useExoPlayer) Color(0xFF6EE7B7) else Color(0xFFBFDBFE),
+                                onClick = {
+                                    showEnginePanel = !showEnginePanel
+                                    if (showEnginePanel) {
+                                        showServerPanel = false
+                                        showSubtitlePanel = false
+                                    }
+                                },
+                            )
+                            CompactBarChip(
+                                label = "سيرفر: ${selectedServer.label}",
+                                bgColor = Color(0xFF312E81),
+                                textColor = Color(0xFFC7D2FE),
+                                onClick = {
+                                    showServerPanel = !showServerPanel
+                                    if (showServerPanel) {
+                                        showEnginePanel = false
+                                        showSubtitlePanel = false
+                                    }
+                                },
+                            )
+                        }
+                        CompactBarChip(
+                            label = "حماية ${securityState.blockedCount}",
+                            bgColor = Color(0xFF064E3B),
+                            textColor = Color(0xFF6EE7B7),
+                            onClick = { showTopBar = false },
+                        )
+                        CompactBarChip(
+                            label = "إخفاء",
+                            bgColor = Color(0xFF334155),
+                            textColor = Color(0xFFE2E8F0),
+                            onClick = { showTopBar = false },
+                        )
+                    }
                 }
             }
         } else {
             CompactBarChip(
-                label = "الأدوات",
-                bgColor = Color(0x990F172A),
-                textColor = Color(0xFFCBD5E1),
+                label = "⚙ الأدوات",
+                bgColor = Color(0xCC0F172A),
+                textColor = Color(0xFFE2E8F0),
                 onClick = { showTopBar = true },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(8.dp),
+                    .padding(12.dp),
             )
         }
 
@@ -752,24 +826,26 @@ private fun CompactBarChip(
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .scale(if (focused) 1.06f else 1f)
+            .defaultMinSize(minHeight = 36.dp)
+            .clip(RoundedCornerShape(10.dp))
             .border(
-                width = if (focused) 2.dp else 0.dp,
-                color = if (focused) Color(0xFF93C5FD) else Color.Transparent,
-                shape = RoundedCornerShape(6.dp),
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(10.dp),
             )
-            .background(if (focused) bgColor.copy(alpha = 1f) else bgColor)
+            .background(if (focused) bgColor.copy(alpha = 1f) else bgColor.copy(alpha = 0.92f))
             .onFocusChanged { focused = it.isFocused }
             .focusable()
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            color = textColor,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
+            color = if (focused) Color.White else textColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
         )
     }
@@ -1097,11 +1173,13 @@ private fun SyncStepButton(
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .scale(if (focused) 1.04f else 1f)
+            .defaultMinSize(minHeight = 40.dp)
+            .clip(RoundedCornerShape(10.dp))
             .border(
-                width = if (focused) 2.dp else 0.dp,
-                color = if (focused) Color(0xFF60A5FA) else Color.Transparent,
-                shape = RoundedCornerShape(8.dp),
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) Color(0xFF38BDF8) else Color(0xFF334155),
+                shape = RoundedCornerShape(10.dp),
             )
             .background(
                 when {

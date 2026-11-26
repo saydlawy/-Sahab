@@ -209,6 +209,15 @@ internal fun MediaPosterCard(
                             fontSize = 11.sp,
                         )
                     }
+                    com.saydlawy.sahab.feature.instantwatch.data.TmdbCatalog.primaryGenreLabel(item.genreIds)?.let { g ->
+                        Text(
+                            text = "• $g",
+                            color = Color(0xFF38BDF8),
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
             Column(

@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import com.saydlawy.sahab.feature.instantwatch.data.InstantDiscoverFeed
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaItem
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaType
+import com.saydlawy.sahab.feature.instantwatch.data.InstantGenreTile
+import com.saydlawy.sahab.feature.instantwatch.data.TmdbCatalog
 import com.saydlawy.sahab.feature.instantwatch.domain.GateResult
 import com.saydlawy.sahab.feature.instantwatch.domain.InputResolutionResult
 import com.saydlawy.sahab.feature.instantwatch.domain.OrchestrationResult
@@ -34,6 +36,7 @@ private sealed class InstantWatchRoute {
     data class SearchResults(val query: String, val items: List<InstantMediaItem>) : InstantWatchRoute()
     data class EpisodePicker(val series: InstantMediaItem) : InstantWatchRoute()
     data class Details(val item: InstantMediaItem) : InstantWatchRoute()
+    data class Browse(val target: InstantBrowseTarget) : InstantWatchRoute()
 }
 
 @Composable
@@ -56,7 +59,18 @@ fun InstantWatchScreen(
     val activeSession by sessionManager.activeSession.collectAsState()
     val recentHistory by sessionManager.orchestrator.observeRecentHistory().collectAsState(initial = emptyList())
 
-    var route by remember { mutableStateOf<InstantWatchRoute>(InstantWatchRoute.Home) }
+    val backStack = remember { mutableStateListOf<InstantWatchRoute>(InstantWatchRoute.Home) }
+    val route = backStack.lastOrNull() ?: InstantWatchRoute.Home
+    fun navigateTo(next: InstantWatchRoute) {
+        if (backStack.lastOrNull() != next) backStack.add(next)
+    }
+    fun navigateBack() {
+        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+    }
+    fun resetToHome() {
+        backStack.clear()
+        backStack.add(InstantWatchRoute.Home)
+    }
     var inputText by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
@@ -69,14 +83,14 @@ fun InstantWatchScreen(
     var isGenreLoading by remember { mutableStateOf(false) }
     var focusedItem by remember { mutableStateOf<InstantMediaItem?>(null) }
 
-    BackHandler(enabled = activeSession == null && route !is InstantWatchRoute.Home) {
-        route = InstantWatchRoute.Home
+    BackHandler(enabled = activeSession == null && backStack.size > 1) {
+        navigateBack()
     }
 
     LaunchedEffect(isSignedIn, settings.enabled) {
         if (!isSignedIn || !settings.enabled) {
             sessionManager.onServiceDisabledOrSignedOut()
-            route = InstantWatchRoute.Home
+            resetToHome()
         } else {
             isFeedLoading = true
             discoverFeed = sessionManager.tmdbRepository.loadDiscoverFeed()
@@ -162,7 +176,7 @@ fun InstantWatchScreen(
     }
 
     fun handleMediaSelected(item: InstantMediaItem) {
-        route = InstantWatchRoute.Details(item)
+        navigateTo(InstantWatchRoute.Details(item))
     }
 
     fun performSearch(overrideQuery: String? = null) {
@@ -172,7 +186,7 @@ fun InstantWatchScreen(
             statusMessage = null
             when (val res = sessionManager.inputResolver.resolve(q)) {
                 is InputResolutionResult.SingleMatch -> handleMediaSelected(res.item)
-                is InputResolutionResult.MultipleMatches -> route = InstantWatchRoute.SearchResults(q, res.items)
+                is InputResolutionResult.MultipleMatches -> navigateTo(InstantWatchRoute.SearchResults(q, res.items))
                 InputResolutionResult.NoResults -> statusMessage = "لم يتم العثور على نتائج مطابقة."
                 is InputResolutionResult.InvalidInput -> statusMessage = res.message
                 is InputResolutionResult.Denied -> {
@@ -219,7 +233,7 @@ fun InstantWatchScreen(
                 query = r.query,
                 results = r.items,
                 onSelect = { handleMediaSelected(it) },
-                onBack = { route = InstantWatchRoute.Home },
+                onBack = { navigateBack() },
                 modifier = modifier,
             )
             return
@@ -228,7 +242,7 @@ fun InstantWatchScreen(
             EpisodePickerScreen(
                 series = r.series,
                 onSelectEpisode = { s, e -> startPlayback(r.series, s, e) },
-                onBack = { route = InstantWatchRoute.Home },
+                onBack = { navigateBack() },
                 modifier = modifier,
             )
             return
@@ -239,8 +253,26 @@ fun InstantWatchScreen(
                 tmdbRepository = sessionManager.tmdbRepository,
                 onPlayMovie = { startPlayback(it) },
                 onPlayEpisode = { series, season, ep -> startPlayback(series, season, ep) },
-                onSelectSimilar = { route = InstantWatchRoute.Details(it) },
-                onBack = { route = InstantWatchRoute.Home },
+                onSelectSimilar = { navigateTo(InstantWatchRoute.Details(it))},
+                onSelectPerson = { pid, pname ->
+                    navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Person(pid, pname)))
+                },
+                onSelectGenre = { gid, gname ->
+                    val matched = TmdbCatalog.featuredGenres.firstOrNull { it.movieGenreId == gid || it.tvGenreId == gid }
+                        ?: InstantGenreTile("g_$gid", gname, gid, gid, 0xFF2563EB)
+                    navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Genre(matched)))
+                },
+                onBack = { navigateBack() },
+                modifier = modifier,
+            )
+            return
+        }
+        is InstantWatchRoute.Browse -> {
+            InstantBrowseScreen(
+                target = r.target,
+                tmdbRepository = sessionManager.tmdbRepository,
+                onSelectItem = { navigateTo(InstantWatchRoute.Details(it))},
+                onBack = { navigateBack() },
                 modifier = modifier,
             )
             return
@@ -370,17 +402,58 @@ fun InstantWatchScreen(
 
                 if (showMovies && discoverFeed.latestMovies.isNotEmpty()) {
                     item {
-                        MediaCarouselSection("أحدث الأفلام", discoverFeed.latestMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "أحدث الإصدارات المعروضة حالياً")
+                        BackdropMediaCarouselSection(
+                            title = "أحدث الأفلام",
+                            subtitle = "أحدث الإصدارات المعروضة حالياً",
+                            items = discoverFeed.latestMovies,
+                            horizontalPad = horizontalPad,
+                            isTv = isTv,
+                            onSelect = ::handleMediaSelected,
+                            onFocusItem = { focusedItem = it },
+                        )
+                    }
+                }
+                if (showTrending && discoverFeed.trendingAll.isNotEmpty()) {
+                    item {
+                        TopTenDetailedCarouselSection(
+                            title = "أفضل 10 أعمال هذا الأسبوع",
+                            subtitle = "الأكثر بحثاً ومشاهدة عالمياً",
+                            items = discoverFeed.trendingAll,
+                            horizontalPad = horizontalPad,
+                            isTv = isTv,
+                            onSelect = ::handleMediaSelected,
+                            onFocusItem = { focusedItem = it },
+                        )
+                    }
+                }
+                if (selectedFilter == InstantQuickFilter.ALL || selectedFilter == InstantQuickFilter.MOVIES) {
+                    item {
+                        CollectionsCarouselSection(
+                            collections = TmdbCatalog.featuredCollections,
+                            horizontalPad = horizontalPad,
+                            onSelect = { col -> navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Collection(col)))},
+                        )
+                    }
+                }
+                if (selectedFilter == InstantQuickFilter.ALL) {
+                    item {
+                        RegionsCarouselSection(
+                            regions = TmdbCatalog.featuredRegions,
+                            horizontalPad = horizontalPad,
+                            onSelect = { reg -> navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Region(reg)))},
+                        )
+                    }
+                    item {
+                        GenresCarouselSection(
+                            genres = TmdbCatalog.featuredGenres,
+                            horizontalPad = horizontalPad,
+                            onSelect = { gen -> navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Genre(gen)))},
+                        )
                     }
                 }
                 if (showTv && discoverFeed.latestTv.isNotEmpty()) {
                     item {
                         MediaCarouselSection("أحدث المسلسلات", discoverFeed.latestTv, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "حلقات ومواسم تُعرض هذا الأسبوع")
-                    }
-                }
-                if (showTrending && discoverFeed.trendingAll.isNotEmpty()) {
-                    item {
-                        MediaCarouselSection("أفضل 10 أعمال رائجة", discoverFeed.trendingAll, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "الأكثر بحثاً ومشاهدة عالمياً", showRank = true)
                     }
                 }
                 if (showTopRated && discoverFeed.topRatedMovies.isNotEmpty()) {
