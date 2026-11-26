@@ -36,10 +36,10 @@ class WebViewSecurityPolicy {
         settings.databaseEnabled = false
         settings.saveFormData = false
 
-        // Isolate cookies from the rest of the app
+        // Embed players need session cookies (also third-party iframes); everything is wiped in clearSessionData()
         val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(false)
-        cookieManager.setAcceptThirdPartyCookies(webView, false)
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(webView, true)
     }
 
     fun clearSessionData(webView: WebView) {

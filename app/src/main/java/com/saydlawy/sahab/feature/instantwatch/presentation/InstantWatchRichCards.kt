@@ -78,7 +78,6 @@ private fun BackdropMediaCard(
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .focusable()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),
@@ -188,7 +187,6 @@ private fun TopTenDetailedCard(
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .focusable()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),
@@ -258,7 +256,6 @@ internal fun CollectionsCarouselSection(
                             shape = RoundedCornerShape(14.dp),
                         )
                         .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
                         .clickable { onSelect(col) },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),
@@ -340,7 +337,6 @@ internal fun RegionsCarouselSection(
                             shape = RoundedCornerShape(14.dp),
                         )
                         .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
                         .clickable { onSelect(reg) },
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),
@@ -386,7 +382,6 @@ internal fun GenresCarouselSection(
                     modifier = Modifier
                         .scale(if (isFocused) 1.05f else 1f)
                         .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
                         .clickable { onSelect(genre) },
                     color = accent.copy(alpha = 0.20f),
                     shape = RoundedCornerShape(12.dp),

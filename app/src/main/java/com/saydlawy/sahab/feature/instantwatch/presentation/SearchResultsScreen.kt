@@ -65,7 +65,6 @@ fun SearchResultsScreen(
                         shape = RoundedCornerShape(10.dp),
                     )
                     .onFocusChanged { backFocused = it.isFocused }
-                    .focusable()
                     .clickable(onClick = onBack),
             ) {
                 Box(
@@ -141,7 +140,6 @@ private fun SearchResultCard(
                 shape = RoundedCornerShape(14.dp),
             )
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),

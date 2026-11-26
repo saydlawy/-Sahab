@@ -140,7 +140,6 @@ internal fun InstantBrowseScreen(
                         shape = RoundedCornerShape(10.dp),
                     )
                     .onFocusChanged { backFocused = it.isFocused }
-                    .focusable()
                     .clickable(onClick = onBack),
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {

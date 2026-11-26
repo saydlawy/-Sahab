@@ -1,5 +1,9 @@
 package com.saydlawy.sahab.feature.instantwatch.player
 
+import android.content.Context
+import android.os.SystemClock
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
@@ -13,7 +17,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -83,6 +89,76 @@ private const val SMART_SYNC_JS = """
 })();
 """
 
+private const val JS_TOGGLE_PLAYBACK =
+    "(function(){var vs=document.querySelectorAll('video');var m=null;for(var i=0;i<vs.length;i++){var v=vs[i];if(!m||(v.duration||0)>(m.duration||0)){m=v;}}if(!m){return false;}if(m.paused){var p=m.play();if(p&&p.catch){p.catch(function(){});}}else{m.pause();}return true;})()"
+
+private fun jsSeekBy(deltaSec: Int): String =
+    "(function(d){var vs=document.querySelectorAll('video');var m=null;for(var i=0;i<vs.length;i++){var v=vs[i];if(!m||(v.duration||0)>(m.duration||0)){m=v;}}if(!m){return false;}m.currentTime=Math.max(0,m.currentTime+d);return true;})($deltaSec)"
+
+/**
+ * WebView that understands a TV remote: OK / Play-Pause toggles the page's <video>, LEFT / RIGHT seek by
+ * 10 seconds, and UP hands focus back to the Compose top bar so the user is never trapped inside the page.
+ */
+private class RemoteAwareWebView(context: Context) : WebView(context) {
+    var onRemoteKey: ((KeyEvent) -> Boolean)? = null
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (onRemoteKey?.invoke(event) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    fun handleRemoteKey(event: KeyEvent, requestExit: (() -> Unit)?): Boolean {
+        val code = event.keyCode
+        val consumed = when (code) {
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE,
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> true
+            KeyEvent.KEYCODE_DPAD_UP -> requestExit != null
+            else -> false
+        }
+        if (!consumed) return false
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (code) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    if (event.repeatCount == 0) togglePlayback()
+                }
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> seekBy(-10)
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> seekBy(10)
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    clearFocus()
+                    requestExit?.invoke()
+                }
+            }
+        }
+        return true
+    }
+
+    private fun togglePlayback() {
+        evaluateJavascript(JS_TOGGLE_PLAYBACK) { result ->
+            // No <video> reachable (e.g. cross-origin iframe / custom play button): tap the page center.
+            if (result != "true") tapCenter()
+        }
+    }
+
+    private fun seekBy(deltaSec: Int) {
+        evaluateJavascript(jsSeekBy(deltaSec), null)
+    }
+
+    private fun tapCenter() {
+        val now = SystemClock.uptimeMillis()
+        val x = width / 2f
+        val y = height / 2f
+        val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
+        val up = MotionEvent.obtain(now, now + 50L, MotionEvent.ACTION_UP, x, y, 0)
+        dispatchTouchEvent(down)
+        dispatchTouchEvent(up)
+        down.recycle()
+        up.recycle()
+    }
+}
+
 @Composable
 fun IsolatedPlayerWebView(
     embedUrl: String,
@@ -94,11 +170,14 @@ fun IsolatedPlayerWebView(
     modifier: Modifier = Modifier,
     onStreamSniffed: ((SniffedStream) -> Unit)? = null,
     onPlaybackSync: ((EmbedPlaybackSync) -> Unit)? = null,
+    onRequestExitFocus: (() -> Unit)? = null,
 ) {
     var alreadySniffed = remember(embedUrl, reloadKey) { false }
+    val latestExit by rememberUpdatedState(onRequestExitFocus)
     val context = LocalContext.current
     val webView = remember(context) {
-        WebView(context).apply {
+        RemoteAwareWebView(context).apply {
+            onRemoteKey = { ev -> handleRemoteKey(ev, latestExit) }
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,

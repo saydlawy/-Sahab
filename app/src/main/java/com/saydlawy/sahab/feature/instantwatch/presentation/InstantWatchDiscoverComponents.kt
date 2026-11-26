@@ -15,7 +15,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -128,7 +135,6 @@ internal fun MediaPosterCard(
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .focusable()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),
@@ -268,7 +274,6 @@ internal fun RecentWatchCard(
                 shape = RoundedCornerShape(12.dp),
             )
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
@@ -391,7 +396,7 @@ internal fun InstantWatchTopBar(
             OutlinedTextField(
                 value = inputText,
                 onValueChange = onInputChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).tvFieldEscape(),
                 singleLine = true,
                 placeholder = {
                     Text(
@@ -522,5 +527,22 @@ internal fun InstantWatchTopBar(
                 }
             }
         }
+    }
+}
+
+/**
+ * Lets D-pad UP / DOWN leave a text field instead of being swallowed by it (Android TV).
+ */
+@Composable
+internal fun Modifier.tvFieldEscape(): Modifier {
+    val focusManager = LocalFocusManager.current
+    return this.onPreviewKeyEvent { e ->
+        if (e.key != Key.DirectionUp && e.key != Key.DirectionDown) return@onPreviewKeyEvent false
+        if (e.type == KeyEventType.KeyDown) {
+            focusManager.moveFocus(
+                if (e.key == Key.DirectionDown) FocusDirection.Down else FocusDirection.Up,
+            )
+        }
+        true
     }
 }

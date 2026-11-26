@@ -18,7 +18,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -59,6 +62,13 @@ internal fun InstantMediaDetailScreen(
     var episodes by remember(initialItem.contentKey) { mutableStateOf<List<InstantEpisodeSummary>>(emptyList()) }
     var isEpisodesLoading by remember(initialItem.contentKey) { mutableStateOf(false) }
     var copiedHint by remember { mutableStateOf(false) }
+    val playFocus = remember { FocusRequester() }
+    var playFocused by remember { mutableStateOf(false) }
+    // Start with D-pad focus on the primary action instead of the navigation rail.
+    LaunchedEffect(initialItem.contentKey) {
+        delay(350L)
+        runCatching { playFocus.requestFocus() }
+    }
 
     LaunchedEffect(initialItem.contentKey) {
         isLoading = true
@@ -132,7 +142,6 @@ internal fun InstantMediaDetailScreen(
                                 shape = RoundedCornerShape(10.dp),
                             )
                             .onFocusChanged { backFocused = it.isFocused }
-                            .focusable()
                             .clickable(onClick = onBack),
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
@@ -240,7 +249,16 @@ internal fun InstantMediaDetailScreen(
                             onPlayMovie(item)
                         }
                     },
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .focusRequester(playFocus)
+                        .onFocusChanged { playFocused = it.isFocused }
+                        .border(
+                            width = if (playFocused) 3.dp else 0.dp,
+                            color = if (playFocused) Color(0xFF38BDF8) else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp),
+                        ),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                 ) {
@@ -295,7 +313,6 @@ internal fun InstantMediaDetailScreen(
                                 ),
                                 modifier = Modifier
                                     .onFocusChanged { gFocused = it.isFocused }
-                                    .focusable()
                                     .clickable { onSelectGenre(gid, gName) },
                             ) {
                                 Text(
@@ -348,7 +365,6 @@ internal fun InstantMediaDetailScreen(
                                     shape = RoundedCornerShape(10.dp),
                                 )
                                 .onFocusChanged { cFocused = it.isFocused }
-                                .focusable()
                                 .clickable { onSelectPerson(member.id, member.name) }
                                 .padding(4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -449,7 +465,6 @@ internal fun InstantMediaDetailScreen(
                                 shape = RoundedCornerShape(12.dp),
                             )
                             .onFocusChanged { epFocused = it.isFocused }
-                            .focusable()
                             .clickable { onPlayEpisode(item, selectedSeason, ep.episodeNumber) },
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF162033)),

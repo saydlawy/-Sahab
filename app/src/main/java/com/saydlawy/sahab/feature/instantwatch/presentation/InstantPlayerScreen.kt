@@ -9,6 +9,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -134,6 +137,29 @@ fun InstantPlayerScreen(
     val serverPanelFocus = remember { FocusRequester() }
     val enginePanelFocus = remember { FocusRequester() }
     val subtitlePanelFocus = remember { FocusRequester() }
+    val topBarFocus = remember { FocusRequester() }
+    val requestTopBarFocus: () -> Unit = {
+        showTopBar = true
+        scope.launch {
+            delay(80L)
+            runCatching { topBarFocus.requestFocus() }
+        }
+    }
+    // Give the player's own top bar the initial focus (the navigation rail is hidden while playing).
+    LaunchedEffect(Unit) {
+        delay(450L)
+        runCatching { topBarFocus.requestFocus() }
+    }
+    // After any panel closes, return focus to the top bar instead of an arbitrary chip.
+    val anyPanelOpen = showSubtitlePanel || showServerPanel || showEnginePanel
+    var hadPanelOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(anyPanelOpen) {
+        if (hadPanelOpen && !anyPanelOpen) {
+            delay(120L)
+            runCatching { topBarFocus.requestFocus() }
+        }
+        hadPanelOpen = anyPanelOpen
+    }
 
     // True full-screen (hide system status & navigation bars while playing)
     DisposableEffect(context) {
@@ -154,7 +180,7 @@ fun InstantPlayerScreen(
             showSubtitlePanel -> showSubtitlePanel = false
             showServerPanel -> showServerPanel = false
             showEnginePanel -> showEnginePanel = false
-            !showTopBar -> showTopBar = true
+            showTopBar -> showTopBar = false
             else -> onClose()
         }
     }
@@ -248,6 +274,7 @@ fun InstantPlayerScreen(
                 is ResolvedPlaybackSource.NativeMedia3 -> {
                     NativeMedia3Player(
                         streamUrl = src.streamUrl,
+                        onRequestExitFocus = requestTopBarFocus,
                         subtitle = src.subtitle,
                         resumePositionMs = session.resumePositionMs,
                         onProgressUpdate = { pos, dur ->
@@ -273,7 +300,8 @@ fun InstantPlayerScreen(
                     if (useExoPlayer && captured != null) {
                         NativeMedia3Player(
                             streamUrl = captured.url,
-                            subtitle = null,
+                            onRequestExitFocus = requestTopBarFocus,
+                            subtitle = src.subtitle,
                             resumePositionMs = playbackPosMs.takeIf { it > 0L } ?: session.resumePositionMs,
                             onProgressUpdate = { pos, dur ->
                                 playbackPosMs = pos
@@ -303,6 +331,7 @@ fun InstantPlayerScreen(
                                 sniffedStream = stream
                                 exoStatusMessage = null
                             },
+                            onRequestExitFocus = requestTopBarFocus,
                             onPlaybackSync = { sync ->
                                 autoSyncActive = true
                                 playbackPosMs = sync.positionMs
@@ -376,6 +405,7 @@ fun InstantPlayerScreen(
                         ) {
                             CompactBarChip(
                                 label = if (subtitleCues.isNotEmpty()) "الترجمة ✓" else "الترجمة",
+                                modifier = Modifier.focusRequester(topBarFocus),
                                 bgColor = Color(0xFF1E3A8A),
                                 textColor = Color(0xFF93C5FD),
                                 onClick = { showSubtitlePanel = !showSubtitlePanel },
@@ -438,6 +468,7 @@ fun InstantPlayerScreen(
                     ) {
                         CompactBarChip(
                             label = if (subtitleCues.isNotEmpty()) "الترجمة ✓" else "الترجمة",
+                            modifier = Modifier.focusRequester(topBarFocus),
                             bgColor = Color(0xFF1E3A8A),
                             textColor = Color(0xFF93C5FD),
                             onClick = { showSubtitlePanel = !showSubtitlePanel },
@@ -500,6 +531,7 @@ fun InstantPlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(horizontal = 16.dp)
+                    .onPreviewKeyEvent { it.key == Key.DirectionLeft || it.key == Key.DirectionRight }
                     .widthIn(max = 360.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xF50F172A))
@@ -541,7 +573,6 @@ fun InstantPlayerScreen(
                             )
                             .background(if (active) Color(0xFF2563EB) else if (focused) Color(0xFF334155) else Color(0xFF1E293B))
                             .onFocusChanged { focused = it.isFocused }
-                            .focusable()
                             .clickable {
                                 useExoPlayer = false
                                 showEnginePanel = false
@@ -579,7 +610,6 @@ fun InstantPlayerScreen(
                             )
                             .background(if (active) Color(0xFF059669) else if (focused) Color(0xFF334155) else Color(0xFF1E293B))
                             .onFocusChanged { focused = it.isFocused }
-                            .focusable()
                             .clickable {
                                 if (ready) {
                                     exoStatusMessage = null
@@ -634,6 +664,7 @@ fun InstantPlayerScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(horizontal = 16.dp)
+                    .onPreviewKeyEvent { it.key == Key.DirectionLeft || it.key == Key.DirectionRight }
                     .widthIn(max = 320.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xF50F172A))
@@ -664,7 +695,7 @@ fun InstantPlayerScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(if (idx == 0) Modifier.focusRequester(serverPanelFocus) else Modifier)
+                            .then(if (server == selectedServer) Modifier.focusRequester(serverPanelFocus) else Modifier)
                             .clip(RoundedCornerShape(10.dp))
                             .border(
                                 width = if (focused) 2.dp else 0.dp,
@@ -679,7 +710,6 @@ fun InstantPlayerScreen(
                                 }
                             )
                             .onFocusChanged { focused = it.isFocused }
-                            .focusable()
                             .clickable {
                                 selectedServer = server
                                 showServerPanel = false
@@ -837,7 +867,6 @@ private fun CompactBarChip(
             )
             .background(if (focused) bgColor.copy(alpha = 1f) else bgColor.copy(alpha = 0.92f))
             .onFocusChanged { focused = it.isFocused }
-            .focusable()
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
@@ -921,11 +950,14 @@ private fun SubtitleSyncControlPanel(
         ) {
             SubtitleSourceFilter.entries.forEach { src ->
                 val isSelected = src == selectedSource
+                var tabFocused by remember { mutableStateOf(false) }
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
+                        .border(if (tabFocused) 2.dp else 0.dp, if (tabFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(8.dp))
                         .background(if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B))
+                        .onFocusChanged { tabFocused = it.isFocused }
                         .clickable { onSelectSource(src) }
                         .padding(vertical = 7.dp),
                     contentAlignment = Alignment.Center,
@@ -954,7 +986,7 @@ private fun SubtitleSyncControlPanel(
                 unfocusedBorderColor = Color(0xFF334155),
                 cursorColor = Color(0xFF60A5FA),
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().tvFieldEscape(),
         )
 
         // Action buttons: Auto search | Manual search | Local file
@@ -1027,13 +1059,21 @@ private fun SubtitleSyncControlPanel(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
+                            var labelFocused by remember { mutableStateOf(false) }
                             Text(
                                 text = "[${opt.sourceTag}] ${opt.label}",
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f).padding(end = 6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 6.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .border(if (labelFocused) 2.dp else 0.dp, if (labelFocused) Color(0xFF38BDF8) else Color.Transparent, RoundedCornerShape(6.dp))
+                                    .onFocusChanged { labelFocused = it.isFocused }
+                                    .clickable { onSelectOnline(opt) }
+                                    .padding(4.dp),
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 CompactBarChip(
@@ -1190,7 +1230,6 @@ private fun SyncStepButton(
                 }
             )
             .onFocusChanged { focused = it.isFocused }
-            .focusable()
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,

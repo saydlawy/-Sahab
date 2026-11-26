@@ -157,6 +157,8 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
     val entry by nav.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
     val onPlayer = currentRoute == Routes.PLAYER
+    val instantSession by container.instantWatchSessionManager.activeSession.collectAsStateWithLifecycle()
+    val onInstantPlayer = currentRoute == Routes.INSTANT_WATCH && instantSession != null
     val focusController = remember { FocusNavigationController() }
     var previousScreenKey by remember { mutableStateOf<String?>(null) }
 
@@ -217,7 +219,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                     val oledWideNavigation = themePreferences.selectedThemeId == "oled_cinema" && windowInfo.mode == DisplayMode.TABLET_OR_TV
                     val navigationVisible = LocalThemeCustomization.current.isVisible("global_navigation")
                     val adjustedContentModifier = when {
-                        onPlayer -> contentModifier
+                        onPlayer || onInstantPlayer -> contentModifier
                         oledPhoneNavigation && navigationVisible ->
                             contentModifier.padding(bottom = 76.dp)
                         oledWideNavigation && navigationVisible ->
@@ -229,7 +231,7 @@ fun AppRoot(container: AppContainer, onReady: () -> Unit = {}) {
                         if (startRoute != null) AppNavHost(nav, container, startRoute)
                     }
 
-                    if (!onPlayer && navigationVisible && (oledPhoneNavigation || oledWideNavigation)) {
+                    if (!onPlayer && !onInstantPlayer && navigationVisible && (oledPhoneNavigation || oledWideNavigation)) {
                         val navigationPlacement = LocalThemeCustomization.current.componentPlacement["global_navigation"] ?: "center"
                         val chromeAlignment = when {
                             oledPhoneNavigation -> Alignment.BottomCenter

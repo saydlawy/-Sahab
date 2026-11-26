@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -34,7 +35,6 @@ import kotlinx.coroutines.launch
 private sealed class InstantWatchRoute {
     data object Home : InstantWatchRoute()
     data class SearchResults(val query: String, val items: List<InstantMediaItem>) : InstantWatchRoute()
-    data class EpisodePicker(val series: InstantMediaItem) : InstantWatchRoute()
     data class Details(val item: InstantMediaItem) : InstantWatchRoute()
     data class Browse(val target: InstantBrowseTarget) : InstantWatchRoute()
 }
@@ -60,6 +60,7 @@ fun InstantWatchScreen(
     val recentHistory by sessionManager.orchestrator.observeRecentHistory().collectAsState(initial = emptyList())
 
     val backStack = remember { mutableStateListOf<InstantWatchRoute>(InstantWatchRoute.Home) }
+    val homeListState = rememberLazyListState()
     val route = backStack.lastOrNull() ?: InstantWatchRoute.Home
     fun navigateTo(next: InstantWatchRoute) {
         if (backStack.lastOrNull() != next) backStack.add(next)
@@ -238,15 +239,6 @@ fun InstantWatchScreen(
             )
             return
         }
-        is InstantWatchRoute.EpisodePicker -> {
-            EpisodePickerScreen(
-                series = r.series,
-                onSelectEpisode = { s, e -> startPlayback(r.series, s, e) },
-                onBack = { navigateBack() },
-                modifier = modifier,
-            )
-            return
-        }
         is InstantWatchRoute.Details -> {
             InstantMediaDetailScreen(
                 initialItem = r.item,
@@ -319,6 +311,7 @@ fun InstantWatchScreen(
         )
 
         LazyColumn(
+            state = homeListState,
             modifier = Modifier.fillMaxSize().weight(1f),
             contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
