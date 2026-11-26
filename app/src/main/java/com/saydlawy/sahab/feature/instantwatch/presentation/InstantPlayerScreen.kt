@@ -34,6 +34,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import com.saydlawy.sahab.feature.instantwatch.player.WebViewPlayerController
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -111,6 +116,16 @@ fun InstantPlayerScreen(
     var subtitleOffsetMs by remember(session) { mutableLongStateOf(0L) }
     var subtitleFontSizeSp by remember { mutableIntStateOf(18) }
     var playbackPosMs by remember(session) { mutableLongStateOf(session.resumePositionMs) }
+    var playbackDurMs by remember(session) { mutableLongStateOf(0L) }
+    val webViewController = remember(session, selectedServer, reloadKey) { WebViewPlayerController() }
+    var currentClock by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        val fmt = SimpleDateFormat("hh:mm a", Locale("ar"))
+        while (true) {
+            currentClock = fmt.format(Date())
+            delay(30_000L)
+        }
+    }
     var embedTimerRunning by remember(session) { mutableStateOf(false) }
     var autoSyncActive by remember(session, reloadKey) { mutableStateOf(false) }
     var lastSavedProgressAt by remember(session) { mutableLongStateOf(0L) }
@@ -131,13 +146,16 @@ fun InstantPlayerScreen(
     var showServerPanel by remember { mutableStateOf(false) }
     var showEnginePanel by remember { mutableStateOf(false) }
     var useExoPlayer by remember(session, selectedServer) { mutableStateOf(false) }
-    var sniffedStream by remember(session, selectedServer, reloadKey) { mutableStateOf<SniffedStream?>(null) }
+    var sniffedStreams by remember(session, selectedServer, reloadKey) { mutableStateOf<List<SniffedStream>>(emptyList()) }
+    var selectedSniffedStream by remember(session, selectedServer, reloadKey) { mutableStateOf<SniffedStream?>(null) }
+    val sniffedStream = selectedSniffedStream ?: sniffedStreams.firstOrNull()
     var exoStatusMessage by remember(session, selectedServer, reloadKey) { mutableStateOf<String?>(null) }
     val isEmbedSource = session.source is ResolvedPlaybackSource.IsolatedEmbed
     val serverPanelFocus = remember { FocusRequester() }
     val enginePanelFocus = remember { FocusRequester() }
     val subtitlePanelFocus = remember { FocusRequester() }
     val topBarFocus = remember { FocusRequester() }
+    val playerFocus = remember { FocusRequester() }
     val requestTopBarFocus: () -> Unit = {
         showTopBar = true
         scope.launch {
@@ -156,9 +174,19 @@ fun InstantPlayerScreen(
     LaunchedEffect(anyPanelOpen) {
         if (hadPanelOpen && !anyPanelOpen) {
             delay(120L)
-            runCatching { topBarFocus.requestFocus() }
+            if (showTopBar) {
+                runCatching { topBarFocus.requestFocus() }
+            } else {
+                runCatching { playerFocus.requestFocus() }
+            }
         }
         hadPanelOpen = anyPanelOpen
+    }
+    LaunchedEffect(showTopBar, anyPanelOpen, useExoPlayer) {
+        if (!showTopBar && !anyPanelOpen) {
+            delay(120L)
+            runCatching { playerFocus.requestFocus() }
+        }
     }
 
     // True full-screen (hide system status & navigation bars while playing)
@@ -275,6 +303,7 @@ fun InstantPlayerScreen(
                     NativeMedia3Player(
                         streamUrl = src.streamUrl,
                         onRequestExitFocus = requestTopBarFocus,
+                        focusRequester = playerFocus,
                         subtitle = src.subtitle,
                         resumePositionMs = session.resumePositionMs,
                         onProgressUpdate = { pos, dur ->
@@ -301,6 +330,7 @@ fun InstantPlayerScreen(
                         NativeMedia3Player(
                             streamUrl = captured.url,
                             onRequestExitFocus = requestTopBarFocus,
+                            focusRequester = playerFocus,
                             subtitle = src.subtitle,
                             resumePositionMs = playbackPosMs.takeIf { it > 0L } ?: session.resumePositionMs,
                             onProgressUpdate = { pos, dur ->
@@ -328,13 +358,21 @@ fun InstantPlayerScreen(
                             securityMonitor = sessionManager.securityMonitor,
                             onPlaybackError = { err -> errorMessage = err },
                             onStreamSniffed = { stream ->
-                                sniffedStream = stream
+                                if (sniffedStreams.none { it.url == stream.url }) {
+                                    sniffedStreams = sniffedStreams + stream
+                                    if (selectedSniffedStream == null) {
+                                        selectedSniffedStream = stream
+                                    }
+                                }
                                 exoStatusMessage = null
                             },
                             onRequestExitFocus = requestTopBarFocus,
+                            focusRequester = playerFocus,
+                            controller = webViewController,
                             onPlaybackSync = { sync ->
                                 autoSyncActive = true
                                 playbackPosMs = sync.positionMs
+                                if (sync.durationMs > 0L) playbackDurMs = sync.durationMs
                                 embedTimerRunning = sync.isPlaying
                                 val now = System.currentTimeMillis()
                                 if (sync.durationMs > 60_000L && sync.positionMs > 0L && now - lastSavedProgressAt > 10_000L) {
@@ -371,113 +409,126 @@ fun InstantPlayerScreen(
             }
         }
         if (showTopBar) {
-            Column(
+            // Floating Top Glass Card (Clock + Title + Back)
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color(0xEE0B1120), Color(0xB80B1120), Color.Transparent),
-                        ),
-                    )
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xD90B1120))
+                    .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                Text(
+                    text = currentClock,
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (isEmbedSource) {
                     Text(
-                        text = playerTitle,
-                        color = Color.White,
-                        fontSize = if (isCompactWidth) 14.sp else 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        text = "• ${selectedServer.label} • 🛡 ${securityState.blockedCount}",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
                     )
-                    if (!isCompactWidth) {
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            CompactBarChip(
-                                label = if (subtitleCues.isNotEmpty()) "الترجمة ✓" else "الترجمة",
-                                modifier = Modifier.focusRequester(topBarFocus),
-                                bgColor = Color(0xFF1E3A8A),
-                                textColor = Color(0xFF93C5FD),
-                                onClick = { showSubtitlePanel = !showSubtitlePanel },
-                            )
-                            if (isEmbedSource) {
-                                CompactBarChip(
-                                    label = if (useExoPlayer) "Exo ✓" else if (sniffedStream != null) "Web • Exo جاهز" else "WebView",
-                                    bgColor = if (useExoPlayer) Color(0xFF065F46) else Color(0xFF1E3A8A),
-                                    textColor = if (useExoPlayer) Color(0xFF6EE7B7) else Color(0xFFBFDBFE),
-                                    onClick = {
-                                        showEnginePanel = !showEnginePanel
-                                        if (showEnginePanel) {
-                                            showServerPanel = false
-                                            showSubtitlePanel = false
-                                        }
-                                    },
-                                )
-                                CompactBarChip(
-                                    label = "سيرفر: ${selectedServer.label}",
-                                    bgColor = Color(0xFF312E81),
-                                    textColor = Color(0xFFC7D2FE),
-                                    onClick = {
-                                        showServerPanel = !showServerPanel
-                                        if (showServerPanel) {
-                                            showEnginePanel = false
-                                            showSubtitlePanel = false
-                                        }
-                                    },
-                                )
-                            }
-                            CompactBarChip(
-                                label = "حماية ${securityState.blockedCount}",
-                                bgColor = Color(0xFF064E3B),
-                                textColor = Color(0xFF6EE7B7),
-                                onClick = { showTopBar = false },
-                            )
-                            CompactBarChip(
-                                label = "إخفاء",
-                                bgColor = Color(0xFF334155),
-                                textColor = Color(0xFFE2E8F0),
-                                onClick = { showTopBar = false },
-                            )
-                        }
-                    }
-                    CompactBarChip(
-                        label = "إغلاق ✕",
-                        bgColor = Color(0xFF7F1D1D),
-                        textColor = Color(0xFFFECACA),
-                        onClick = onClose,
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = playerTitle,
+                    color = Color.White,
+                    fontSize = if (isCompactWidth) 14.sp else 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                CinemaCircleButton(
+                    label = "→",
+                    onClick = onClose,
+                    sizeDp = 38,
+                )
+            }
+
+            // Floating Bottom Glass Control Card (Progress + Transport + Tools)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xE00B1120))
+                    .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val safeDur = playbackDurMs.coerceAtLeast(0L)
+                val safePos = playbackPosMs.coerceIn(0L, if (safeDur > 0L) safeDur else Long.MAX_VALUE)
+                val progress = if (safeDur > 0L) (safePos.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f) else 0f
+                val remaining = (safeDur - safePos).coerceAtLeast(0L)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x33FFFFFF)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .height(6.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFF43F5E)),
                     )
                 }
 
-                if (isCompactWidth) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (safeDur > 0L) {
+                            "${formatOverlayClock(safePos)} / ${formatOverlayClock(safeDur)}"
+                        } else {
+                            formatOverlayClock(safePos)
+                        },
+                        color = Color(0xFFE2E8F0),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (safeDur > 0L) {
+                        Text(
+                            text = "-${formatOverlayClock(remaining)}",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        CompactBarChip(
-                            label = if (subtitleCues.isNotEmpty()) "الترجمة ✓" else "الترجمة",
-                            modifier = Modifier.focusRequester(topBarFocus),
-                            bgColor = Color(0xFF1E3A8A),
-                            textColor = Color(0xFF93C5FD),
+                        CinemaCircleButton(
+                            label = if (subtitleCues.isNotEmpty()) "CC✓" else "CC",
+                            active = subtitleCues.isNotEmpty(),
                             onClick = { showSubtitlePanel = !showSubtitlePanel },
                         )
                         if (isEmbedSource) {
-                            CompactBarChip(
-                                label = if (useExoPlayer) "Exo ✓" else if (sniffedStream != null) "Web • Exo جاهز" else "WebView",
-                                bgColor = if (useExoPlayer) Color(0xFF065F46) else Color(0xFF1E3A8A),
-                                textColor = if (useExoPlayer) Color(0xFF6EE7B7) else Color(0xFFBFDBFE),
+                            CinemaCircleButton(
+                                label = if (useExoPlayer) "Exo" else if (sniffedStream != null) "HD✓" else "Web",
+                                active = useExoPlayer || sniffedStream != null,
                                 onClick = {
                                     showEnginePanel = !showEnginePanel
                                     if (showEnginePanel) {
@@ -486,10 +537,8 @@ fun InstantPlayerScreen(
                                     }
                                 },
                             )
-                            CompactBarChip(
-                                label = "سيرفر: ${selectedServer.label}",
-                                bgColor = Color(0xFF312E81),
-                                textColor = Color(0xFFC7D2FE),
+                            CinemaCircleButton(
+                                label = "سيرفر",
                                 onClick = {
                                     showServerPanel = !showServerPanel
                                     if (showServerPanel) {
@@ -499,31 +548,34 @@ fun InstantPlayerScreen(
                                 },
                             )
                         }
-                        CompactBarChip(
-                            label = "حماية ${securityState.blockedCount}",
-                            bgColor = Color(0xFF064E3B),
-                            textColor = Color(0xFF6EE7B7),
+                        CinemaCircleButton(
+                            label = "إخفاء",
                             onClick = { showTopBar = false },
                         )
-                        CompactBarChip(
-                            label = "إخفاء",
-                            bgColor = Color(0xFF334155),
-                            textColor = Color(0xFFE2E8F0),
-                            onClick = { showTopBar = false },
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CinemaCircleButton(
+                            label = "-10",
+                            onClick = { webViewController.seekBy(-10) },
+                        )
+                        CinemaCircleButton(
+                            label = if (embedTimerRunning) "⏸" else "▶",
+                            sizeDp = 52,
+                            primaryGlow = true,
+                            modifier = Modifier.focusRequester(topBarFocus),
+                            onClick = { webViewController.togglePlayback() },
+                        )
+                        CinemaCircleButton(
+                            label = "+10",
+                            onClick = { webViewController.seekBy(10) },
                         )
                     }
                 }
             }
-        } else {
-            CompactBarChip(
-                label = "⚙ الأدوات",
-                bgColor = Color(0xCC0F172A),
-                textColor = Color(0xFFE2E8F0),
-                onClick = { showTopBar = true },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp),
-            )
         }
 
         if (showEnginePanel && isEmbedSource) {
@@ -533,8 +585,10 @@ fun InstantPlayerScreen(
                     .padding(horizontal = 16.dp)
                     .onPreviewKeyEvent { it.key == Key.DirectionLeft || it.key == Key.DirectionRight }
                     .widthIn(max = 360.dp)
+                    .heightIn(max = 460.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xF50F172A))
+                    .verticalScroll(rememberScrollState())
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -634,13 +688,69 @@ fun InstantPlayerScreen(
                         )
                         Text(
                             text = if (ready) {
-                                "تم التقاط رابط البث المباشر مع الـ Cookies. اضغط للتبديل إلى ExoPlayer."
+                                "تم التقاط ${sniffedStreams.size} رابط بث مباشر مع الـ Cookies. اضغط للتبديل إلى ExoPlayer."
                             } else {
                                 "ينتظر التقاط رابط البث (.m3u8) من السيرفر؛ ابدأ تشغيل الفيديو في WebView ثم جرّب التبديل."
                             },
                             color = if (ready) Color(0xFFA7F3D0) else Color(0xFF94A3B8),
                             fontSize = 11.sp,
                         )
+                    }
+                }
+
+                if (sniffedStreams.isNotEmpty()) {
+                    Text(
+                        text = "الجودات / الروابط الملتقطة (${sniffedStreams.size})",
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    sniffedStreams.forEachIndexed { idx, stream ->
+                        val isSelected = useExoPlayer && sniffedStream?.url == stream.url
+                        var qFocused by remember { mutableStateOf(false) }
+                        val label = stream.label.ifBlank { "رابط #${idx + 1}" }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(
+                                    width = if (qFocused) 2.dp else 0.dp,
+                                    color = if (qFocused) Color(0xFF60A5FA) else Color.Transparent,
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                                .background(
+                                    when {
+                                        isSelected -> Color(0xFF065F46)
+                                        qFocused -> Color(0xFF334155)
+                                        else -> Color(0xFF1E293B)
+                                    },
+                                )
+                                .onFocusChanged { qFocused = it.isFocused }
+                                .clickable {
+                                    selectedSniffedStream = stream
+                                    exoStatusMessage = null
+                                    useExoPlayer = true
+                                    showEnginePanel = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${idx + 1}. $label",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            )
+                            if (isSelected) {
+                                Text(
+                                    text = "نشط ✓",
+                                    color = Color(0xFF6EE7B7),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -1239,6 +1349,65 @@ private fun SyncStepButton(
             color = if (highlight) Color(0xFF93C5FD) else Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}
+
+private fun formatOverlayClock(ms: Long): String {
+    val total = (ms / 1000L).coerceAtLeast(0L)
+    val h = total / 3600L
+    val m = (total % 3600L) / 60L
+    val s = total % 60L
+    return if (h > 0L) {
+        String.format(Locale.US, "%d:%02d:%02d", h, m, s)
+    } else {
+        String.format(Locale.US, "%02d:%02d", m, s)
+    }
+}
+
+@Composable
+private fun CinemaCircleButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    sizeDp: Int = 42,
+    active: Boolean = false,
+    primaryGlow: Boolean = false,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .size(sizeDp.dp)
+            .scale(if (focused) 1.12f else 1f)
+            .clip(CircleShape)
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = when {
+                    focused -> Color.White
+                    primaryGlow -> Color(0x88FDA4AF)
+                    active -> Color(0x8834D399)
+                    else -> Color(0x33FFFFFF)
+                },
+                shape = CircleShape,
+            )
+            .background(
+                when {
+                    primaryGlow -> Color(0xFFE11D48)
+                    active -> Color(0xFF065F46)
+                    focused -> Color(0xFF334155)
+                    else -> Color(0xCC1E293B)
+                },
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = if (primaryGlow) 18.sp else 11.sp,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
         )
     }

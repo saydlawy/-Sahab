@@ -96,6 +96,7 @@ fun NativeMedia3Player(
     headers: Map<String, String> = emptyMap(),
     onPositionTick: (Long) -> Unit = {},
     onRequestExitFocus: () -> Unit = {},
+    focusRequester: FocusRequester = remember { FocusRequester() },
 ) {
     val context = LocalContext.current
     val exoPlayer = remember(context, headers) {
@@ -125,7 +126,7 @@ fun NativeMedia3Player(
     var durationMs by remember { mutableLongStateOf(0L) }
     var osdVisible by remember { mutableStateOf(true) }
     var osdPing by remember { mutableIntStateOf(0) }
-    val surfaceFocus = remember { FocusRequester() }
+    val surfaceFocus = focusRequester
 
     LaunchedEffect(streamUrl, subtitle?.url, exoPlayer) {
         val builder = MediaItem.Builder().setUri(Uri.parse(streamUrl))
@@ -138,9 +139,10 @@ fun NativeMedia3Player(
                 .build()
             builder.setSubtitleConfigurations(listOf(subConfig))
         }
+        val targetPosMs = exoPlayer.currentPosition.takeIf { it > 0L } ?: resumePositionMs
         exoPlayer.setMediaItem(builder.build())
-        if (resumePositionMs > 0L) {
-            exoPlayer.seekTo(resumePositionMs)
+        if (targetPosMs > 0L) {
+            exoPlayer.seekTo(targetPosMs)
         }
         exoPlayer.prepare()
     }

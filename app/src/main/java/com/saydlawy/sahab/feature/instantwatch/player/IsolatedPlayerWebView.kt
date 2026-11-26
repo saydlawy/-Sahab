@@ -20,9 +20,39 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.delay
+import java.util.Collections
 import com.saydlawy.sahab.feature.instantwatch.security.NavigationGuard
 import com.saydlawy.sahab.feature.instantwatch.security.SecurityEventType
 import com.saydlawy.sahab.feature.instantwatch.security.SecurityMonitor
@@ -31,13 +61,47 @@ import com.saydlawy.sahab.feature.instantwatch.security.WebViewSecurityPolicy
 data class SniffedStream(
     val url: String,
     val headers: Map<String, String>,
+    val label: String = "",
 )
+
+private fun inferStreamLabel(url: String): String {
+    val lower = url.lowercase()
+    val quality = when {
+        "2160" in lower || "4k" in lower -> "4K"
+        "1080" in lower -> "1080p"
+        "720" in lower -> "720p"
+        "480" in lower -> "480p"
+        "360" in lower -> "360p"
+        "master" in lower || "index.m3u8" in lower || "playlist.m3u8" in lower -> "تلقائي (Master)"
+        else -> null
+    }
+    val format = when {
+        ".m3u8" in lower || "m3u8?" in lower || "master.txt" in lower -> "HLS"
+        ".mpd" in lower -> "DASH"
+        ".mp4" in lower -> "MP4"
+        else -> "Stream"
+    }
+    return if (quality != null) "$quality • $format" else format
+}
 
 data class EmbedPlaybackSync(
     val positionMs: Long,
     val durationMs: Long,
     val isPlaying: Boolean,
 )
+
+class WebViewPlayerController {
+    internal var onToggle: (() -> Unit)? = null
+    internal var onSeekBy: ((Int) -> Unit)? = null
+
+    fun togglePlayback() {
+        onToggle?.invoke()
+    }
+
+    fun seekBy(deltaSec: Int) {
+        onSeekBy?.invoke(deltaSec)
+    }
+}
 
 private const val SMART_SYNC_JS = """
 (function() {
@@ -100,50 +164,29 @@ private fun jsSeekBy(deltaSec: Int): String =
  * 10 seconds, and UP hands focus back to the Compose top bar so the user is never trapped inside the page.
  */
 private class RemoteAwareWebView(context: Context) : WebView(context) {
-    var onRemoteKey: ((KeyEvent) -> Boolean)? = null
-
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (onRemoteKey?.invoke(event) == true) return true
-        return super.dispatchKeyEvent(event)
+    init {
+        // Keep D-pad focus owned by the Compose control layer so TV remotes never get trapped inside ads/iframes.
+        isFocusable = false
+        isFocusableInTouchMode = false
     }
 
-    fun handleRemoteKey(event: KeyEvent, requestExit: (() -> Unit)?): Boolean {
-        val code = event.keyCode
-        val consumed = when (code) {
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE,
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> true
-            KeyEvent.KEYCODE_DPAD_UP -> requestExit != null
-            else -> false
-        }
-        if (!consumed) return false
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            when (code) {
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                    if (event.repeatCount == 0) togglePlayback()
-                }
-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> seekBy(-10)
-                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> seekBy(10)
-                KeyEvent.KEYCODE_DPAD_UP -> {
-                    clearFocus()
-                    requestExit?.invoke()
-                }
-            }
-        }
-        return true
-    }
-
-    private fun togglePlayback() {
+    fun triggerTogglePlayback() {
         evaluateJavascript(JS_TOGGLE_PLAYBACK) { result ->
             // No <video> reachable (e.g. cross-origin iframe / custom play button): tap the page center.
             if (result != "true") tapCenter()
         }
     }
 
-    private fun seekBy(deltaSec: Int) {
-        evaluateJavascript(jsSeekBy(deltaSec), null)
+    fun triggerSeekBy(deltaSec: Int) {
+        evaluateJavascript(jsSeekBy(deltaSec)) { result ->
+            if (result != "true") {
+                // Cross-origin iframe fallback: dispatch standard arrow key directly to Chromium.
+                val keyCode = if (deltaSec >= 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
+                val now = SystemClock.uptimeMillis()
+                super.dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
+                super.dispatchKeyEvent(KeyEvent(now, now + 40L, KeyEvent.ACTION_UP, keyCode, 0))
+            }
+        }
     }
 
     private fun tapCenter() {
@@ -171,13 +214,32 @@ fun IsolatedPlayerWebView(
     onStreamSniffed: ((SniffedStream) -> Unit)? = null,
     onPlaybackSync: ((EmbedPlaybackSync) -> Unit)? = null,
     onRequestExitFocus: (() -> Unit)? = null,
+    focusRequester: FocusRequester = remember { FocusRequester() },
+    controller: WebViewPlayerController? = null,
 ) {
-    var alreadySniffed = remember(embedUrl, reloadKey) { false }
+    val sniffedUrls = remember { Collections.synchronizedSet(LinkedHashSet<String>()) }
+    val latestNavGuard by rememberUpdatedState(navigationGuard)
+    val latestOnError by rememberUpdatedState(onPlaybackError)
+    val latestOnSniffed by rememberUpdatedState(onStreamSniffed)
+    val latestOnSync by rememberUpdatedState(onPlaybackSync)
     val latestExit by rememberUpdatedState(onRequestExitFocus)
+
+    var hudBadge by remember { mutableStateOf<String?>(null) }
+    var hudPing by remember { mutableIntStateOf(0) }
+    LaunchedEffect(hudPing) {
+        if (hudBadge != null) {
+            delay(1_800L)
+            hudBadge = null
+        }
+    }
+
+    LaunchedEffect(embedUrl, reloadKey) {
+        sniffedUrls.clear()
+    }
+
     val context = LocalContext.current
     val webView = remember(context) {
         RemoteAwareWebView(context).apply {
-            onRemoteKey = { ev -> handleRemoteKey(ev, latestExit) }
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -188,9 +250,10 @@ fun IsolatedPlayerWebView(
                 object {
                     @JavascriptInterface
                     fun onTimeUpdate(posMs: Long, durMs: Long, playing: Boolean) {
-                        if (onPlaybackSync != null && posMs >= 0L) {
+                        val syncCb = latestOnSync
+                        if (syncCb != null && posMs >= 0L) {
                             post {
-                                onPlaybackSync(EmbedPlaybackSync(posMs, durMs.coerceAtLeast(0L), playing))
+                                syncCb(EmbedPlaybackSync(posMs, durMs.coerceAtLeast(0L), playing))
                             }
                         }
                     }
@@ -199,7 +262,7 @@ fun IsolatedPlayerWebView(
             )
 
             setDownloadListener { url, _, _, _, _ ->
-                navigationGuard.onExecutableDownloadBlocked(url.orEmpty())
+                latestNavGuard.onExecutableDownloadBlocked(url.orEmpty())
             }
 
             webChromeClient = object : WebChromeClient() {
@@ -209,13 +272,13 @@ fun IsolatedPlayerWebView(
                     isUserGesture: Boolean,
                     resultMsg: android.os.Message?,
                 ): Boolean {
-                    navigationGuard.onPopupAttempt(view?.url)
+                    latestNavGuard.onPopupAttempt(view?.url)
                     return false
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest?) {
                     request ?: return
-                    navigationGuard.onPermissionRequestDenied(request.resources ?: emptyArray())
+                    latestNavGuard.onPermissionRequestDenied(request.resources ?: emptyArray())
                     request.deny()
                 }
 
@@ -223,7 +286,7 @@ fun IsolatedPlayerWebView(
                     origin: String?,
                     callback: GeolocationPermissions.Callback?,
                 ) {
-                    navigationGuard.onPermissionRequestDenied(arrayOf("geolocation"))
+                    latestNavGuard.onPermissionRequestDenied(arrayOf("geolocation"))
                     callback?.invoke(origin, false, false)
                 }
             }
@@ -235,7 +298,7 @@ fun IsolatedPlayerWebView(
                 ): Boolean {
                     val targetUrl = request?.url?.toString()
                     val isMain = request?.isForMainFrame ?: true
-                    return navigationGuard.shouldBlockNavigation(targetUrl, isMain)
+                    return latestNavGuard.shouldBlockNavigation(targetUrl, isMain)
                 }
 
                 override fun shouldInterceptRequest(
@@ -243,10 +306,11 @@ fun IsolatedPlayerWebView(
                     request: WebResourceRequest?,
                 ): WebResourceResponse? {
                     request ?: return null
-                    val blocked = navigationGuard.interceptRequest(request)
+                    val blocked = latestNavGuard.interceptRequest(request)
                     if (blocked != null) return blocked
 
-                    if (onStreamSniffed != null && !alreadySniffed) {
+                    val sniffCb = latestOnSniffed
+                    if (sniffCb != null && sniffedUrls.size < 12) {
                         val reqUrl = request.url?.toString().orEmpty()
                         val lower = reqUrl.lowercase()
                         val pathPart = lower.substringBefore('?')
@@ -278,8 +342,7 @@ fun IsolatedPlayerWebView(
                             !lower.contains("analytics") &&
                             !lower.contains("banner") &&
                             !lower.contains("thumb")
-                        if (isVideoStream && reqUrl.startsWith("http")) {
-                            alreadySniffed = true
+                        if (isVideoStream && reqUrl.startsWith("http") && sniffedUrls.add(reqUrl)) {
                             val hdrs = HashMap<String, String>()
                             request.requestHeaders?.forEach { (k, v) ->
                                 if (k.equals("Referer", true) ||
@@ -298,8 +361,9 @@ fun IsolatedPlayerWebView(
                                     hdrs["Cookie"] = cookie
                                 }
                             }
+                            val stream = SniffedStream(reqUrl, hdrs, inferStreamLabel(reqUrl))
                             view?.post {
-                                onStreamSniffed(SniffedStream(reqUrl, hdrs))
+                                sniffCb(stream)
                             }
                         }
                     }
@@ -308,7 +372,7 @@ fun IsolatedPlayerWebView(
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    if (onPlaybackSync != null) {
+                    if (latestOnSync != null) {
                         view?.evaluateJavascript(SMART_SYNC_JS, null)
                     }
                 }
@@ -322,10 +386,27 @@ fun IsolatedPlayerWebView(
                         val reason = error?.description?.toString()?.ifBlank { null }
                             ?: "فشل تحميل المشغل بعد تطبيق الحماية."
                         securityMonitor.record(SecurityEventType.PLAYBACK_FAILED_AFTER_PROTECTION, reason)
-                        onPlaybackError(reason)
+                        latestOnError(reason)
                     }
                 }
             }
+        }
+    }
+
+    DisposableEffect(webView, controller) {
+        controller?.onToggle = {
+            webView.triggerTogglePlayback()
+            hudBadge = "تشغيل / إيقاف"
+            hudPing++
+        }
+        controller?.onSeekBy = { delta ->
+            webView.triggerSeekBy(delta)
+            hudBadge = if (delta >= 0) "+${delta} ث ⏩" else "⏪ ${delta} ث"
+            hudPing++
+        }
+        onDispose {
+            controller?.onToggle = null
+            controller?.onSeekBy = null
         }
     }
 
@@ -336,19 +417,88 @@ fun IsolatedPlayerWebView(
         }
     }
 
-    AndroidView(
-        factory = { webView },
-        update = { view ->
-            val tagKey = "$embedUrl#$reloadKey"
-            if (view.tag != tagKey) {
-                view.tag = tagKey
-                if (!navigationGuard.shouldBlockNavigation(embedUrl, isForMainFrame = true)) {
-                    view.loadUrl(embedUrl)
-                } else {
-                    onPlaybackError("تم منع تحميل رابط التشغيل لعدم توافقه مع سياسة الأمان.")
+    Box(
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { ev ->
+                val k = ev.key
+                val isHandled =
+                    k == Key.DirectionCenter || k == Key.Enter || k == Key.NumPadEnter ||
+                        k == Key.MediaPlayPause || k == Key.MediaPlay || k == Key.MediaPause ||
+                        k == Key.DirectionLeft || k == Key.DirectionRight ||
+                        k == Key.MediaRewind || k == Key.MediaFastForward ||
+                        k == Key.DirectionUp || k == Key.DirectionDown
+                if (!isHandled) return@onPreviewKeyEvent false
+                if (ev.type == KeyEventType.KeyDown) {
+                    when (k) {
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter,
+                        Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> {
+                            webView.triggerTogglePlayback()
+                            hudBadge = "تشغيل / إيقاف"
+                            hudPing++
+                        }
+                        Key.DirectionLeft, Key.MediaRewind -> {
+                            webView.triggerSeekBy(-10)
+                            hudBadge = "⏪ -10 ث"
+                            hudPing++
+                        }
+                        Key.DirectionRight, Key.MediaFastForward -> {
+                            webView.triggerSeekBy(10)
+                            hudBadge = "+10 ث ⏩"
+                            hudPing++
+                        }
+                        Key.DirectionUp -> {
+                            latestExit?.invoke()
+                        }
+                        Key.DirectionDown -> {
+                            hudBadge = "▲ القائمة العلوية  •  ◀ ▶ تقديم/تأخير  •  OK تشغيل"
+                            hudPing++
+                        }
+                    }
                 }
+                true
+            },
+    ) {
+        AndroidView(
+            factory = { webView },
+            update = { view ->
+                val tagKey = "$embedUrl#$reloadKey"
+                if (view.tag != tagKey) {
+                    view.tag = tagKey
+                    sniffedUrls.clear()
+                    if (!latestNavGuard.shouldBlockNavigation(embedUrl, isForMainFrame = true)) {
+                        view.loadUrl(embedUrl)
+                    } else {
+                        latestOnError("تم منع تحميل رابط التشغيل لعدم توافقه مع سياسة الأمان.")
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        AnimatedVisibility(
+            visible = hudBadge != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 28.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .background(Color(0xCC0B1120), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = hudBadge.orEmpty(),
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
-        },
-        modifier = modifier,
-    )
+        }
+    }
 }
