@@ -283,6 +283,7 @@ class TmdbRepository(
 
     companion object {
         const val POSTER_BASE = "https://image.tmdb.org/t/p/w500"
+        internal const val BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
         private const val CACHE_TTL_MS = 30 * 60 * 1000L
     }
 }
