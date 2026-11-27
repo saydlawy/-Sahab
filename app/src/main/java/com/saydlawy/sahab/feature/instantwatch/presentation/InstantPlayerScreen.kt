@@ -117,7 +117,6 @@ fun InstantPlayerScreen(
     var subtitleFontSizeSp by remember { mutableIntStateOf(18) }
     var playbackPosMs by remember(session) { mutableLongStateOf(session.resumePositionMs) }
     var playbackDurMs by remember(session) { mutableLongStateOf(0L) }
-    val webViewController = remember(session, selectedServer, reloadKey) { WebViewPlayerController() }
     var currentClock by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         val fmt = SimpleDateFormat("hh:mm a", Locale("ar"))
@@ -156,6 +155,7 @@ fun InstantPlayerScreen(
     val subtitlePanelFocus = remember { FocusRequester() }
     val topBarFocus = remember { FocusRequester() }
     val playerFocus = remember { FocusRequester() }
+    val webViewController = remember(session, selectedServer, reloadKey) { WebViewPlayerController() }
     val requestTopBarFocus: () -> Unit = {
         showTopBar = true
         scope.launch {
