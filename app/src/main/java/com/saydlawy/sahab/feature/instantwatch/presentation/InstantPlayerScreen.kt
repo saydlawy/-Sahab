@@ -182,6 +182,13 @@ fun InstantPlayerScreen(
         }
         hadPanelOpen = anyPanelOpen
     }
+    var controlsPing by remember { mutableIntStateOf(0) }
+    LaunchedEffect(showTopBar, anyPanelOpen, controlsPing) {
+        if (showTopBar && !anyPanelOpen) {
+            delay(5_000L)
+            showTopBar = false
+        }
+    }
     LaunchedEffect(showTopBar, anyPanelOpen, useExoPlayer) {
         if (!showTopBar && !anyPanelOpen) {
             delay(120L)
@@ -414,21 +421,22 @@ fun InstantPlayerScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp)
+                    .padding(horizontal = if (isCompactWidth) 12.dp else 20.dp, vertical = 14.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xD90B1120))
                     .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(18.dp))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
                     text = currentClock,
                     color = Color(0xFFCBD5E1),
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
+                    maxLines = 1,
                 )
-                if (isEmbedSource) {
+                if (isEmbedSource && !isCompactWidth) {
                     Text(
                         text = "• ${selectedServer.label} • 🛡 ${securityState.blockedCount}",
                         color = Color(0xFF94A3B8),
@@ -436,15 +444,42 @@ fun InstantPlayerScreen(
                         maxLines = 1,
                     )
                 }
-                Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = playerTitle,
                     color = Color.White,
-                    fontSize = if (isCompactWidth) 14.sp else 16.sp,
+                    fontSize = if (isCompactWidth) 13.sp else 16.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                if (useExoPlayer || !isEmbedSource) {
+                    CinemaCircleButton(
+                        label = if (subtitleCues.isNotEmpty()) "CC✓" else "CC",
+                        active = subtitleCues.isNotEmpty(),
+                        sizeDp = 36,
+                        onClick = {
+                            controlsPing++
+                            showSubtitlePanel = !showSubtitlePanel
+                        },
+                    )
+                    if (isEmbedSource) {
+                        CinemaCircleButton(
+                            label = "Exo",
+                            active = true,
+                            sizeDp = 36,
+                            modifier = Modifier.focusRequester(topBarFocus),
+                            onClick = {
+                                controlsPing++
+                                showEnginePanel = !showEnginePanel
+                                if (showEnginePanel) {
+                                    showServerPanel = false
+                                    showSubtitlePanel = false
+                                }
+                            },
+                        )
+                    }
+                }
                 CinemaCircleButton(
                     label = "→",
                     onClick = onClose,
@@ -452,84 +487,116 @@ fun InstantPlayerScreen(
                 )
             }
 
-            // Floating Bottom Glass Control Card (Progress + Transport + Tools)
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xE00B1120))
-                    .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                val safeDur = playbackDurMs.coerceAtLeast(0L)
-                val safePos = playbackPosMs.coerceIn(0L, if (safeDur > 0L) safeDur else Long.MAX_VALUE)
-                val progress = if (safeDur > 0L) (safePos.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f) else 0f
-                val remaining = (safeDur - safePos).coerceAtLeast(0L)
-
-                Box(
+            // Floating Bottom Glass Control Card (shown for WebView only to avoid overlapping ExoPlayer controls)
+            if (isEmbedSource && !useExoPlayer) {
+                Column(
                     modifier = Modifier
+                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x33FFFFFF)),
+                        .padding(horizontal = if (isCompactWidth) 12.dp else 20.dp, vertical = 16.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xE00B1120))
+                        .border(1.dp, Color(0x28FFFFFF), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    val safeDur = playbackDurMs.coerceAtLeast(0L)
+                    val safePos = playbackPosMs.coerceIn(0L, if (safeDur > 0L) safeDur else Long.MAX_VALUE)
+                    val progress = if (safeDur > 0L) (safePos.toFloat() / safeDur.toFloat()).coerceIn(0f, 1f) else 0f
+                    val remaining = (safeDur - safePos).coerceAtLeast(0L)
+
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progress)
+                            .fillMaxWidth()
                             .height(6.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFF43F5E)),
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (safeDur > 0L) {
-                            "${formatOverlayClock(safePos)} / ${formatOverlayClock(safeDur)}"
-                        } else {
-                            formatOverlayClock(safePos)
-                        },
-                        color = Color(0xFFE2E8F0),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    if (safeDur > 0L) {
-                        Text(
-                            text = "-${formatOverlayClock(remaining)}",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 12.sp,
+                            .background(Color(0x33FFFFFF)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress)
+                                .height(6.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFF43F5E)),
                         )
                     }
-                }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        CinemaCircleButton(
-                            label = if (subtitleCues.isNotEmpty()) "CC✓" else "CC",
-                            active = subtitleCues.isNotEmpty(),
-                            onClick = { showSubtitlePanel = !showSubtitlePanel },
+                        Text(
+                            text = if (safeDur > 0L) {
+                                "${formatOverlayClock(safePos)} / ${formatOverlayClock(safeDur)}"
+                            } else {
+                                formatOverlayClock(safePos)
+                            },
+                            color = Color(0xFFE2E8F0),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
                         )
-                        if (isEmbedSource) {
+                        if (safeDur > 0L) {
+                            Text(
+                                text = "-${formatOverlayClock(remaining)}",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+
+                    if (isCompactWidth) {
+                        // Portrait: Transport centered on row 1, Tools on row 2
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                        ) {
                             CinemaCircleButton(
-                                label = if (useExoPlayer) "Exo" else if (sniffedStream != null) "HD✓" else "Web",
-                                active = useExoPlayer || sniffedStream != null,
+                                label = "-10",
                                 onClick = {
+                                    controlsPing++
+                                    webViewController.seekBy(-10)
+                                },
+                            )
+                            CinemaCircleButton(
+                                label = if (embedTimerRunning) "⏸" else "▶",
+                                sizeDp = 50,
+                                primaryGlow = true,
+                                modifier = Modifier.focusRequester(topBarFocus),
+                                onClick = {
+                                    controlsPing++
+                                    webViewController.togglePlayback()
+                                },
+                            )
+                            CinemaCircleButton(
+                                label = "+10",
+                                onClick = {
+                                    controlsPing++
+                                    webViewController.seekBy(10)
+                                },
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        ) {
+                            CinemaCircleButton(
+                                label = if (subtitleCues.isNotEmpty()) "CC✓" else "CC",
+                                active = subtitleCues.isNotEmpty(),
+                                onClick = {
+                                    controlsPing++
+                                    showSubtitlePanel = !showSubtitlePanel
+                                },
+                            )
+                            CinemaCircleButton(
+                                label = if (sniffedStream != null) "HD✓" else "Web",
+                                active = sniffedStream != null,
+                                onClick = {
+                                    controlsPing++
                                     showEnginePanel = !showEnginePanel
                                     if (showEnginePanel) {
                                         showServerPanel = false
@@ -540,6 +607,7 @@ fun InstantPlayerScreen(
                             CinemaCircleButton(
                                 label = "سيرفر",
                                 onClick = {
+                                    controlsPing++
                                     showServerPanel = !showServerPanel
                                     if (showServerPanel) {
                                         showEnginePanel = false
@@ -547,35 +615,105 @@ fun InstantPlayerScreen(
                                     }
                                 },
                             )
+                            CinemaCircleButton(
+                                label = "إخفاء",
+                                onClick = { showTopBar = false },
+                            )
                         }
-                        CinemaCircleButton(
-                            label = "إخفاء",
-                            onClick = { showTopBar = false },
-                        )
-                    }
+                    } else {
+                        // Landscape / TV: Single balanced row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                CinemaCircleButton(
+                                    label = if (subtitleCues.isNotEmpty()) "CC✓" else "CC",
+                                    active = subtitleCues.isNotEmpty(),
+                                    onClick = {
+                                        controlsPing++
+                                        showSubtitlePanel = !showSubtitlePanel
+                                    },
+                                )
+                                CinemaCircleButton(
+                                    label = if (sniffedStream != null) "HD✓" else "Web",
+                                    active = sniffedStream != null,
+                                    onClick = {
+                                        controlsPing++
+                                        showEnginePanel = !showEnginePanel
+                                        if (showEnginePanel) {
+                                            showServerPanel = false
+                                            showSubtitlePanel = false
+                                        }
+                                    },
+                                )
+                                CinemaCircleButton(
+                                    label = "سيرفر",
+                                    onClick = {
+                                        controlsPing++
+                                        showServerPanel = !showServerPanel
+                                        if (showServerPanel) {
+                                            showEnginePanel = false
+                                            showSubtitlePanel = false
+                                        }
+                                    },
+                                )
+                                CinemaCircleButton(
+                                    label = "إخفاء",
+                                    onClick = { showTopBar = false },
+                                )
+                            }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CinemaCircleButton(
-                            label = "-10",
-                            onClick = { webViewController.seekBy(-10) },
-                        )
-                        CinemaCircleButton(
-                            label = if (embedTimerRunning) "⏸" else "▶",
-                            sizeDp = 52,
-                            primaryGlow = true,
-                            modifier = Modifier.focusRequester(topBarFocus),
-                            onClick = { webViewController.togglePlayback() },
-                        )
-                        CinemaCircleButton(
-                            label = "+10",
-                            onClick = { webViewController.seekBy(10) },
-                        )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                CinemaCircleButton(
+                                    label = "-10",
+                                    onClick = {
+                                        controlsPing++
+                                        webViewController.seekBy(-10)
+                                    },
+                                )
+                                CinemaCircleButton(
+                                    label = if (embedTimerRunning) "⏸" else "▶",
+                                    sizeDp = 52,
+                                    primaryGlow = true,
+                                    modifier = Modifier.focusRequester(topBarFocus),
+                                    onClick = {
+                                        controlsPing++
+                                        webViewController.togglePlayback()
+                                    },
+                                )
+                                CinemaCircleButton(
+                                    label = "+10",
+                                    onClick = {
+                                        controlsPing++
+                                        webViewController.seekBy(10)
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
+        } else {
+            // Subtle floating restore button for touch devices when overlay is hidden
+            CinemaCircleButton(
+                label = "⚙",
+                sizeDp = 38,
+                onClick = {
+                    showTopBar = true
+                    controlsPing++
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(14.dp),
+            )
         }
 
         if (showEnginePanel && isEmbedSource) {
