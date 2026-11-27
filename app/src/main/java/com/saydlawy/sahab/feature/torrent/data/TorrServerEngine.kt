@@ -79,13 +79,28 @@ class TorrServerEngine(
         runCatching {
             val baseUrl = settings.torrServerUrl.trim().trimEnd('/')
             require(baseUrl.toHttpUrlOrNull() != null) { "عنوان TorrServer غير صالح" }
-            val reqBuilder = Request.Builder().url("$baseUrl/echo").get()
-            authHeaders(settings).forEach { (k, v) -> reqBuilder.header(k, v) }
-            client.newCall(reqBuilder.build()).execute().use { resp ->
-                if (!resp.isSuccessful) error("رمز الخطأ HTTP ${resp.code}")
-                val version = resp.body?.string()?.trim().orEmpty()
-                if (version.isBlank()) "متصل بنجاح" else "متصل ($version)"
+            val headers = authHeaders(settings)
+            val probePaths = listOf("/echo", "/", "/plugir")
+            var lastCode: Int? = null
+            for (path in probePaths) {
+                val reqBuilder = Request.Builder().url("$baseUrl$path").get()
+                headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+                client.newCall(reqBuilder.build()).execute().use { resp ->
+                    lastCode = resp.code
+                    val bodyText = resp.body?.string()?.trim().orEmpty()
+                    if (resp.isSuccessful || resp.code in 300..399) {
+                        val label = when {
+                            path == "/echo" && bodyText.isNotBlank() && !bodyText.contains("404", ignoreCase = true) ->
+                                "متصل ($bodyText)"
+                            path == "/plugir" || bodyText.contains("Silo", ignoreCase = true) ->
+                                "متصل (TorrServer Silo)"
+                            else -> "متصل بنجاح"
+                        }
+                        return@runCatching label
+                    }
+                }
             }
+            error("رمز الخطأ HTTP ${lastCode ?: 0}")
         }
     }
 
