@@ -93,6 +93,7 @@ data class EmbedPlaybackSync(
 class WebViewPlayerController {
     internal var onToggle: (() -> Unit)? = null
     internal var onSeekBy: ((Int) -> Unit)? = null
+    internal var onToggleMute: (() -> Unit)? = null
 
     fun togglePlayback() {
         onToggle?.invoke()
@@ -100,6 +101,10 @@ class WebViewPlayerController {
 
     fun seekBy(deltaSec: Int) {
         onSeekBy?.invoke(deltaSec)
+    }
+
+    fun toggleMute() {
+        onToggleMute?.invoke()
     }
 }
 
@@ -143,6 +148,10 @@ private const val SMART_SYNC_JS = """
         }
       }
       if (main) {
+        if (!window.__sahabUserMuted && (main.muted || main.volume === 0)) {
+          main.muted = false;
+          main.volume = 1.0;
+        }
         var d = isFinite(main.duration) ? main.duration : 0;
         if (d === 0 || d > 30 || vids.length === 1) {
           send(main.currentTime, d, !main.paused && !main.ended && main.readyState > 2);
@@ -155,6 +164,9 @@ private const val SMART_SYNC_JS = """
 
 private const val JS_TOGGLE_PLAYBACK =
     "(function(){var vs=document.querySelectorAll('video');var m=null;for(var i=0;i<vs.length;i++){var v=vs[i];if(!m||(v.duration||0)>(m.duration||0)){m=v;}}if(!m){return false;}if(m.paused){var p=m.play();if(p&&p.catch){p.catch(function(){});}}else{m.pause();}return true;})()"
+
+private const val JS_TOGGLE_MUTE =
+    "(function(){var vs=document.querySelectorAll('video');if(!vs||vs.length===0){return 'none';}var m=vs[0];for(var i=0;i<vs.length;i++){if((vs[i].duration||0)>(m.duration||0)){m=vs[i];}}var nextMuted=!m.muted;window.__sahabUserMuted=nextMuted;for(var j=0;j<vs.length;j++){vs[j].muted=nextMuted;if(!nextMuted){vs[j].volume=1.0;}}return nextMuted?'muted':'unmuted';})()"
 
 private fun jsSeekBy(deltaSec: Int): String =
     "(function(d){var vs=document.querySelectorAll('video');var m=null;for(var i=0;i<vs.length;i++){var v=vs[i];if(!m||(v.duration||0)>(m.duration||0)){m=v;}}if(!m){return false;}m.currentTime=Math.max(0,m.currentTime+d);return true;})($deltaSec)"
@@ -404,9 +416,16 @@ fun IsolatedPlayerWebView(
             hudBadge = if (delta >= 0) "+${delta} ث ⏩" else "⏪ ${delta} ث"
             hudPing++
         }
+        controller?.onToggleMute = {
+            webView.evaluateJavascript(JS_TOGGLE_MUTE) { res ->
+                hudBadge = if (res?.contains("muted") == true && !res.contains("unmuted")) "تم كتم الصوت 🔇" else "تم فتح الصوت 🔊"
+                hudPing++
+            }
+        }
         onDispose {
             controller?.onToggle = null
             controller?.onSeekBy = null
+            controller?.onToggleMute = null
         }
     }
 

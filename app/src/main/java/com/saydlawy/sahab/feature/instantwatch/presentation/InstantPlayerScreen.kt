@@ -85,6 +85,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -193,7 +194,9 @@ fun InstantPlayerScreen(
         }
     }
     // Give the player's own top bar the initial focus (the navigation rail is hidden while playing).
+    val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) {
+        keyboardController?.hide()
         delay(450L)
         runCatching { topBarFocus.requestFocus() }
     }
@@ -201,6 +204,9 @@ fun InstantPlayerScreen(
     val anyPanelOpen = showSubtitlePanel || showServerPanel || showEnginePanel || showTracksPanel
     var hadPanelOpen by remember { mutableStateOf(false) }
     LaunchedEffect(anyPanelOpen) {
+        if (!anyPanelOpen) {
+            keyboardController?.hide()
+        }
         if (hadPanelOpen && !anyPanelOpen) {
             delay(120L)
             if (showTopBar) {
@@ -732,6 +738,14 @@ fun InstantPlayerScreen(
                                             resizeBadgeText = "الأبعاد: ${next.labelAr}"
                                         },
                                     )
+                                } else {
+                                    CinemaIconSquareButton(
+                                        iconType = "audio",
+                                        onClick = {
+                                            controlsPing++
+                                            webViewController.toggleMute()
+                                        },
+                                    )
                                 }
                             }
                         } else {
@@ -801,6 +815,14 @@ fun InstantPlayerScreen(
                                                 val next = modes[(modes.indexOf(videoResizeMode) + 1) % modes.size]
                                                 media3Controller.cycleResizeMode()
                                                 resizeBadgeText = "الأبعاد: ${next.labelAr}"
+                                            },
+                                        )
+                                    } else {
+                                        CinemaIconSquareButton(
+                                            iconType = "audio",
+                                            onClick = {
+                                                controlsPing++
+                                                webViewController.toggleMute()
                                             },
                                         )
                                     }

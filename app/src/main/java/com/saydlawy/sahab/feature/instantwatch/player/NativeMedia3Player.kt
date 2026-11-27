@@ -438,13 +438,14 @@ fun NativeMedia3Player(
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause -> {
                             if (e.nativeKeyRepeatCount() == 0) {
                                 if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                onRequestExitFocus()
                             }
                         }
                         Key.MediaPlay -> exoPlayer.play()
                         Key.MediaPause -> exoPlayer.pause()
                         Key.DirectionLeft, Key.MediaRewind -> seekBy(-SEEK_STEP_MS)
                         Key.DirectionRight, Key.MediaFastForward -> seekBy(SEEK_STEP_MS)
-                        Key.DirectionUp -> onRequestExitFocus()
+                        Key.DirectionUp, Key.DirectionDown -> onRequestExitFocus()
                         else -> Unit
                     }
                     osdPing++
@@ -475,6 +476,7 @@ fun NativeMedia3Player(
                     useController = false
                     isFocusable = false
                     isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     keepScreenOn = true
                     this.resizeMode = media3ResizeMode
                     subtitleView?.apply {
