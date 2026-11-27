@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saydlawy.sahab.feature.instantwatch.player.PlayerSessionManager
+import com.saydlawy.sahab.feature.torrent.presentation.TorrentSettingsPanel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -148,6 +149,11 @@ fun InstantWatchSettingsPanel(
         }
 
         HorizontalDivider(color = Color(0xFF1E293B))
+
+        sessionManager.torrentController?.let { torrentCtrl ->
+            TorrentSettingsPanel(controller = torrentCtrl)
+            HorizontalDivider(color = Color(0xFF1E293B))
+        }
 
         Spacer(Modifier.height(2.dp))
 

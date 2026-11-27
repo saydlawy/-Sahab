@@ -27,7 +27,11 @@ import com.saydlawy.sahab.feature.instantwatch.domain.GateResult
 import com.saydlawy.sahab.feature.instantwatch.domain.InputResolutionResult
 import com.saydlawy.sahab.feature.instantwatch.domain.OrchestrationResult
 import com.saydlawy.sahab.feature.instantwatch.domain.PlaybackSessionRequest
+import com.saydlawy.sahab.feature.instantwatch.domain.ResolvedPlaybackSource
 import com.saydlawy.sahab.feature.instantwatch.player.ActivePlaybackSession
+import com.saydlawy.sahab.feature.torrent.domain.TorrentResolutionResult
+import com.saydlawy.sahab.feature.torrent.domain.TorrentStreamCandidate
+import com.saydlawy.sahab.feature.torrent.presentation.TorrentSourcesSheet
 import com.saydlawy.sahab.feature.instantwatch.player.PlayerSessionManager
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -54,6 +58,12 @@ fun InstantWatchScreen(
         config.screenWidthDp >= 840
 
     val settings by sessionManager.preferences.settings.collectAsState()
+    val torrentSettings by sessionManager.torrentBridge.settings.collectAsState()
+    var torrentTarget by remember { mutableStateOf<Triple<InstantMediaItem, Int?, Int?>?>(null) }
+    var torrentStreams by remember { mutableStateOf<List<TorrentStreamCandidate>>(emptyList()) }
+    var isTorrentLoading by remember { mutableStateOf(false) }
+    var resolvingTorrentId by remember { mutableStateOf<String?>(null) }
+    var torrentError by remember { mutableStateOf<String?>(null) }
     val isSignedIn by sessionManager.authGate.observeAuthSignedIn()
         .collectAsState(initial = sessionManager.authGate.hasCachedUser())
     val activeSession by sessionManager.activeSession.collectAsState()
@@ -240,23 +250,112 @@ fun InstantWatchScreen(
             return
         }
         is InstantWatchRoute.Details -> {
-            InstantMediaDetailScreen(
-                initialItem = r.item,
-                tmdbRepository = sessionManager.tmdbRepository,
-                onPlayMovie = { startPlayback(it) },
-                onPlayEpisode = { series, season, ep -> startPlayback(series, season, ep) },
-                onSelectSimilar = { navigateTo(InstantWatchRoute.Details(it))},
-                onSelectPerson = { pid, pname ->
-                    navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Person(pid, pname)))
-                },
-                onSelectGenre = { gid, gname ->
-                    val matched = TmdbCatalog.featuredGenres.firstOrNull { it.movieGenreId == gid || it.tvGenreId == gid }
-                        ?: InstantGenreTile("g_$gid", gname, gid, gid, 0xFF2563EB)
-                    navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Genre(matched)))
-                },
-                onBack = { navigateBack() },
-                modifier = modifier,
-            )
+            fun loadTorrentSources(item: InstantMediaItem, season: Int?, episode: Int?) {
+                torrentTarget = Triple(item, season, episode)
+                torrentStreams = emptyList()
+                torrentError = null
+                resolvingTorrentId = null
+                if (!sessionManager.torrentBridge.isEnabledAndReady()) {
+                    isTorrentLoading = false
+                    torrentError = "يرجى إضافة رابط Stremio Manifest واحد على الأقل من إعدادات المشاهدة الفورية."
+                    return
+                }
+                isTorrentLoading = true
+                scope.launch {
+                    val imdbId = item.imdbId?.takeIf { it.isNotBlank() }
+                        ?: sessionManager.imdbResolver.fetchImdbId(item.tmdbId, item.mediaType)
+                    if (imdbId.isNullOrBlank()) {
+                        isTorrentLoading = false
+                        torrentError = "تعذّر العثور على معرّف IMDb لهذا العمل."
+                        return@launch
+                    }
+                    val list = sessionManager.torrentBridge.fetchStreams(
+                        imdbId = imdbId,
+                        isSeries = item.mediaType == InstantMediaType.TV,
+                        season = season,
+                        episode = episode,
+                    )
+                    torrentStreams = list
+                    isTorrentLoading = false
+                    if (list.isEmpty()) {
+                        torrentError = "لم ترجع الإضافات أي مصادر لهذا العمل."
+                    }
+                }
+            }
+
+            Box(modifier = modifier.fillMaxSize()) {
+                InstantMediaDetailScreen(
+                    initialItem = r.item,
+                    tmdbRepository = sessionManager.tmdbRepository,
+                    onPlayMovie = { startPlayback(it) },
+                    onPlayEpisode = { series, season, ep -> startPlayback(series, season, ep) },
+                    onSelectSimilar = { navigateTo(InstantWatchRoute.Details(it))},
+                    onSelectPerson = { pid, pname ->
+                        navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Person(pid, pname)))
+                    },
+                    onSelectGenre = { gid, gname ->
+                        val matched = TmdbCatalog.featuredGenres.firstOrNull { it.movieGenreId == gid || it.tvGenreId == gid }
+                            ?: InstantGenreTile("g_$gid", gname, gid, gid, 0xFF2563EB)
+                        navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Genre(matched)))
+                    },
+                    onBrowseTorrentSources = if (torrentSettings.enabled) {
+                        { item, season, ep -> loadTorrentSources(item, season, ep) }
+                    } else null,
+                    onBack = { navigateBack() },
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                val activeTarget = torrentTarget
+                if (activeTarget != null) {
+                    val (tItem, tSeason, tEp) = activeTarget
+                    val sheetTitle = if (tSeason != null && tEp != null) {
+                        "${tItem.title} • م$tSeason ح$tEp"
+                    } else {
+                        tItem.title
+                    }
+                    TorrentSourcesSheet(
+                        title = sheetTitle,
+                        streams = torrentStreams,
+                        isLoading = isTorrentLoading,
+                        resolvingId = resolvingTorrentId,
+                        errorMessage = torrentError,
+                        onSelect = { candidate ->
+                            resolvingTorrentId = candidate.id
+                            torrentError = null
+                            scope.launch {
+                                when (val res = sessionManager.torrentBridge.resolveForPlayback(candidate)) {
+                                    is TorrentResolutionResult.Ready -> {
+                                        resolvingTorrentId = null
+                                        torrentTarget = null
+                                        sessionManager.startSession(
+                                            ActivePlaybackSession(
+                                                item = tItem,
+                                                seasonNumber = tSeason,
+                                                episodeNumber = tEp,
+                                                source = ResolvedPlaybackSource.NativeMedia3(streamUrl = res.streamUrl),
+                                                resumePositionMs = 0L,
+                                                headers = res.headers,
+                                                torrServerHashToCleanup = res.torrServerHashToCleanup,
+                                            ),
+                                        )
+                                    }
+                                    is TorrentResolutionResult.Error -> {
+                                        resolvingTorrentId = null
+                                        torrentError = res.message
+                                    }
+                                }
+                            }
+                        },
+                        onRetry = { loadTorrentSources(tItem, tSeason, tEp) },
+                        onDismiss = {
+                            if (resolvingTorrentId == null) {
+                                torrentTarget = null
+                                torrentError = null
+                            }
+                        },
+                    )
+                }
+            }
             return
         }
         is InstantWatchRoute.Browse -> {

@@ -50,6 +50,22 @@ class ImdbResolver(
         results
     }
 
+    suspend fun fetchImdbId(tmdbId: Int, mediaType: InstantMediaType): String? = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank() || tmdbId <= 0) return@withContext null
+        val segment = if (mediaType == InstantMediaType.TV) "tv" else "movie"
+        val url = "https://api.themoviedb.org/3/$segment/$tmdbId/external_ids".toHttpUrl().newBuilder()
+            .addQueryParameter("api_key", apiKey)
+            .build()
+        val body = tmdbRepository.executeGet(url.toString()) ?: return@withContext null
+        val parsed = runCatching { json.decodeFromString<ExternalIdsResponse>(body) }.getOrNull()
+        parsed?.imdbId?.trim()?.takeIf { IMDB_REGEX.matches(it) }
+    }
+
+    @Serializable
+    private data class ExternalIdsResponse(
+        @SerialName("imdb_id") val imdbId: String? = null,
+    )
+
     @Serializable
     private data class FindResponse(
         @SerialName("movie_results") val movieResults: List<FindItemDto> = emptyList(),

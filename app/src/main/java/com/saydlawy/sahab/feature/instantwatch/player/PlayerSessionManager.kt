@@ -20,9 +20,15 @@ import com.saydlawy.sahab.feature.instantwatch.security.RequestInspector
 import com.saydlawy.sahab.feature.instantwatch.security.SecurityMonitor
 import com.saydlawy.sahab.feature.instantwatch.security.StreamSecurityPolicy
 import com.saydlawy.sahab.feature.instantwatch.security.WebViewSecurityPolicy
+import com.saydlawy.sahab.feature.torrent.api.TorrentFeatureBridge
+import com.saydlawy.sahab.feature.torrent.data.TorrentFeatureController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 data class ActivePlaybackSession(
@@ -31,6 +37,8 @@ data class ActivePlaybackSession(
     val episodeNumber: Int?,
     val source: ResolvedPlaybackSource,
     val resumePositionMs: Long,
+    val headers: Map<String, String> = emptyMap(),
+    val torrServerHashToCleanup: String? = null,
 )
 
 class PlayerSessionManager(
@@ -65,16 +73,29 @@ class PlayerSessionManager(
         preferences = preferences,
     )
 
+    val torrentBridge: TorrentFeatureBridge = TorrentFeatureController(context, okHttpClient)
+    val torrentController: TorrentFeatureController?
+        get() = torrentBridge as? TorrentFeatureController
+
+    private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _activeSession = MutableStateFlow<ActivePlaybackSession?>(null)
     val activeSession: StateFlow<ActivePlaybackSession?> = _activeSession.asStateFlow()
 
     fun startSession(session: ActivePlaybackSession) {
+        val prevHash = _activeSession.value?.torrServerHashToCleanup
+        if (!prevHash.isNullOrBlank() && prevHash != session.torrServerHashToCleanup) {
+            sessionScope.launch { torrentBridge.onPlaybackStopped(prevHash) }
+        }
         securityMonitor.clearFailure()
         _activeSession.value = session
     }
 
     fun endSession(clearSecurityLog: Boolean = true) {
+        val prevHash = _activeSession.value?.torrServerHashToCleanup
         _activeSession.value = null
+        if (!prevHash.isNullOrBlank()) {
+            sessionScope.launch { torrentBridge.onPlaybackStopped(prevHash) }
+        }
         if (clearSecurityLog) {
             securityMonitor.reset()
         }

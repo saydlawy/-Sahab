@@ -1,11 +1,11 @@
 package com.saydlawy.sahab.feature.instantwatch.player
 
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,26 +38,53 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.saydlawy.sahab.feature.instantwatch.domain.ResolvedSubtitleTrack
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 private const val SEEK_STEP_MS = 10_000L
 private const val OSD_HIDE_DELAY_MS = 4_000L
+private const val TV_SAFE_BUFFER_BYTES = 64 * 1024 * 1024
+
+data class MediaTrackOption(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val label: String,
+    val language: String?,
+    val isSelected: Boolean,
+)
+
+enum class VideoResizeMode(val labelAr: String) {
+    FIT("ملائمة"),
+    ZOOM("تكبير"),
+    FILL("ملء الشاشة"),
+}
 
 private fun isRemoteKey(key: Key): Boolean =
     key == Key.DirectionCenter || key == Key.Enter || key == Key.NumPadEnter ||
@@ -78,25 +105,61 @@ private fun formatClock(ms: Long): String {
     }
 }
 
-/**
- * Native Media3 player with a TV-friendly D-pad contract:
- * - OK / Play-Pause toggles playback
- * - LEFT / RIGHT seek by 10 seconds
- * - UP hands focus back to the player top bar ([onRequestExitFocus])
- * - DOWN just reveals the on-screen progress bar
- * The stock PlayerView controller is disabled because it is not D-pad friendly.
- */
+private fun formatLanguageLabel(lang: String?, fallbackLabel: String?, index: Int): String {
+    val cleanLabel = fallbackLabel?.trim().orEmpty()
+    val code = lang?.trim()?.lowercase().orEmpty()
+    val langName = when (code) {
+        "ar", "ara" -> "العربية"
+        "en", "eng" -> "English"
+        "fr", "fre", "fra" -> "Français"
+        "es", "spa" -> "Español"
+        "de", "ger", "deu" -> "Deutsch"
+        "tr", "tur" -> "Türkçe"
+        "hi", "hin" -> "हिन्दी"
+        "" -> ""
+        else -> code.uppercase()
+    }
+    return when {
+        langName.isNotBlank() && cleanLabel.isNotBlank() && !cleanLabel.equals(langName, true) ->
+            "$langName • $cleanLabel"
+        langName.isNotBlank() -> langName
+        cleanLabel.isNotBlank() -> cleanLabel
+        else -> "مسار #${index + 1}"
+    }
+}
+
 class Media3PlayerController {
     internal var onToggle: (() -> Unit)? = null
     internal var onSeekBy: ((Int) -> Unit)? = null
+    internal var onSelectAudio: ((groupIndex: Int, trackIndex: Int) -> Unit)? = null
+    internal var onSelectSubtitle: ((groupIndex: Int, trackIndex: Int) -> Unit)? = null
+    internal var onDisableEmbeddedSubtitle: (() -> Unit)? = null
+    internal var onCycleResizeMode: (() -> Unit)? = null
 
-    fun togglePlayback() {
-        onToggle?.invoke()
+    private val _audioTracks = MutableStateFlow<List<MediaTrackOption>>(emptyList())
+    val audioTracks: StateFlow<List<MediaTrackOption>> = _audioTracks.asStateFlow()
+
+    private val _subtitleTracks = MutableStateFlow<List<MediaTrackOption>>(emptyList())
+    val subtitleTracks: StateFlow<List<MediaTrackOption>> = _subtitleTracks.asStateFlow()
+
+    private val _resizeMode = MutableStateFlow(VideoResizeMode.FIT)
+    val resizeMode: StateFlow<VideoResizeMode> = _resizeMode.asStateFlow()
+
+    internal fun updateTracks(audio: List<MediaTrackOption>, subtitles: List<MediaTrackOption>) {
+        _audioTracks.value = audio
+        _subtitleTracks.value = subtitles
     }
 
-    fun seekBy(deltaSec: Int) {
-        onSeekBy?.invoke(deltaSec)
+    internal fun updateResizeMode(mode: VideoResizeMode) {
+        _resizeMode.value = mode
     }
+
+    fun togglePlayback() = onToggle?.invoke() ?: Unit
+    fun seekBy(deltaSec: Int) = onSeekBy?.invoke(deltaSec) ?: Unit
+    fun selectAudioTrack(groupIndex: Int, trackIndex: Int) = onSelectAudio?.invoke(groupIndex, trackIndex) ?: Unit
+    fun selectEmbeddedSubtitle(groupIndex: Int, trackIndex: Int) = onSelectSubtitle?.invoke(groupIndex, trackIndex) ?: Unit
+    fun disableEmbeddedSubtitle() = onDisableEmbeddedSubtitle?.invoke() ?: Unit
+    fun cycleResizeMode() = onCycleResizeMode?.invoke() ?: Unit
 }
 
 @OptIn(UnstableApi::class)
@@ -116,28 +179,70 @@ fun NativeMedia3Player(
     showInternalOsd: Boolean = true,
     onToggleOverlay: (() -> Unit)? = null,
     onPlaybackStateChanged: ((isPlaying: Boolean, durationMs: Long) -> Unit)? = null,
+    preferArabicEmbeddedSubtitles: Boolean = true,
+    disableEmbeddedSubtitles: Boolean = false,
 ) {
     val context = LocalContext.current
+    var resizeMode by remember { mutableStateOf(VideoResizeMode.FIT) }
+
     val exoPlayer = remember(context, headers) {
         val userAgent = headers["User-Agent"] ?: headers["user-agent"]
             ?: "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-        val cleanHeaders = headers.filterKeys {
-            !it.equals("User-Agent", ignoreCase = true)
-        }
+        val cleanHeaders = headers.filterKeys { !it.equals("User-Agent", ignoreCase = true) }
+
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(userAgent)
             .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(20_000)
+            .setReadTimeoutMs(30_000)
             .apply {
                 if (cleanHeaders.isNotEmpty()) {
                     setDefaultRequestProperties(cleanHeaders)
                 }
             }
-        ExoPlayer.Builder(context)
+
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            .setEnableDecoderFallback(true)
+
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 45_000, 2_500, 5_000)
+            .setTargetBufferBytes(TV_SAFE_BUFFER_BYTES)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .build()
+
+        val trackSelector = DefaultTrackSelector(context).apply {
+            setParameters(
+                buildUponParameters()
+                    .setPreferredTextLanguages("ar", "ara")
+                    .setExceedRendererCapabilitiesIfNecessary(true)
+                    .setExceedAudioConstraintsIfNecessary(true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !preferArabicEmbeddedSubtitles && disableEmbeddedSubtitles),
+            )
+        }
+
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
+        ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .setLoadControl(loadControl)
+            .setTrackSelector(trackSelector)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
             .build()
             .apply {
                 playWhenReady = true
             }
+    }
+
+    LaunchedEffect(exoPlayer, disableEmbeddedSubtitles) {
+        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, disableEmbeddedSubtitles)
+            .build()
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -166,7 +271,6 @@ fun NativeMedia3Player(
         exoPlayer.prepare()
     }
 
-    // Fast tick for real-time subtitle synchronization + OSD progress
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(250L)
@@ -177,7 +281,6 @@ fun NativeMedia3Player(
         }
     }
 
-    // Periodic progress persistence
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(5_000L)
@@ -189,20 +292,55 @@ fun NativeMedia3Player(
         }
     }
 
-    // Take D-pad focus as soon as the native player appears so OK / arrows control playback.
     LaunchedEffect(exoPlayer) {
         delay(300L)
         runCatching { surfaceFocus.requestFocus() }
     }
 
-    // Auto-hide the progress OSD while playing.
     LaunchedEffect(osdPing) {
         osdVisible = true
         delay(OSD_HIDE_DELAY_MS)
         if (exoPlayer.isPlaying) osdVisible = false
     }
 
-    DisposableEffect(exoPlayer) {
+    DisposableEffect(exoPlayer, controller) {
+        fun publishTracks(tracks: Tracks) {
+            val audioList = mutableListOf<MediaTrackOption>()
+            val subList = mutableListOf<MediaTrackOption>()
+            tracks.groups.forEachIndexed { gIdx, group ->
+                when (group.type) {
+                    C.TRACK_TYPE_AUDIO -> {
+                        for (tIdx in 0 until group.length) {
+                            if (!group.isTrackSupported(tIdx)) continue
+                            val fmt = group.getTrackFormat(tIdx)
+                            val ch = if (fmt.channelCount > 2) " ${fmt.channelCount}ch" else ""
+                            val base = formatLanguageLabel(fmt.language, fmt.label, audioList.size)
+                            audioList += MediaTrackOption(
+                                groupIndex = gIdx,
+                                trackIndex = tIdx,
+                                label = "$base$ch",
+                                language = fmt.language,
+                                isSelected = group.isTrackSelected(tIdx),
+                            )
+                        }
+                    }
+                    C.TRACK_TYPE_TEXT -> {
+                        for (tIdx in 0 until group.length) {
+                            val fmt = group.getTrackFormat(tIdx)
+                            subList += MediaTrackOption(
+                                groupIndex = gIdx,
+                                trackIndex = tIdx,
+                                label = formatLanguageLabel(fmt.language, fmt.label, subList.size),
+                                language = fmt.language,
+                                isSelected = group.isTrackSelected(tIdx),
+                            )
+                        }
+                    }
+                }
+            }
+            controller?.updateTracks(audioList, subList)
+        }
+
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 onPlaybackError(error.message ?: "حدث خطأ أثناء تشغيل الفيديو في Media3.")
@@ -212,8 +350,14 @@ fun NativeMedia3Player(
                 isPlaying = playing
                 onPlaybackStateChanged?.invoke(playing, exoPlayer.duration.takeIf { it > 0L } ?: 0L)
             }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                publishTracks(tracks)
+            }
         }
         exoPlayer.addListener(listener)
+        publishTracks(exoPlayer.currentTracks)
+
         onDispose {
             val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
             val dur = exoPlayer.duration.takeIf { it > 0L } ?: 0L
@@ -237,10 +381,51 @@ fun NativeMedia3Player(
         controller?.onSeekBy = { deltaSec ->
             seekBy(deltaSec * 1_000L)
         }
+        controller?.onSelectAudio = { gIdx, tIdx ->
+            val group = exoPlayer.currentTracks.groups.getOrNull(gIdx)
+            if (group != null && group.type == C.TRACK_TYPE_AUDIO) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, tIdx))
+                    .build()
+            }
+        }
+        controller?.onSelectSubtitle = { gIdx, tIdx ->
+            val group = exoPlayer.currentTracks.groups.getOrNull(gIdx)
+            if (group != null && group.type == C.TRACK_TYPE_TEXT) {
+                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, tIdx))
+                    .build()
+            }
+        }
+        controller?.onDisableEmbeddedSubtitle = {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+        }
+        controller?.onCycleResizeMode = {
+            val modes = VideoResizeMode.entries
+            val next = modes[(resizeMode.ordinal + 1) % modes.size]
+            resizeMode = next
+            controller?.updateResizeMode(next)
+        }
         onDispose {
             controller?.onToggle = null
             controller?.onSeekBy = null
+            controller?.onSelectAudio = null
+            controller?.onSelectSubtitle = null
+            controller?.onDisableEmbeddedSubtitle = null
+            controller?.onCycleResizeMode = null
         }
+    }
+
+    val media3ResizeMode = when (resizeMode) {
+        VideoResizeMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        VideoResizeMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        VideoResizeMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
     }
 
     Box(
@@ -287,17 +472,35 @@ fun NativeMedia3Player(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
                     )
-                    // The stock controller is not D-pad friendly; a Compose OSD is drawn below instead.
                     useController = false
                     isFocusable = false
                     isFocusableInTouchMode = false
                     keepScreenOn = true
+                    this.resizeMode = media3ResizeMode
+                    subtitleView?.apply {
+                        setApplyEmbeddedStyles(false)
+                        setApplyEmbeddedFontSizes(false)
+                        setStyle(
+                            CaptionStyleCompat(
+                                AndroidColor.WHITE,
+                                0x88000000.toInt(),
+                                AndroidColor.TRANSPARENT,
+                                CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                                AndroidColor.BLACK,
+                                null,
+                            ),
+                        )
+                        setFractionalTextSize(0.058f)
+                    }
                     player = exoPlayer
                 }
             },
             update = { view ->
                 if (view.player != exoPlayer) {
                     view.player = exoPlayer
+                }
+                if (view.resizeMode != media3ResizeMode) {
+                    view.resizeMode = media3ResizeMode
                 }
             },
             modifier = Modifier.fillMaxSize(),

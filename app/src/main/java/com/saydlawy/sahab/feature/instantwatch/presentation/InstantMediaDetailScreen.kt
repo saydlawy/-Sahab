@@ -45,6 +45,7 @@ internal fun InstantMediaDetailScreen(
     onSelectSimilar: (InstantMediaItem) -> Unit,
     onSelectPerson: (Int, String) -> Unit = { _, _ -> },
     onSelectGenre: (Int, String) -> Unit = { _, _ -> },
+    onBrowseTorrentSources: ((InstantMediaItem, Int?, Int?) -> Unit)? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -269,6 +270,36 @@ internal fun InstantMediaDetailScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+                if (onBrowseTorrentSources != null) {
+                    var torrentFocused by remember { mutableStateOf(false) }
+                    Button(
+                        onClick = {
+                            if (isTvSeries) {
+                                val firstEp = episodes.firstOrNull()?.episodeNumber ?: 1
+                                onBrowseTorrentSources(item, selectedSeason, firstEp)
+                            } else {
+                                onBrowseTorrentSources(item, null, null)
+                            }
+                        },
+                        modifier = Modifier
+                            .height(48.dp)
+                            .onFocusChanged { torrentFocused = it.isFocused }
+                            .border(
+                                width = if (torrentFocused) 3.dp else 1.dp,
+                                color = if (torrentFocused) Color(0xFF38BDF8) else Color(0xFF7C3AED),
+                                shape = RoundedCornerShape(12.dp),
+                            ),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4C1D95)),
+                    ) {
+                        Text(
+                            text = "⚡ 4K",
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                        )
+                    }
                 }
                 OutlinedButton(
                     onClick = {
@@ -525,6 +556,28 @@ internal fun InstantMediaDetailScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (onBrowseTorrentSources != null) {
+                                var epTorrentFocused by remember { mutableStateOf(false) }
+                                Surface(
+                                    modifier = Modifier
+                                        .onFocusChanged { epTorrentFocused = it.isFocused }
+                                        .clickable { onBrowseTorrentSources(item, selectedSeason, ep.episodeNumber) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (epTorrentFocused) Color(0xFF6D28D9) else Color(0xFF4C1D95),
+                                    border = BorderStroke(
+                                        width = if (epTorrentFocused) 2.dp else 1.dp,
+                                        color = if (epTorrentFocused) Color(0xFF38BDF8) else Color(0xFF7C3AED),
+                                    ),
+                                ) {
+                                    Text(
+                                        text = "⚡ 4K",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                     )
                                 }
                             }

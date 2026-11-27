@@ -324,6 +324,7 @@ fun InstantPlayerScreen(
                 is ResolvedPlaybackSource.NativeMedia3 -> {
                     NativeMedia3Player(
                         streamUrl = src.streamUrl,
+                        headers = session.headers,
                         onRequestExitFocus = requestTopBarFocus,
                         focusRequester = playerFocus,
                         controller = media3Controller,
