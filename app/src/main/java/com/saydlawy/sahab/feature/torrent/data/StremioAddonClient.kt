@@ -12,6 +12,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 private data class StremioStreamResponse(
@@ -30,8 +32,33 @@ private data class StremioStreamDto(
 )
 
 @Serializable
+private data class StremioCatalogDefDto(
+    val type: String? = null,
+    val id: String? = null,
+    val extra: List<StremioCatalogExtraDto> = emptyList(),
+)
+
+@Serializable
+private data class StremioCatalogExtraDto(
+    val name: String? = null,
+)
+
+@Serializable
+private data class StremioCatalogResponse(
+    val metas: List<StremioMetaDto> = emptyList(),
+)
+
+@Serializable
+private data class StremioMetaDto(
+    val id: String? = null,
+    val type: String? = null,
+    val name: String? = null,
+)
+
+@Serializable
 private data class StremioManifestDto(
     val name: String? = null,
+    val catalogs: List<StremioCatalogDefDto> = emptyList(),
 )
 
 class StremioAddonClient(
@@ -43,28 +70,42 @@ class StremioAddonClient(
         isLenient = true
     }
 
+    private val manifestCache = ConcurrentHashMap<String, StremioManifestDto>()
+
     suspend fun fetchAllStreams(
         addons: List<TorrentAddonConfig>,
         imdbId: String,
         isSeries: Boolean,
         season: Int? = null,
         episode: Int? = null,
+        tmdbId: Int? = null,
+        searchTitle: String? = null,
     ): List<TorrentStreamCandidate> = coroutineScope {
         val cleanImdb = imdbId.trim()
-        if (cleanImdb.isBlank()) return@coroutineScope emptyList()
+        val cleanTitle = searchTitle?.trim().orEmpty()
+        if (cleanImdb.isBlank() && tmdbId == null && cleanTitle.isBlank()) {
+            return@coroutineScope emptyList()
+        }
 
         val activeAddons = addons.filter { it.enabled && it.baseUrl.startsWith("http") }
         if (activeAddons.isEmpty()) return@coroutineScope emptyList()
 
-        val path = if (isSeries && season != null && episode != null) {
-            "stream/series/$cleanImdb:$season:$episode.json"
-        } else {
-            "stream/movie/$cleanImdb.json"
-        }
+        val typeStr = if (isSeries) "series" else "movie"
+        val epSuffix = if (isSeries && season != null && episode != null) ":$season:$episode" else ""
 
         val all = activeAddons.map { addon ->
             async(Dispatchers.IO) {
-                fetchFromAddon(addon, "${addon.baseUrl}/$path")
+                val results = mutableListOf<TorrentStreamCandidate>()
+                if (cleanImdb.isNotBlank()) {
+                    results.addAll(fetchFromAddon(addon, "${addon.baseUrl}/stream/$typeStr/$cleanImdb$epSuffix.json"))
+                }
+                if (results.isEmpty() && tmdbId != null && tmdbId > 0) {
+                    results.addAll(fetchFromAddon(addon, "${addon.baseUrl}/stream/$typeStr/tmdb:$tmdbId$epSuffix.json"))
+                }
+                if (cleanTitle.isNotBlank()) {
+                    results.addAll(fetchViaCatalogSearch(addon, cleanTitle, typeStr, epSuffix))
+                }
+                results
             }
         }.awaitAll().flatten()
 
@@ -105,6 +146,52 @@ class StremioAddonClient(
                 trackers = trackers,
             )
         }
+    }
+
+    private fun fetchViaCatalogSearch(
+        addon: TorrentAddonConfig,
+        query: String,
+        typeStr: String,
+        epSuffix: String,
+    ): List<TorrentStreamCandidate> {
+        val manifest = manifestCache[addon.baseUrl] ?: run {
+            val body = executeGet("${addon.baseUrl}/manifest.json") ?: return emptyList()
+            runCatching { json.decodeFromString<StremioManifestDto>(body) }.getOrNull()?.also {
+                manifestCache[addon.baseUrl] = it
+            } ?: return emptyList()
+        }
+
+        val searchableCatalogs = manifest.catalogs.filter { cat ->
+            val catId = cat.id.orEmpty()
+            val catType = cat.type.orEmpty()
+            val supportsSearch = cat.extra.any { it.name.equals("search", ignoreCase = true) }
+            val typeMatches = catType.equals(typeStr, ignoreCase = true) || catType.equals("other", ignoreCase = true)
+            catId.isNotBlank() && supportsSearch && typeMatches
+        }.take(2)
+
+        if (searchableCatalogs.isEmpty()) return emptyList()
+        val encodedQuery = runCatching { URLEncoder.encode(query, "UTF-8").replace("+", "%20") }
+            .getOrDefault(query)
+
+        val out = mutableListOf<TorrentStreamCandidate>()
+        for (cat in searchableCatalogs) {
+            val catType = cat.type.orEmpty().ifBlank { typeStr }
+            val catId = cat.id.orEmpty()
+            val catUrl = "${addon.baseUrl}/catalog/$catType/$catId/search=$encodedQuery.json"
+            val body = executeGet(catUrl) ?: continue
+            val catalogResp = runCatching { json.decodeFromString<StremioCatalogResponse>(body) }.getOrNull()
+                ?: continue
+            for (meta in catalogResp.metas.take(3)) {
+                val metaId = meta.id?.trim().orEmpty()
+                if (metaId.isBlank()) continue
+                val metaType = meta.type?.trim().orEmpty().ifBlank { catType }
+                val encodedId = runCatching { URLEncoder.encode(metaId, "UTF-8").replace("+", "%20") }
+                    .getOrDefault(metaId)
+                val suffix = if (metaType.equals("series", ignoreCase = true)) epSuffix else ""
+                out.addAll(fetchFromAddon(addon, "${addon.baseUrl}/stream/$metaType/$encodedId$suffix.json"))
+            }
+        }
+        return out
     }
 
     suspend fun fetchManifestName(manifestUrl: String): Result<String> = withContext(Dispatchers.IO) {

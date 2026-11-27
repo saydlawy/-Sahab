@@ -2,6 +2,7 @@ package com.saydlawy.sahab.feature.instantwatch.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -97,15 +98,15 @@ class TmdbRepository(
             listCache[cacheKey]?.takeIf { System.currentTimeMillis() - it.savedAtMs < CACHE_TTL_MS }
                 ?.let { return@withContext it.items }
         }
-        val url = "https://api.themoviedb.org/3/discover/${type.apiValue}".toHttpUrl().newBuilder()
-            .addQueryParameter("api_key", apiKey)
-            .addQueryParameter("language", "ar-SA")
-            .addQueryParameter("include_adult", "false")
-            .addQueryParameter("sort_by", "popularity.desc")
-            .addQueryParameter("with_genres", genreId.toString())
-            .build()
-
-        val items = parseListResponse(executeGet(url.toString()), type)
+        val items = fetchMultiplePages(
+            path = "discover/${type.apiValue}",
+            fixedType = type,
+            maxPages = 3,
+            extraParams = mapOf(
+                "sort_by" to "popularity.desc",
+                "with_genres" to genreId.toString(),
+            ),
+        )
         if (items.isNotEmpty()) {
             listCache[cacheKey] = CacheEntry(items, System.currentTimeMillis())
         }
@@ -121,25 +122,61 @@ class TmdbRepository(
             listCache[endpoint]?.takeIf { System.currentTimeMillis() - it.savedAtMs < CACHE_TTL_MS }
                 ?.let { return@withContext it.items }
         }
-        val url = "https://api.themoviedb.org/3/$endpoint".toHttpUrl().newBuilder()
-            .addQueryParameter("api_key", apiKey)
-            .addQueryParameter("language", "ar-SA")
-            .addQueryParameter("include_adult", "false")
-            .build()
-
-        val items = parseListResponse(executeGet(url.toString()), fixedType)
+        val items = fetchMultiplePages(
+            path = endpoint,
+            fixedType = fixedType,
+            maxPages = 3,
+        )
         if (items.isNotEmpty()) {
             listCache[endpoint] = CacheEntry(items, System.currentTimeMillis())
         }
         items
     }
 
-    private fun parseListResponse(body: String?, fixedType: InstantMediaType?): List<InstantMediaItem> {
-        if (body.isNullOrBlank()) return emptyList()
-        val parsed = runCatching { json.decodeFromString<MultiSearchResponse>(body) }.getOrNull()
-            ?: return emptyList()
+    internal suspend fun fetchMultiplePages(
+        path: String,
+        fixedType: InstantMediaType?,
+        maxPages: Int,
+        extraParams: Map<String, String> = emptyMap(),
+        language: String = "ar-SA",
+    ): List<InstantMediaItem> = coroutineScope {
+        if (apiKey.isBlank() || maxPages <= 0) return@coroutineScope emptyList()
+        fun buildUrl(page: Int): String {
+            val b = "https://api.themoviedb.org/3/$path".toHttpUrl().newBuilder()
+                .addQueryParameter("api_key", apiKey)
+                .addQueryParameter("language", language)
+                .addQueryParameter("include_adult", "false")
+                .addQueryParameter("page", page.toString())
+            extraParams.forEach { (k, v) -> b.addQueryParameter(k, v) }
+            return b.build().toString()
+        }
 
-        return parsed.results.mapNotNull { dto ->
+        val firstBody = executeGet(buildUrl(1)) ?: return@coroutineScope emptyList()
+        val firstParsed = runCatching { json.decodeFromString<MultiSearchResponse>(firstBody) }.getOrNull()
+            ?: return@coroutineScope emptyList()
+
+        val targetPages = minOf(firstParsed.totalPages.coerceAtLeast(1), maxPages)
+        val allDtos = ArrayList<SearchItemDto>(targetPages * 20)
+        allDtos.addAll(firstParsed.results)
+
+        if (targetPages > 1) {
+            val restPages = (2..targetPages).map { page ->
+                async(Dispatchers.IO) {
+                    val body = executeGet(buildUrl(page)) ?: return@async emptyList()
+                    runCatching { json.decodeFromString<MultiSearchResponse>(body) }.getOrNull()?.results.orEmpty()
+                }
+            }.awaitAll()
+            restPages.forEach { allDtos.addAll(it) }
+        }
+
+        mapDtosToItems(allDtos, fixedType).distinctBy { it.contentKey }
+    }
+
+    private fun mapDtosToItems(
+        dtos: List<SearchItemDto>,
+        fixedType: InstantMediaType?,
+    ): List<InstantMediaItem> {
+        return dtos.mapNotNull { dto ->
             val type = fixedType ?: when (dto.mediaType) {
                 "movie" -> InstantMediaType.MOVIE
                 "tv" -> InstantMediaType.TV
@@ -164,16 +201,64 @@ class TmdbRepository(
         }
     }
 
-    suspend fun searchMulti(query: String): List<InstantMediaItem> = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank() || query.isBlank()) return@withContext emptyList()
-        val url = "https://api.themoviedb.org/3/search/multi".toHttpUrl().newBuilder()
+    suspend fun searchMulti(query: String): List<InstantMediaItem> = coroutineScope {
+        val cleanQuery = query.trim()
+        if (apiKey.isBlank() || cleanQuery.isBlank()) return@coroutineScope emptyList()
+
+        val arMultiDef = async(Dispatchers.IO) {
+            fetchMultiplePages(
+                path = "search/multi",
+                fixedType = null,
+                maxPages = 12,
+                extraParams = mapOf("query" to cleanQuery),
+                language = "ar-SA",
+            )
+        }
+        val enMoviesDef = async(Dispatchers.IO) {
+            fetchMultiplePages(
+                path = "search/movie",
+                fixedType = InstantMediaType.MOVIE,
+                maxPages = 6,
+                extraParams = mapOf("query" to cleanQuery),
+                language = "en-US",
+            )
+        }
+        val enTvDef = async(Dispatchers.IO) {
+            fetchMultiplePages(
+                path = "search/tv",
+                fixedType = InstantMediaType.TV,
+                maxPages = 6,
+                extraParams = mapOf("query" to cleanQuery),
+                language = "en-US",
+            )
+        }
+
+        val combined = linkedMapOf<String, InstantMediaItem>()
+        for (item in arMultiDef.await()) {
+            combined[item.contentKey] = item
+        }
+        for (item in enMoviesDef.await() + enTvDef.await()) {
+            combined.putIfAbsent(item.contentKey, item)
+        }
+        combined.values.toList()
+    }
+
+    suspend fun searchPeople(query: String): List<Pair<Int, String>> = withContext(Dispatchers.IO) {
+        val cleanQuery = query.trim()
+        if (apiKey.isBlank() || cleanQuery.isBlank()) return@withContext emptyList()
+        val url = "https://api.themoviedb.org/3/search/person".toHttpUrl().newBuilder()
             .addQueryParameter("api_key", apiKey)
-            .addQueryParameter("query", query.trim())
+            .addQueryParameter("query", cleanQuery)
             .addQueryParameter("include_adult", "false")
             .addQueryParameter("language", "ar-SA")
             .build()
-
-        parseListResponse(executeGet(url.toString()), fixedType = null)
+        val body = executeGet(url.toString()) ?: return@withContext emptyList()
+        val parsed = runCatching { json.decodeFromString<MultiSearchResponse>(body) }.getOrNull()
+            ?: return@withContext emptyList()
+        parsed.results.mapNotNull { dto ->
+            val personName = (dto.name ?: dto.title).orEmpty().trim()
+            if (dto.id > 0 && personName.isNotBlank()) dto.id to personName else null
+        }.distinctBy { it.first }
     }
 
     suspend fun getDetails(tmdbId: Int, type: InstantMediaType): InstantMediaItem? = withContext(Dispatchers.IO) {
@@ -230,7 +315,12 @@ class TmdbRepository(
     }
 
     @Serializable
-    private data class MultiSearchResponse(val results: List<SearchItemDto> = emptyList())
+    private data class MultiSearchResponse(
+        val page: Int = 1,
+        @SerialName("total_pages") val totalPages: Int = 1,
+        @SerialName("total_results") val totalResults: Int = 0,
+        val results: List<SearchItemDto> = emptyList(),
+    )
 
     @Serializable
     private data class SearchItemDto(

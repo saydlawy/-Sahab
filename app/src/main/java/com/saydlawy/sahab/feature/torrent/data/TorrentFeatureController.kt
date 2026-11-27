@@ -33,6 +33,8 @@ class TorrentFeatureController(
         isSeries: Boolean,
         season: Int?,
         episode: Int?,
+        tmdbId: Int?,
+        searchTitle: String?,
     ): List<TorrentStreamCandidate> {
         val cur = preferences.current
         if (!cur.enabled || !cur.hasConfiguredAddons) return emptyList()
@@ -42,6 +44,8 @@ class TorrentFeatureController(
             isSeries = isSeries,
             season = season,
             episode = episode,
+            tmdbId = tmdbId,
+            searchTitle = searchTitle,
         )
     }
 

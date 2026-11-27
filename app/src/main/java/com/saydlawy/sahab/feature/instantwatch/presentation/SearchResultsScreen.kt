@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -35,6 +36,8 @@ fun SearchResultsScreen(
     results: List<InstantMediaItem>,
     onSelect: (InstantMediaItem) -> Unit,
     onBack: () -> Unit,
+    people: List<Pair<Int, String>> = emptyList(),
+    onSelectPerson: (Int, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onBack)
@@ -99,9 +102,54 @@ fun SearchResultsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        if (results.isEmpty()) {
+        if (people.isNotEmpty()) {
+            Text(
+                text = "ممثلون ومخرجون (${people.size}) — اضغط لفتح كل الأعمال",
+                color = Color(0xFF38BDF8),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                items(people, key = { it.first }) { (personId, personName) ->
+                    var pFocused by remember { mutableStateOf(false) }
+                    Surface(
+                        color = if (pFocused) Color(0xFF2563EB) else Color(0xFF1E293B),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .defaultMinSize(minHeight = 40.dp)
+                            .border(
+                                width = if (pFocused) 2.dp else 1.dp,
+                                color = if (pFocused) Color(0xFF38BDF8) else Color(0xFF334155),
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .onFocusChanged { pFocused = it.isFocused }
+                            .clickable { onSelectPerson(personId, personName) },
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                text = "👤 $personName",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        if (results.isEmpty() && people.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "لا توجد نتائج مطابقة لـ \"$query\"",

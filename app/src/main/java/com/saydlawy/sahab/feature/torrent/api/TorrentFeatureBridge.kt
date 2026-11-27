@@ -17,6 +17,8 @@ interface TorrentFeatureBridge {
         isSeries: Boolean,
         season: Int? = null,
         episode: Int? = null,
+        tmdbId: Int? = null,
+        searchTitle: String? = null,
     ): List<TorrentStreamCandidate>
 
     suspend fun resolveForPlayback(candidate: TorrentStreamCandidate): TorrentResolutionResult
@@ -36,6 +38,8 @@ object NoOpTorrentFeatureBridge : TorrentFeatureBridge {
         isSeries: Boolean,
         season: Int?,
         episode: Int?,
+        tmdbId: Int?,
+        searchTitle: String?,
     ): List<TorrentStreamCandidate> = emptyList()
 
     override suspend fun resolveForPlayback(candidate: TorrentStreamCandidate): TorrentResolutionResult =

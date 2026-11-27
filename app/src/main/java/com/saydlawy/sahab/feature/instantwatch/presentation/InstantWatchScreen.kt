@@ -32,13 +32,14 @@ import com.saydlawy.sahab.feature.instantwatch.player.ActivePlaybackSession
 import com.saydlawy.sahab.feature.torrent.domain.TorrentResolutionResult
 import com.saydlawy.sahab.feature.torrent.domain.TorrentStreamCandidate
 import com.saydlawy.sahab.feature.torrent.presentation.TorrentSourcesSheet
+import com.saydlawy.sahab.feature.instantwatch.local.InstantCustomWatchlist
 import com.saydlawy.sahab.feature.instantwatch.player.PlayerSessionManager
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 private sealed class InstantWatchRoute {
     data object Home : InstantWatchRoute()
-    data class SearchResults(val query: String, val items: List<InstantMediaItem>) : InstantWatchRoute()
+    data class SearchResults(val query: String, val items: List<InstantMediaItem>, val people: List<Pair<Int, String>> = emptyList()) : InstantWatchRoute()
     data class Details(val item: InstantMediaItem) : InstantWatchRoute()
     data class Browse(val target: InstantBrowseTarget) : InstantWatchRoute()
 }
@@ -58,6 +59,8 @@ fun InstantWatchScreen(
         config.screenWidthDp >= 840
 
     val settings by sessionManager.preferences.settings.collectAsState()
+    val customWatchlists by sessionManager.preferences.customWatchlists.collectAsState()
+    var showCreateWatchlistDialog by remember { mutableStateOf(false) }
     val torrentSettings by sessionManager.torrentBridge.settings.collectAsState()
     var torrentTarget by remember { mutableStateOf<Triple<InstantMediaItem, Int?, Int?>?>(null) }
     var torrentStreams by remember { mutableStateOf<List<TorrentStreamCandidate>>(emptyList()) }
@@ -195,10 +198,25 @@ fun InstantWatchScreen(
         scope.launch {
             isLoading = true
             statusMessage = null
-            when (val res = sessionManager.inputResolver.resolve(q)) {
-                is InputResolutionResult.SingleMatch -> handleMediaSelected(res.item)
-                is InputResolutionResult.MultipleMatches -> navigateTo(InstantWatchRoute.SearchResults(q, res.items))
-                InputResolutionResult.NoResults -> statusMessage = "لم يتم العثور على نتائج مطابقة."
+            val peopleDef = async { sessionManager.tmdbRepository.searchPeople(q) }
+            val res = sessionManager.inputResolver.resolve(q)
+            val people = peopleDef.await()
+            when (res) {
+                is InputResolutionResult.SingleMatch -> {
+                    if (people.isNotEmpty()) {
+                        navigateTo(InstantWatchRoute.SearchResults(q, listOf(res.item), people))
+                    } else {
+                        handleMediaSelected(res.item)
+                    }
+                }
+                is InputResolutionResult.MultipleMatches -> navigateTo(InstantWatchRoute.SearchResults(q, res.items, people))
+                InputResolutionResult.NoResults -> {
+                    if (people.isNotEmpty()) {
+                        navigateTo(InstantWatchRoute.SearchResults(q, emptyList(), people))
+                    } else {
+                        statusMessage = "لم يتم العثور على نتائج مطابقة."
+                    }
+                }
                 is InputResolutionResult.InvalidInput -> statusMessage = res.message
                 is InputResolutionResult.Denied -> {
                     statusMessage = when (val g = res.gate) {
@@ -243,7 +261,11 @@ fun InstantWatchScreen(
             SearchResultsScreen(
                 query = r.query,
                 results = r.items,
+                people = r.people,
                 onSelect = { handleMediaSelected(it) },
+                onSelectPerson = { pid, pname ->
+                    navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Person(pid, pname)))
+                },
                 onBack = { navigateBack() },
                 modifier = modifier,
             )
@@ -264,16 +286,14 @@ fun InstantWatchScreen(
                 scope.launch {
                     val imdbId = item.imdbId?.takeIf { it.isNotBlank() }
                         ?: sessionManager.imdbResolver.fetchImdbId(item.tmdbId, item.mediaType)
-                    if (imdbId.isNullOrBlank()) {
-                        isTorrentLoading = false
-                        torrentError = "تعذّر العثور على معرّف IMDb لهذا العمل."
-                        return@launch
-                    }
+                    val searchTitle = item.originalTitle.ifBlank { item.title }
                     val list = sessionManager.torrentBridge.fetchStreams(
-                        imdbId = imdbId,
+                        imdbId = imdbId.orEmpty(),
                         isSeries = item.mediaType == InstantMediaType.TV,
                         season = season,
                         episode = episode,
+                        tmdbId = item.tmdbId,
+                        searchTitle = searchTitle,
                     )
                     torrentStreams = list
                     isTorrentLoading = false
@@ -518,6 +538,23 @@ fun InstantWatchScreen(
                         )
                     }
                 }
+                if (selectedFilter == InstantQuickFilter.ALL) {
+                    item {
+                        CustomWatchlistsCarouselSection(
+                            watchlists = customWatchlists,
+                            horizontalPad = horizontalPad,
+                            onCreateClick = { showCreateWatchlistDialog = true },
+                            onOpenWatchlist = { wl ->
+                                if (wl.kind == InstantCustomWatchlist.KIND_ACTOR && wl.personId != null) {
+                                    navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.Person(wl.personId, wl.name)))
+                                } else {
+                                    navigateTo(InstantWatchRoute.Browse(InstantBrowseTarget.CustomList(wl)))
+                                }
+                            },
+                            onDeleteWatchlist = { id -> sessionManager.preferences.deleteCustomWatchlist(id) },
+                        )
+                    }
+                }
                 if (selectedFilter == InstantQuickFilter.ALL || selectedFilter == InstantQuickFilter.MOVIES) {
                     item {
                         CollectionsCarouselSection(
@@ -555,6 +592,17 @@ fun InstantWatchScreen(
                 }
             }
         }
+    }
+
+    if (showCreateWatchlistDialog) {
+        CreateWatchlistDialog(
+            tmdbRepository = sessionManager.tmdbRepository,
+            onDismiss = { showCreateWatchlistDialog = false },
+            onCreated = { wl ->
+                sessionManager.preferences.saveCustomWatchlist(wl)
+                showCreateWatchlistDialog = false
+            },
+        )
     }
 }
 

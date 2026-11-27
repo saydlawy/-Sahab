@@ -27,12 +27,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.saydlawy.sahab.feature.instantwatch.data.*
+import com.saydlawy.sahab.feature.instantwatch.local.InstantCustomWatchlist
 
 internal sealed class InstantBrowseTarget {
     data class Person(val personId: Int, val name: String) : InstantBrowseTarget()
     data class Genre(val tile: InstantGenreTile) : InstantBrowseTarget()
     data class Region(val tile: InstantRegionTile) : InstantBrowseTarget()
     data class Collection(val tile: InstantCollectionTile) : InstantBrowseTarget()
+    data class CustomList(val watchlist: InstantCustomWatchlist) : InstantBrowseTarget()
 }
 
 private enum class BrowseTypeTab(val label: String) { ALL("الكل"), MOVIES("أفلام"), TV("مسلسلات") }
@@ -95,6 +97,19 @@ internal fun InstantBrowseScreen(
                 collectionDetails = c
                 rawItems = c?.parts.orEmpty()
             }
+            is InstantBrowseTarget.CustomList -> {
+                rawItems = target.watchlist.items.map { e ->
+                    InstantMediaItem(
+                        tmdbId = e.tmdbId,
+                        mediaType = if (e.mediaType == "tv") InstantMediaType.TV else InstantMediaType.MOVIE,
+                        title = e.title,
+                        originalTitle = e.originalTitle,
+                        releaseYear = e.releaseYear,
+                        posterUrl = e.posterUrl,
+                        rating = e.rating,
+                    )
+                }
+            }
         }
         isLoading = false
     }
@@ -112,6 +127,7 @@ internal fun InstantBrowseScreen(
         is InstantBrowseTarget.Genre -> "تصنيف: ${target.tile.title}"
         is InstantBrowseTarget.Region -> target.tile.title
         is InstantBrowseTarget.Collection -> collectionDetails?.name?.ifBlank { target.tile.title } ?: target.tile.title
+        is InstantBrowseTarget.CustomList -> target.watchlist.name
     }
 
     Column(

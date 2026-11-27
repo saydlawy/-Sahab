@@ -209,34 +209,17 @@ private suspend fun TmdbRepository.discoverCustom(
     origLang: String? = null,
     origCountry: String? = null,
 ): List<InstantMediaItem> = withContext(Dispatchers.IO) {
-    if (apiKey.isBlank()) return@withContext emptyList()
-    val builder = "https://api.themoviedb.org/3/discover/${type.apiValue}".toHttpUrl().newBuilder()
-        .addQueryParameter("api_key", apiKey)
-        .addQueryParameter("language", "ar-SA")
-        .addQueryParameter("include_adult", "false")
-        .addQueryParameter("sort_by", sortBy)
-    if (sortBy.startsWith("vote_average")) builder.addQueryParameter("vote_count.gte", "150")
-    if (!withGenres.isNullOrBlank()) builder.addQueryParameter("with_genres", withGenres)
-    if (!origLang.isNullOrBlank()) builder.addQueryParameter("with_original_language", origLang)
-    if (!origCountry.isNullOrBlank()) builder.addQueryParameter("with_origin_country", origCountry)
-
-    val body = executeGet(builder.build().toString()) ?: return@withContext emptyList()
-    val parsed = runCatching { browseJson.decodeFromString<DiscoverRespDto>(body) }.getOrNull() ?: return@withContext emptyList()
-    parsed.results.mapNotNull { d ->
-        val title = (d.title ?: d.name).orEmpty().ifBlank { return@mapNotNull null }
-        InstantMediaItem(
-            tmdbId = d.id,
-            mediaType = type,
-            title = title,
-            originalTitle = (d.originalTitle ?: d.originalName).orEmpty().ifBlank { title },
-            releaseYear = (d.releaseDate ?: d.firstAirDate)?.take(4)?.toIntOrNull(),
-            posterUrl = d.posterPath?.let { "${TmdbRepository.POSTER_BASE}$it" },
-            backdropUrl = d.backdropPath?.let { "${TmdbRepository.BACKDROP_BASE}$it" },
-            overview = d.overview.orEmpty(),
-            rating = d.voteAverage?.takeIf { it > 0.0 && it < 9.95 },
-            genreIds = d.genreIds.orEmpty(),
-        )
-    }
+    val params = linkedMapOf("sort_by" to sortBy)
+    if (sortBy.startsWith("vote_average")) params["vote_count.gte"] = "150"
+    if (!withGenres.isNullOrBlank()) params["with_genres"] = withGenres
+    if (!origLang.isNullOrBlank()) params["with_original_language"] = origLang
+    if (!origCountry.isNullOrBlank()) params["with_origin_country"] = origCountry
+    fetchMultiplePages(
+        path = "discover/${type.apiValue}",
+        fixedType = type,
+        maxPages = 3,
+        extraParams = params,
+    )
 }
 
 private fun interleaveLists(a: List<InstantMediaItem>, b: List<InstantMediaItem>): List<InstantMediaItem> {
