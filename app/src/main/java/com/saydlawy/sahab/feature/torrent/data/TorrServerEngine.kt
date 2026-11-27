@@ -64,7 +64,7 @@ class TorrServerEngine(
             ?: return@withContext TorrentResolutionResult.Error("تعذّر الاتصال بـ TorrServer على $baseUrl")
 
         val resolvedHash = extractHash(body) ?: hash
-        val fileIndex = resolveFileIndex(body, candidate.fileIdx)
+        val fileIndex = resolveFileIndex(body, candidate.fileIdx, isSilo)
 
         val streamUrl = if (isSilo) {
             "$baseUrl/api/stream/$resolvedHash/$fileIndex"
@@ -125,23 +125,25 @@ class TorrServerEngine(
             ?.trim()?.takeIf { it.length >= 32 }
     }.getOrNull()
 
-    private fun resolveFileIndex(body: String, preferredZeroBasedIdx: Int?): Int {
+    private fun resolveFileIndex(body: String, preferredZeroBasedIdx: Int?, isSilo: Boolean): Int {
         if (preferredZeroBasedIdx != null && preferredZeroBasedIdx >= 0) {
-            return preferredZeroBasedIdx + 1
+            return if (isSilo) preferredZeroBasedIdx else preferredZeroBasedIdx + 1
         }
         val bestId = runCatching {
-            val stats = json.parseToJsonElement(body).jsonObject["file_stats"]?.jsonArray
+            val root = json.parseToJsonElement(body).jsonObject
+            val stats = root["file_stats"]?.jsonArray
+                ?: root["files"]?.jsonArray
                 ?: return@runCatching null
-            stats.mapNotNull { el ->
+            stats.mapIndexedNotNull { idx, el ->
                 val obj = el.jsonObject
-                val id = obj["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                val id = obj["id"]?.jsonPrimitive?.intOrNull ?: if (isSilo) idx else idx + 1
                 val path = obj["path"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val length = obj["length"]?.jsonPrimitive?.longOrNull ?: 0L
                 val ext = path.substringAfterLast('.', "").lowercase()
                 Triple(id, ext in videoExts, length)
             }.filter { it.second }.maxByOrNull { it.third }?.first
         }.getOrNull()
-        return bestId ?: 1
+        return bestId ?: if (isSilo) 0 else 1
     }
 
     private fun buildMagnet(hash: String, title: String, trackers: List<String>): String {

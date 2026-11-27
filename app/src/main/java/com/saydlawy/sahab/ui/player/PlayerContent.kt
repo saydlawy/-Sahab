@@ -88,6 +88,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -152,6 +153,10 @@ import com.saydlawy.sahab.util.ChannelLogoResolver
 internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack: () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        keyboardController?.hide()
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val isTv = LocalIsTv.current
     val displayMode = LocalDisplayMode.current
@@ -771,6 +776,9 @@ internal fun PlayerContent(container: AppContainer, request: PlayRequest, onBack
                         factory = { ctx ->
                             PlayerView(ctx).apply {
                                 useController = false
+                                isFocusable = false
+                                isFocusableInTouchMode = false
+                                descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
