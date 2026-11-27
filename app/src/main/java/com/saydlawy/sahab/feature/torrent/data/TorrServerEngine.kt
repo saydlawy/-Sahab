@@ -43,20 +43,34 @@ class TorrServerEngine(
         val magnet = buildMagnet(hash, candidate.rawTitle, candidate.trackers)
         val headers = authHeaders(settings)
 
-        val addPayload = buildJsonObject {
-            put("action", "add")
+        val siloPayload = buildJsonObject {
             put("link", magnet)
             put("title", candidate.rawTitle.take(120))
-            put("save_to_db", false)
         }.toString()
 
-        val addResponse = executePost("$baseUrl/torrents", addPayload, headers)
+        var isSilo = true
+        var addResponse = executePost("$baseUrl/api/torrents", siloPayload, headers)
+        if (addResponse == null) {
+            isSilo = false
+            val classicPayload = buildJsonObject {
+                put("action", "add")
+                put("link", magnet)
+                put("title", candidate.rawTitle.take(120))
+                put("save_to_db", false)
+            }.toString()
+            addResponse = executePost("$baseUrl/torrents", classicPayload, headers)
+        }
+        val body = addResponse
             ?: return@withContext TorrentResolutionResult.Error("تعذّر الاتصال بـ TorrServer على $baseUrl")
 
-        val resolvedHash = extractHash(addResponse) ?: hash
-        val fileIndex = resolveFileIndex(addResponse, candidate.fileIdx)
+        val resolvedHash = extractHash(body) ?: hash
+        val fileIndex = resolveFileIndex(body, candidate.fileIdx)
 
-        val streamUrl = "$baseUrl/stream?link=$resolvedHash&index=$fileIndex&play"
+        val streamUrl = if (isSilo) {
+            "$baseUrl/api/stream/$resolvedHash/$fileIndex"
+        } else {
+            "$baseUrl/stream?link=$resolvedHash&index=$fileIndex&play"
+        }
         TorrentResolutionResult.Ready(
             streamUrl = streamUrl,
             headers = headers,
@@ -68,11 +82,13 @@ class TorrServerEngine(
         val baseUrl = settings.torrServerUrl.trim().trimEnd('/')
         if (hash.isBlank() || baseUrl.toHttpUrlOrNull() == null) return@withContext
         val headers = authHeaders(settings)
-        val dropPayload = buildJsonObject {
-            put("action", "drop")
-            put("hash", hash)
-        }.toString()
-        executePost("$baseUrl/torrents", dropPayload, headers)
+        if (!executeDelete("$baseUrl/api/torrents/$hash", headers)) {
+            val dropPayload = buildJsonObject {
+                put("action", "drop")
+                put("hash", hash)
+            }.toString()
+            executePost("$baseUrl/torrents", dropPayload, headers)
+        }
     }
 
     suspend fun testConnection(settings: TorrentSettings): Result<String> = withContext(Dispatchers.IO) {
@@ -80,7 +96,7 @@ class TorrServerEngine(
             val baseUrl = settings.torrServerUrl.trim().trimEnd('/')
             require(baseUrl.toHttpUrlOrNull() != null) { "عنوان TorrServer غير صالح" }
             val headers = authHeaders(settings)
-            val probePaths = listOf("/echo", "/", "/plugir")
+            val probePaths = listOf("/api/system/ping", "/echo", "/", "/plugir")
             var lastCode: Int? = null
             for (path in probePaths) {
                 val reqBuilder = Request.Builder().url("$baseUrl$path").get()
@@ -92,7 +108,7 @@ class TorrServerEngine(
                         val label = when {
                             path == "/echo" && bodyText.isNotBlank() && !bodyText.contains("404", ignoreCase = true) ->
                                 "متصل ($bodyText)"
-                            path == "/plugir" || bodyText.contains("Silo", ignoreCase = true) ->
+                            path == "/api/system/ping" || path == "/plugir" || bodyText.contains("Silo", ignoreCase = true) ->
                                 "متصل (TorrServer Silo)"
                             else -> "متصل بنجاح"
                         }
@@ -153,4 +169,14 @@ class TorrServerEngine(
             if (!resp.isSuccessful) null else resp.body?.string()
         }
     }.getOrNull()
+
+    private fun executeDelete(url: String, headers: Map<String, String>): Boolean = runCatching {
+        val reqBuilder = Request.Builder()
+            .url(url)
+            .delete()
+        headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+        client.newCall(reqBuilder.build()).execute().use { resp ->
+            resp.isSuccessful
+        }
+    }.getOrDefault(false)
 }
