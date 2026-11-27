@@ -5,6 +5,8 @@ import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -232,6 +234,14 @@ fun NativeMedia3Player(
                     osdPing++
                 }
                 true
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = {
+                        osdVisible = !osdVisible
+                        if (osdVisible) osdPing++
+                    },
+                )
             }
             .focusable(),
     ) {
