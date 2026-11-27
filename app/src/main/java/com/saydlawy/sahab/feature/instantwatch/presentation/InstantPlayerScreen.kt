@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.shape.CircleShape
 import com.saydlawy.sahab.feature.instantwatch.player.WebViewPlayerController
 import com.saydlawy.sahab.feature.instantwatch.player.Media3PlayerController
+import com.saydlawy.sahab.feature.instantwatch.player.VideoResizeMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -170,6 +171,19 @@ fun InstantPlayerScreen(
     val playerFocus = remember { FocusRequester() }
     val webViewController = remember(session, selectedServer, reloadKey) { WebViewPlayerController() }
     val media3Controller = remember(session, selectedServer, reloadKey, useExoPlayer) { Media3PlayerController() }
+    val torrentSettings by sessionManager.torrentBridge.settings.collectAsState()
+    val audioTracks by media3Controller.audioTracks.collectAsState()
+    val embeddedSubtitleTracks by media3Controller.subtitleTracks.collectAsState()
+    val videoResizeMode by media3Controller.resizeMode.collectAsState()
+    var showTracksPanel by remember { mutableStateOf(false) }
+    val tracksPanelFocus = remember { FocusRequester() }
+    var resizeBadgeText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(resizeBadgeText) {
+        if (resizeBadgeText != null) {
+            delay(1_400L)
+            resizeBadgeText = null
+        }
+    }
     var nativeIsPlaying by remember(session, selectedServer, reloadKey, useExoPlayer) { mutableStateOf(true) }
     val requestTopBarFocus: () -> Unit = {
         showTopBar = true
@@ -184,7 +198,7 @@ fun InstantPlayerScreen(
         runCatching { topBarFocus.requestFocus() }
     }
     // After any panel closes, return focus to the top bar instead of an arbitrary chip.
-    val anyPanelOpen = showSubtitlePanel || showServerPanel || showEnginePanel
+    val anyPanelOpen = showSubtitlePanel || showServerPanel || showEnginePanel || showTracksPanel
     var hadPanelOpen by remember { mutableStateOf(false) }
     LaunchedEffect(anyPanelOpen) {
         if (hadPanelOpen && !anyPanelOpen) {
@@ -227,6 +241,7 @@ fun InstantPlayerScreen(
     // Tiered BackHandler: Close panels -> Show top bar -> Close player
     BackHandler(enabled = true) {
         when {
+            showTracksPanel -> showTracksPanel = false
             showSubtitlePanel -> showSubtitlePanel = false
             showServerPanel -> showServerPanel = false
             showEnginePanel -> showEnginePanel = false
@@ -238,6 +253,11 @@ fun InstantPlayerScreen(
     LaunchedEffect(showEnginePanel) {
         if (showEnginePanel) {
             runCatching { enginePanelFocus.requestFocus() }
+        }
+    }
+    LaunchedEffect(showTracksPanel) {
+        if (showTracksPanel) {
+            runCatching { tracksPanelFocus.requestFocus() }
         }
     }
 
@@ -325,6 +345,8 @@ fun InstantPlayerScreen(
                     NativeMedia3Player(
                         streamUrl = src.streamUrl,
                         headers = session.headers,
+                        preferArabicEmbeddedSubtitles = torrentSettings.preferArabicSubtitle,
+                        disableEmbeddedSubtitles = subtitleCues.isNotEmpty(),
                         onRequestExitFocus = requestTopBarFocus,
                         focusRequester = playerFocus,
                         controller = media3Controller,
@@ -681,9 +703,36 @@ fun InstantPlayerScreen(
                                         if (showEnginePanel) {
                                             showServerPanel = false
                                             showSubtitlePanel = false
+                                            showTracksPanel = false
                                         }
                                     },
                                 )
+                                if (isNativeActive) {
+                                    CinemaIconSquareButton(
+                                        iconType = "audio",
+                                        active = audioTracks.size > 1 || embeddedSubtitleTracks.isNotEmpty(),
+                                        onClick = {
+                                            controlsPing++
+                                            showTracksPanel = !showTracksPanel
+                                            if (showTracksPanel) {
+                                                showServerPanel = false
+                                                showSubtitlePanel = false
+                                                showEnginePanel = false
+                                            }
+                                        },
+                                    )
+                                    CinemaIconSquareButton(
+                                        iconType = "resize",
+                                        active = videoResizeMode != VideoResizeMode.FIT,
+                                        onClick = {
+                                            controlsPing++
+                                            val modes = VideoResizeMode.entries
+                                            val next = modes[(modes.indexOf(videoResizeMode) + 1) % modes.size]
+                                            media3Controller.cycleResizeMode()
+                                            resizeBadgeText = "الأبعاد: ${next.labelAr}"
+                                        },
+                                    )
+                                }
                             }
                         } else {
                             // Landscape / TV: Exact single-row layout matching screenshot
@@ -725,9 +774,36 @@ fun InstantPlayerScreen(
                                             if (showEnginePanel) {
                                                 showServerPanel = false
                                                 showSubtitlePanel = false
+                                                showTracksPanel = false
                                             }
                                         },
                                     )
+                                    if (isNativeActive) {
+                                        CinemaIconSquareButton(
+                                            iconType = "audio",
+                                            active = audioTracks.size > 1 || embeddedSubtitleTracks.isNotEmpty(),
+                                            onClick = {
+                                                controlsPing++
+                                                showTracksPanel = !showTracksPanel
+                                                if (showTracksPanel) {
+                                                    showServerPanel = false
+                                                    showSubtitlePanel = false
+                                                    showEnginePanel = false
+                                                }
+                                            },
+                                        )
+                                        CinemaIconSquareButton(
+                                            iconType = "resize",
+                                            active = videoResizeMode != VideoResizeMode.FIT,
+                                            onClick = {
+                                                controlsPing++
+                                                val modes = VideoResizeMode.entries
+                                                val next = modes[(modes.indexOf(videoResizeMode) + 1) % modes.size]
+                                                media3Controller.cycleResizeMode()
+                                                resizeBadgeText = "الأبعاد: ${next.labelAr}"
+                                            },
+                                        )
+                                    }
                                 }
 
                                 Row(
@@ -982,6 +1058,182 @@ fun InstantPlayerScreen(
                             .background(Color(0xFF450A0A))
                             .padding(8.dp),
                     )
+                }
+            }
+        }
+
+        resizeBadgeText?.let { badge ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 74.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0xE60F172A))
+                    .border(1.dp, Color(0xFF38BDF8), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+            ) {
+                Text(text = badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+
+        if (showTracksPanel) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 16.dp)
+                    .onPreviewKeyEvent { it.key == Key.DirectionLeft || it.key == Key.DirectionRight }
+                    .widthIn(max = 360.dp)
+                    .heightIn(max = 460.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xF50F172A))
+                    .border(1.dp, Color(0xFF334155), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "الصوت والترجمة المدمجة",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    CompactBarChip(
+                        label = "إغلاق",
+                        bgColor = Color(0xFF1E293B),
+                        textColor = Color(0xFF60A5FA),
+                        onClick = { showTracksPanel = false },
+                    )
+                }
+
+                Text(
+                    text = "مسارات الصوت (${audioTracks.size})",
+                    color = Color(0xFF94A3B8),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (audioTracks.isEmpty()) {
+                    Text(
+                        text = "لا توجد مسارات صوت إضافية في هذا الملف.",
+                        color = Color(0xFF64748B),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    audioTracks.forEachIndexed { idx, track ->
+                        var focused by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (idx == 0) Modifier.focusRequester(tracksPanelFocus) else Modifier)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(
+                                    width = if (focused) 2.dp else 0.dp,
+                                    color = if (focused) Color(0xFF60A5FA) else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                .background(
+                                    when {
+                                        track.isSelected -> Color(0xFF2563EB)
+                                        focused -> Color(0xFF334155)
+                                        else -> Color(0xFF1E293B)
+                                    },
+                                )
+                                .onFocusChanged { focused = it.isFocused }
+                                .clickable {
+                                    media3Controller.selectAudioTrack(track.groupIndex, track.trackIndex)
+                                    showTracksPanel = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Text(
+                                text = if (track.isSelected) "✓ ${track.label}" else track.label,
+                                color = Color.White,
+                                fontWeight = if (track.isSelected) FontWeight.Bold else FontWeight.Normal,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF1E293B))
+
+                Text(
+                    text = "الترجمة المدمجة (${embeddedSubtitleTracks.size})",
+                    color = Color(0xFF94A3B8),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                run {
+                    val noneSelected = embeddedSubtitleTracks.none { it.isSelected }
+                    var offFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (audioTracks.isEmpty()) Modifier.focusRequester(tracksPanelFocus) else Modifier)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(
+                                width = if (offFocused) 2.dp else 0.dp,
+                                color = if (offFocused) Color(0xFF60A5FA) else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .background(
+                                when {
+                                    noneSelected -> Color(0xFF475569)
+                                    offFocused -> Color(0xFF334155)
+                                    else -> Color(0xFF1E293B)
+                                },
+                            )
+                            .onFocusChanged { offFocused = it.isFocused }
+                            .clickable {
+                                media3Controller.disableEmbeddedSubtitle()
+                                showTracksPanel = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            text = if (noneSelected) "✓ إيقاف الترجمة المدمجة" else "إيقاف الترجمة المدمجة",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+                embeddedSubtitleTracks.forEach { track ->
+                    var focused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(
+                                width = if (focused) 2.dp else 0.dp,
+                                color = if (focused) Color(0xFF60A5FA) else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .background(
+                                when {
+                                    track.isSelected -> Color(0xFF059669)
+                                    focused -> Color(0xFF334155)
+                                    else -> Color(0xFF1E293B)
+                                },
+                            )
+                            .onFocusChanged { focused = it.isFocused }
+                            .clickable {
+                                subtitleCues = emptyList()
+                                media3Controller.selectEmbeddedSubtitle(track.groupIndex, track.trackIndex)
+                                showTracksPanel = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            text = if (track.isSelected) "✓ ${track.label}" else track.label,
+                            color = Color.White,
+                            fontWeight = if (track.isSelected) FontWeight.Bold else FontWeight.Normal,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
         }
@@ -1793,6 +2045,30 @@ private fun CinemaVectorGlyph(
                     size = Size(size.width * 0.28f, size.height * 0.22f),
                     cornerRadius = CornerRadius(2f, 2f),
                 )
+            }
+            "audio" -> {
+                val path = Path().apply {
+                    moveTo(size.width * 0.16f, size.height * 0.38f)
+                    lineTo(size.width * 0.34f, size.height * 0.38f)
+                    lineTo(size.width * 0.56f, size.height * 0.20f)
+                    lineTo(size.width * 0.56f, size.height * 0.80f)
+                    lineTo(size.width * 0.34f, size.height * 0.62f)
+                    lineTo(size.width * 0.16f, size.height * 0.62f)
+                    close()
+                }
+                drawPath(path, color = c)
+                drawLine(c, Offset(size.width * 0.70f, size.height * 0.34f), Offset(size.width * 0.70f, size.height * 0.66f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.84f, size.height * 0.24f), Offset(size.width * 0.84f, size.height * 0.76f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+            }
+            "resize" -> {
+                drawLine(c, Offset(size.width * 0.16f, size.height * 0.36f), Offset(size.width * 0.16f, size.height * 0.16f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.16f, size.height * 0.16f), Offset(size.width * 0.36f, size.height * 0.16f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.64f, size.height * 0.16f), Offset(size.width * 0.84f, size.height * 0.16f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.84f, size.height * 0.16f), Offset(size.width * 0.84f, size.height * 0.36f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.16f, size.height * 0.64f), Offset(size.width * 0.16f, size.height * 0.84f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.16f, size.height * 0.84f), Offset(size.width * 0.36f, size.height * 0.84f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.64f, size.height * 0.84f), Offset(size.width * 0.84f, size.height * 0.84f), strokeWidth = stroke.width, cap = StrokeCap.Round)
+                drawLine(c, Offset(size.width * 0.84f, size.height * 0.84f), Offset(size.width * 0.84f, size.height * 0.64f), strokeWidth = stroke.width, cap = StrokeCap.Round)
             }
         }
     }
