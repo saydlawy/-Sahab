@@ -498,7 +498,7 @@ fun InstantPlayerScreen(
                 val isCurrentlyPlaying = if (isNativeActive) nativeIsPlaying else embedTimerRunning
                 val triggerTogglePlay = {
                     controlsPing++
-                    if (isNativeActive) media3Controller.togglePlayback() else triggerTogglePlay()
+                    if (isNativeActive) media3Controller.togglePlayback() else webViewController.togglePlayback()
                 }
                 val triggerSeekDelta: (Int) -> Unit = { delta ->
                     controlsPing++
