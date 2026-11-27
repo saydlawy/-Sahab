@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.shape.CircleShape
 import com.saydlawy.sahab.feature.instantwatch.player.WebViewPlayerController
+import com.saydlawy.sahab.feature.instantwatch.player.Media3PlayerController
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -168,6 +169,8 @@ fun InstantPlayerScreen(
     val topBarFocus = remember { FocusRequester() }
     val playerFocus = remember { FocusRequester() }
     val webViewController = remember(session, selectedServer, reloadKey) { WebViewPlayerController() }
+    val media3Controller = remember(session, selectedServer, reloadKey, useExoPlayer) { Media3PlayerController() }
+    var nativeIsPlaying by remember(session, selectedServer, reloadKey, useExoPlayer) { mutableStateOf(true) }
     val requestTopBarFocus: () -> Unit = {
         showTopBar = true
         scope.launch {
@@ -323,10 +326,21 @@ fun InstantPlayerScreen(
                         streamUrl = src.streamUrl,
                         onRequestExitFocus = requestTopBarFocus,
                         focusRequester = playerFocus,
+                        controller = media3Controller,
+                        showInternalOsd = false,
+                        onToggleOverlay = {
+                            showTopBar = !showTopBar
+                            if (showTopBar) controlsPing++
+                        },
+                        onPlaybackStateChanged = { playing, dur ->
+                            nativeIsPlaying = playing
+                            if (dur > 0L) playbackDurMs = dur
+                        },
                         subtitle = src.subtitle,
                         resumePositionMs = session.resumePositionMs,
                         onProgressUpdate = { pos, dur ->
                             playbackPosMs = pos
+                            if (dur > 0L) playbackDurMs = dur
                             onProgressUpdate(pos, dur)
                         },
                         onPlaybackError = { err -> errorMessage = err },
@@ -350,10 +364,21 @@ fun InstantPlayerScreen(
                             streamUrl = captured.url,
                             onRequestExitFocus = requestTopBarFocus,
                             focusRequester = playerFocus,
+                            controller = media3Controller,
+                            showInternalOsd = false,
+                            onToggleOverlay = {
+                                showTopBar = !showTopBar
+                                if (showTopBar) controlsPing++
+                            },
+                            onPlaybackStateChanged = { playing, dur ->
+                                nativeIsPlaying = playing
+                                if (dur > 0L) playbackDurMs = dur
+                            },
                             subtitle = src.subtitle,
                             resumePositionMs = playbackPosMs.takeIf { it > 0L } ?: session.resumePositionMs,
                             onProgressUpdate = { pos, dur ->
                                 playbackPosMs = pos
+                                if (dur > 0L) playbackDurMs = dur
                                 onProgressUpdate(pos, dur)
                             },
                             onPlaybackError = { err ->
@@ -459,31 +484,6 @@ fun InstantPlayerScreen(
                         modifier = Modifier.weight(1f),
                         textAlign = androidx.compose.ui.text.style.TextAlign.End,
                     )
-                    if (useExoPlayer || !isEmbedSource) {
-                        CinemaIconSquareButton(
-                            iconType = "cc",
-                            active = subtitleCues.isNotEmpty(),
-                            onClick = {
-                                controlsPing++
-                                showSubtitlePanel = !showSubtitlePanel
-                            },
-                        )
-                        if (isEmbedSource) {
-                            CinemaIconSquareButton(
-                                iconType = "quality",
-                                active = true,
-                                modifier = Modifier.focusRequester(topBarFocus),
-                                onClick = {
-                                    controlsPing++
-                                    showEnginePanel = !showEnginePanel
-                                    if (showEnginePanel) {
-                                        showServerPanel = false
-                                        showSubtitlePanel = false
-                                    }
-                                },
-                            )
-                        }
-                    }
                     CinemaIconCircleButton(
                         iconType = "back",
                         sizeDp = 38,
@@ -493,7 +493,17 @@ fun InstantPlayerScreen(
             }
 
             // 2. Floating Bottom Pure-Black Glass Card (exact match to target screenshot)
-            if (isEmbedSource && !useExoPlayer) {
+            run {
+                val isNativeActive = !isEmbedSource || useExoPlayer
+                val isCurrentlyPlaying = if (isNativeActive) nativeIsPlaying else embedTimerRunning
+                val triggerTogglePlay = {
+                    controlsPing++
+                    if (isNativeActive) media3Controller.togglePlayback() else triggerTogglePlay()
+                }
+                val triggerSeekDelta: (Int) -> Unit = { delta ->
+                    controlsPing++
+                    if (isNativeActive) media3Controller.seekBy(delta) else webViewController.seekBy(delta)
+                }
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                     Column(
                         modifier = Modifier
@@ -597,7 +607,7 @@ fun InstantPlayerScreen(
                                     sizeDp = 38,
                                     onClick = {
                                         controlsPing++
-                                        webViewController.seekBy(-30)
+                                        triggerSeekDelta(-30)
                                     },
                                 )
                                 CinemaIconCircleButton(
@@ -605,15 +615,15 @@ fun InstantPlayerScreen(
                                     sizeDp = 40,
                                     onClick = {
                                         controlsPing++
-                                        webViewController.seekBy(-10)
+                                        triggerSeekDelta(-10)
                                     },
                                 )
                                 CinemaHeroPlayButton(
-                                    isPlaying = embedTimerRunning,
+                                    isPlaying = isCurrentlyPlaying,
                                     modifier = Modifier.focusRequester(topBarFocus),
                                     onClick = {
                                         controlsPing++
-                                        webViewController.togglePlayback()
+                                        triggerTogglePlay()
                                     },
                                 )
                                 CinemaIconCircleButton(
@@ -621,7 +631,7 @@ fun InstantPlayerScreen(
                                     sizeDp = 40,
                                     onClick = {
                                         controlsPing++
-                                        webViewController.seekBy(10)
+                                        triggerSeekDelta(10)
                                     },
                                 )
                                 CinemaIconCircleButton(
@@ -629,7 +639,7 @@ fun InstantPlayerScreen(
                                     sizeDp = 38,
                                     onClick = {
                                         controlsPing++
-                                        webViewController.seekBy(30)
+                                        triggerSeekDelta(30)
                                     },
                                 )
                             }
@@ -663,7 +673,7 @@ fun InstantPlayerScreen(
                                 )
                                 CinemaIconSquareButton(
                                     iconType = "quality",
-                                    active = sniffedStream != null,
+                                    active = useExoPlayer || sniffedStream != null,
                                     onClick = {
                                         controlsPing++
                                         showEnginePanel = !showEnginePanel
@@ -707,7 +717,7 @@ fun InstantPlayerScreen(
                                     )
                                     CinemaIconSquareButton(
                                         iconType = "quality",
-                                        active = sniffedStream != null,
+                                        active = useExoPlayer || sniffedStream != null,
                                         onClick = {
                                             controlsPing++
                                             showEnginePanel = !showEnginePanel
@@ -729,7 +739,7 @@ fun InstantPlayerScreen(
                                         sizeDp = 40,
                                         onClick = {
                                             controlsPing++
-                                            webViewController.seekBy(-30)
+                                            triggerSeekDelta(-30)
                                         },
                                     )
                                     CinemaIconCircleButton(
@@ -737,15 +747,15 @@ fun InstantPlayerScreen(
                                         sizeDp = 42,
                                         onClick = {
                                             controlsPing++
-                                            webViewController.seekBy(-10)
+                                            triggerSeekDelta(-10)
                                         },
                                     )
                                     CinemaHeroPlayButton(
-                                        isPlaying = embedTimerRunning,
+                                        isPlaying = isCurrentlyPlaying,
                                         modifier = Modifier.focusRequester(topBarFocus),
                                         onClick = {
                                             controlsPing++
-                                            webViewController.togglePlayback()
+                                            triggerTogglePlay()
                                         },
                                     )
                                     CinemaIconCircleButton(
@@ -753,7 +763,7 @@ fun InstantPlayerScreen(
                                         sizeDp = 42,
                                         onClick = {
                                             controlsPing++
-                                            webViewController.seekBy(10)
+                                            triggerSeekDelta(10)
                                         },
                                     )
                                     CinemaIconCircleButton(
@@ -761,7 +771,7 @@ fun InstantPlayerScreen(
                                         sizeDp = 40,
                                         onClick = {
                                             controlsPing++
-                                            webViewController.seekBy(30)
+                                            triggerSeekDelta(30)
                                         },
                                     )
                                 }

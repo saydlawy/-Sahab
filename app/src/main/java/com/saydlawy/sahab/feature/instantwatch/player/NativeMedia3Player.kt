@@ -86,6 +86,19 @@ private fun formatClock(ms: Long): String {
  * - DOWN just reveals the on-screen progress bar
  * The stock PlayerView controller is disabled because it is not D-pad friendly.
  */
+class Media3PlayerController {
+    internal var onToggle: (() -> Unit)? = null
+    internal var onSeekBy: ((Int) -> Unit)? = null
+
+    fun togglePlayback() {
+        onToggle?.invoke()
+    }
+
+    fun seekBy(deltaSec: Int) {
+        onSeekBy?.invoke(deltaSec)
+    }
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun NativeMedia3Player(
@@ -99,6 +112,10 @@ fun NativeMedia3Player(
     onPositionTick: (Long) -> Unit = {},
     onRequestExitFocus: () -> Unit = {},
     focusRequester: FocusRequester = remember { FocusRequester() },
+    controller: Media3PlayerController? = null,
+    showInternalOsd: Boolean = true,
+    onToggleOverlay: (() -> Unit)? = null,
+    onPlaybackStateChanged: ((isPlaying: Boolean, durationMs: Long) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val exoPlayer = remember(context, headers) {
@@ -193,6 +210,7 @@ fun NativeMedia3Player(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                onPlaybackStateChanged?.invoke(playing, exoPlayer.duration.takeIf { it > 0L } ?: 0L)
             }
         }
         exoPlayer.addListener(listener)
@@ -210,6 +228,19 @@ fun NativeMedia3Player(
     fun seekBy(delta: Long) {
         val dur = exoPlayer.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
         exoPlayer.seekTo((exoPlayer.currentPosition + delta).coerceIn(0L, dur))
+    }
+
+    DisposableEffect(exoPlayer, controller) {
+        controller?.onToggle = {
+            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+        }
+        controller?.onSeekBy = { deltaSec ->
+            seekBy(deltaSec * 1_000L)
+        }
+        onDispose {
+            controller?.onToggle = null
+            controller?.onSeekBy = null
+        }
     }
 
     Box(
@@ -235,11 +266,15 @@ fun NativeMedia3Player(
                 }
                 true
             }
-            .pointerInput(Unit) {
+            .pointerInput(onToggleOverlay) {
                 detectTapGestures(
                     onTap = {
-                        osdVisible = !osdVisible
-                        if (osdVisible) osdPing++
+                        if (onToggleOverlay != null) {
+                            onToggleOverlay()
+                        } else {
+                            osdVisible = !osdVisible
+                            if (osdVisible) osdPing++
+                        }
                     },
                 )
             }
@@ -268,7 +303,7 @@ fun NativeMedia3Player(
             modifier = Modifier.fillMaxSize(),
         )
 
-        if (osdVisible || !isPlaying) {
+        if (showInternalOsd && (osdVisible || !isPlaying)) {
             val fraction = if (durationMs > 0L) {
                 (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
             } else {
