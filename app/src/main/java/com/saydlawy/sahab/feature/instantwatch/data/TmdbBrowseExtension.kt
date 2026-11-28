@@ -121,18 +121,46 @@ suspend fun TmdbRepository.discoverByRegion(
     interleaveLists(mDef.await(), tDef.await())
 }
 
-suspend fun TmdbRepository.getPersonProfileAndCredits(personId: Int): InstantPersonProfile? = withContext(Dispatchers.IO) {
-    if (apiKey.isBlank() || personId <= 0) return@withContext null
-    val url = "https://api.themoviedb.org/3/person/$personId".toHttpUrl().newBuilder()
-        .addQueryParameter("api_key", apiKey)
-        .addQueryParameter("language", "ar-SA")
-        .addQueryParameter("append_to_response", "combined_credits")
-        .build()
+private fun hasArabicLetters(text: String): Boolean =
+    text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' || it in '\u08A0'..'\u08FF' }
 
-    val body = executeGet(url.toString()) ?: return@withContext null
-    val dto = runCatching { browseJson.decodeFromString<PersonDetailDto>(body) }.getOrNull() ?: return@withContext null
+private fun preferArabicOrEnglish(arTitle: String?, enTitle: String?): String {
+    val ar = arTitle?.trim().orEmpty()
+    val en = enTitle?.trim().orEmpty()
+    if (ar.isNotBlank() && hasArabicLetters(ar)) return ar
+    if (en.isNotBlank()) return en
+    return ar
+}
 
-    val credits = dto.combinedCredits?.cast.orEmpty()
+suspend fun TmdbRepository.getPersonProfileAndCredits(personId: Int): InstantPersonProfile? = coroutineScope {
+    if (apiKey.isBlank() || personId <= 0) return@coroutineScope null
+    fun buildUrl(lang: String): String =
+        "https://api.themoviedb.org/3/person/$personId".toHttpUrl().newBuilder()
+            .addQueryParameter("api_key", apiKey)
+            .addQueryParameter("language", lang)
+            .addQueryParameter("append_to_response", "combined_credits")
+            .build()
+            .toString()
+
+    val arDef = async(Dispatchers.IO) {
+        executeGet(buildUrl("ar-SA"))?.let {
+            runCatching { browseJson.decodeFromString<PersonDetailDto>(it) }.getOrNull()
+        }
+    }
+    val enDef = async(Dispatchers.IO) {
+        executeGet(buildUrl("en-US"))?.let {
+            runCatching { browseJson.decodeFromString<PersonDetailDto>(it) }.getOrNull()
+        }
+    }
+
+    val arDto = arDef.await()
+    val enDto = enDef.await()
+    val primaryDto = arDto ?: enDto ?: return@coroutineScope null
+
+    val enTitlesByKey = enDto?.combinedCredits?.cast.orEmpty()
+        .associate { "${it.mediaType}:${it.id}" to (it.title ?: it.name).orEmpty().trim() }
+
+    val credits = primaryDto.combinedCredits?.cast.orEmpty()
         .sortedByDescending { it.popularity ?: 0.0 }
         .distinctBy { "${it.mediaType}:${it.id}" }
         .mapNotNull { c ->
@@ -141,12 +169,16 @@ suspend fun TmdbRepository.getPersonProfileAndCredits(personId: Int): InstantPer
                 "tv" -> InstantMediaType.TV
                 else -> return@mapNotNull null
             }
-            val title = (c.title ?: c.name).orEmpty().ifBlank { return@mapNotNull null }
+            val enTitle = enTitlesByKey["${c.mediaType}:${c.id}"]
+            val arTitle = (c.title ?: c.name).orEmpty()
+            val displayTitle = preferArabicOrEnglish(arTitle, enTitle).ifBlank { return@mapNotNull null }
+            val origTitle = enTitle?.takeIf { it.isNotBlank() }
+                ?: (c.originalTitle ?: c.originalName).orEmpty().ifBlank { displayTitle }
             InstantMediaItem(
                 tmdbId = c.id,
                 mediaType = type,
-                title = title,
-                originalTitle = (c.originalTitle ?: c.originalName).orEmpty().ifBlank { title },
+                title = displayTitle,
+                originalTitle = origTitle,
                 releaseYear = (c.releaseDate ?: c.firstAirDate)?.take(4)?.toIntOrNull(),
                 posterUrl = c.posterPath?.let { "${TmdbRepository.POSTER_BASE}$it" },
                 backdropUrl = c.backdropPath?.let { "${TmdbRepository.BACKDROP_BASE}$it" },
@@ -157,10 +189,10 @@ suspend fun TmdbRepository.getPersonProfileAndCredits(personId: Int): InstantPer
         }
 
     InstantPersonProfile(
-        personId = dto.id,
-        name = dto.name.orEmpty(),
-        biography = dto.biography.orEmpty(),
-        profileUrl = dto.profilePath?.let { "https://image.tmdb.org/t/p/w185$it" },
+        personId = primaryDto.id,
+        name = preferArabicOrEnglish(arDto?.name, enDto?.name),
+        biography = arDto?.biography?.ifBlank { enDto?.biography.orEmpty() } ?: enDto?.biography.orEmpty(),
+        profileUrl = primaryDto.profilePath?.let { "https://image.tmdb.org/t/p/w185$it" },
         credits = credits,
     )
 }

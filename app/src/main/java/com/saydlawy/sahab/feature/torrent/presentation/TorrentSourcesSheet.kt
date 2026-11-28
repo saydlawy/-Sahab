@@ -129,11 +129,20 @@ fun TorrentSourcesSheet(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    FocusableChip(
-                        label = "إغلاق ✕",
-                        selected = false,
-                        onClick = onDismiss,
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!isLoading) {
+                            FocusableChip(
+                                label = "تحديث ↻",
+                                selected = false,
+                                onClick = onRetry,
+                            )
+                        }
+                        FocusableChip(
+                            label = "إغلاق ✕",
+                            selected = false,
+                            onClick = onDismiss,
+                        )
+                    }
                 }
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

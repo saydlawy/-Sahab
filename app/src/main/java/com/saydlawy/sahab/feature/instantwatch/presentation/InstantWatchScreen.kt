@@ -64,6 +64,7 @@ fun InstantWatchScreen(
     val torrentSettings by sessionManager.torrentBridge.settings.collectAsState()
     var torrentTarget by remember { mutableStateOf<Triple<InstantMediaItem, Int?, Int?>?>(null) }
     var torrentStreams by remember { mutableStateOf<List<TorrentStreamCandidate>>(emptyList()) }
+    val torrentCache = remember { mutableStateMapOf<String, List<TorrentStreamCandidate>>() }
     var isTorrentLoading by remember { mutableStateOf(false) }
     var resolvingTorrentId by remember { mutableStateOf<String?>(null) }
     var torrentError by remember { mutableStateOf<String?>(null) }
@@ -272,11 +273,25 @@ fun InstantWatchScreen(
             return
         }
         is InstantWatchRoute.Details -> {
-            fun loadTorrentSources(item: InstantMediaItem, season: Int?, episode: Int?) {
+            fun loadTorrentSources(
+                item: InstantMediaItem,
+                season: Int?,
+                episode: Int?,
+                forceRefresh: Boolean = false,
+            ) {
+                val cacheKey = "${item.contentKey}:${season ?: 0}:${episode ?: 0}"
                 torrentTarget = Triple(item, season, episode)
-                torrentStreams = emptyList()
                 torrentError = null
                 resolvingTorrentId = null
+                if (!forceRefresh) {
+                    val cached = torrentCache[cacheKey]
+                    if (!cached.isNullOrEmpty()) {
+                        torrentStreams = cached
+                        isTorrentLoading = false
+                        return
+                    }
+                }
+                torrentStreams = emptyList()
                 if (!sessionManager.torrentBridge.isEnabledAndReady()) {
                     isTorrentLoading = false
                     torrentError = "يرجى إضافة رابط Stremio Manifest واحد على الأقل من إعدادات المشاهدة الفورية."
@@ -295,6 +310,9 @@ fun InstantWatchScreen(
                         tmdbId = item.tmdbId,
                         searchTitle = searchTitle,
                     )
+                    if (list.isNotEmpty()) {
+                        torrentCache[cacheKey] = list
+                    }
                     torrentStreams = list
                     isTorrentLoading = false
                     if (list.isEmpty()) {
@@ -346,7 +364,6 @@ fun InstantWatchScreen(
                                 when (val res = sessionManager.torrentBridge.resolveForPlayback(candidate)) {
                                     is TorrentResolutionResult.Ready -> {
                                         resolvingTorrentId = null
-                                        torrentTarget = null
                                         sessionManager.startSession(
                                             ActivePlaybackSession(
                                                 item = tItem,
@@ -366,7 +383,7 @@ fun InstantWatchScreen(
                                 }
                             }
                         },
-                        onRetry = { loadTorrentSources(tItem, tSeason, tEp) },
+                        onRetry = { loadTorrentSources(tItem, tSeason, tEp, forceRefresh = true) },
                         onDismiss = {
                             if (resolvingTorrentId == null) {
                                 torrentTarget = null

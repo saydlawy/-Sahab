@@ -133,12 +133,12 @@ class TmdbRepository(
         items
     }
 
-    internal suspend fun fetchMultiplePages(
+    private suspend fun fetchPagesRaw(
         path: String,
         fixedType: InstantMediaType?,
         maxPages: Int,
-        extraParams: Map<String, String> = emptyMap(),
-        language: String = "ar-SA",
+        extraParams: Map<String, String>,
+        language: String,
     ): List<InstantMediaItem> = coroutineScope {
         if (apiKey.isBlank() || maxPages <= 0) return@coroutineScope emptyList()
         fun buildUrl(page: Int): String {
@@ -170,6 +170,33 @@ class TmdbRepository(
         }
 
         mapDtosToItems(allDtos, fixedType).distinctBy { it.contentKey }
+    }
+
+    internal suspend fun fetchMultiplePages(
+        path: String,
+        fixedType: InstantMediaType?,
+        maxPages: Int,
+        extraParams: Map<String, String> = emptyMap(),
+        language: String = "ar-SA",
+        fallbackToEnglishTitles: Boolean = true,
+    ): List<InstantMediaItem> = coroutineScope {
+        if (!fallbackToEnglishTitles || language != "ar-SA") {
+            return@coroutineScope fetchPagesRaw(path, fixedType, maxPages, extraParams, language)
+        }
+        val arDef = async(Dispatchers.IO) { fetchPagesRaw(path, fixedType, maxPages, extraParams, "ar-SA") }
+        val enDef = async(Dispatchers.IO) { fetchPagesRaw(path, fixedType, maxPages, extraParams, "en-US") }
+        val arItems = arDef.await()
+        val enByKey = enDef.await().associateBy { it.contentKey }
+        arItems.map { item ->
+            val enItem = enByKey[item.contentKey]
+            val bestTitle = preferArabicOrEnglish(item.title, enItem?.title)
+            val bestOrig = enItem?.title?.takeIf { it.isNotBlank() } ?: item.originalTitle
+            if (bestTitle != item.title || bestOrig != item.originalTitle) {
+                item.copy(title = bestTitle, originalTitle = bestOrig)
+            } else {
+                item
+            }
+        }
     }
 
     private fun mapDtosToItems(
@@ -212,6 +239,7 @@ class TmdbRepository(
                 maxPages = 12,
                 extraParams = mapOf("query" to cleanQuery),
                 language = "ar-SA",
+                fallbackToEnglishTitles = false,
             )
         }
         val enMoviesDef = async(Dispatchers.IO) {
@@ -221,6 +249,7 @@ class TmdbRepository(
                 maxPages = 6,
                 extraParams = mapOf("query" to cleanQuery),
                 language = "en-US",
+                fallbackToEnglishTitles = false,
             )
         }
         val enTvDef = async(Dispatchers.IO) {
@@ -230,14 +259,26 @@ class TmdbRepository(
                 maxPages = 6,
                 extraParams = mapOf("query" to cleanQuery),
                 language = "en-US",
+                fallbackToEnglishTitles = false,
             )
         }
 
+        val arList = arMultiDef.await()
+        val enList = enMoviesDef.await() + enTvDef.await()
+        val enByKey = enList.associateBy { it.contentKey }
+
         val combined = linkedMapOf<String, InstantMediaItem>()
-        for (item in arMultiDef.await()) {
-            combined[item.contentKey] = item
+        for (item in arList) {
+            val enItem = enByKey[item.contentKey]
+            val bestTitle = preferArabicOrEnglish(item.title, enItem?.title)
+            val bestOrig = enItem?.title?.takeIf { it.isNotBlank() } ?: item.originalTitle
+            combined[item.contentKey] = if (bestTitle != item.title || bestOrig != item.originalTitle) {
+                item.copy(title = bestTitle, originalTitle = bestOrig)
+            } else {
+                item
+            }
         }
-        for (item in enMoviesDef.await() + enTvDef.await()) {
+        for (item in enList) {
             combined.putIfAbsent(item.contentKey, item)
         }
         combined.values.toList()
@@ -372,6 +413,17 @@ class TmdbRepository(
     )
 
     companion object {
+        internal fun hasArabicLetters(text: String): Boolean =
+            text.any { it in '\u0600'..'\u06FF' || it in '\u0750'..'\u077F' || it in '\u08A0'..'\u08FF' }
+
+        internal fun preferArabicOrEnglish(arTitle: String?, enTitle: String?): String {
+            val ar = arTitle?.trim().orEmpty()
+            val en = enTitle?.trim().orEmpty()
+            if (ar.isNotBlank() && hasArabicLetters(ar)) return ar
+            if (en.isNotBlank()) return en
+            return ar
+        }
+
         const val POSTER_BASE = "https://image.tmdb.org/t/p/w500"
         internal const val BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
         private const val CACHE_TTL_MS = 30 * 60 * 1000L
