@@ -28,6 +28,8 @@ interface TorrentFeatureBridge {
 
     suspend fun fetchCatalogRows(forceRefresh: Boolean = false): List<AddonCatalogRow>
 
+    suspend fun fetchDirectAddonStreams(addonId: String, type: String, itemId: String): List<TorrentStreamCandidate>
+
     suspend fun testTorrServerConnection(): Result<String>
 }
 
@@ -51,6 +53,8 @@ object NoOpTorrentFeatureBridge : TorrentFeatureBridge {
     override suspend fun onPlaybackStopped(torrServerHash: String?) = Unit
 
     override suspend fun fetchCatalogRows(forceRefresh: Boolean): List<AddonCatalogRow> = emptyList()
+
+    override suspend fun fetchDirectAddonStreams(addonId: String, type: String, itemId: String): List<TorrentStreamCandidate> = emptyList()
 
     override suspend fun testTorrServerConnection(): Result<String> =
         Result.failure(IllegalStateException("غير متاح في هذه النسخة"))

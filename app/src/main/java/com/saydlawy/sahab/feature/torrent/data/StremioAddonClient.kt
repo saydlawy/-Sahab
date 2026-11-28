@@ -10,6 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -65,6 +66,7 @@ private data class StremioMetaDto(
 @Serializable
 private data class StremioManifestDto(
     val name: String? = null,
+    val types: List<String> = emptyList(),
     val catalogs: List<StremioCatalogDefDto> = emptyList(),
 )
 
@@ -100,19 +102,27 @@ class StremioAddonClient(
         val typeStr = if (isSeries) "series" else "movie"
         val epSuffix = if (isSeries && season != null && episode != null) ":$season:$episode" else ""
 
-        val all = activeAddons.map { addon ->
+        val eligibleAddons = activeAddons.filter { addon ->
+            val cached = manifestCache[addon.baseUrl]
+            if (cached == null || cached.types.isEmpty()) true
+            else cached.types.any { it.equals(typeStr, ignoreCase = true) || it.equals("anime", ignoreCase = true) }
+        }
+
+        val all = eligibleAddons.map { addon ->
             async(Dispatchers.IO) {
-                val results = mutableListOf<TorrentStreamCandidate>()
-                if (cleanImdb.isNotBlank()) {
-                    results.addAll(fetchFromAddon(addon, "${addon.baseUrl}/stream/$typeStr/$cleanImdb$epSuffix.json"))
-                }
-                if (results.isEmpty() && tmdbId != null && tmdbId > 0) {
-                    results.addAll(fetchFromAddon(addon, "${addon.baseUrl}/stream/$typeStr/tmdb:$tmdbId$epSuffix.json"))
-                }
-                if (cleanTitle.isNotBlank()) {
-                    results.addAll(fetchViaCatalogSearch(addon, cleanTitle, typeStr, epSuffix))
-                }
-                results
+                withTimeoutOrNull(5_500L) {
+                    val results = mutableListOf<TorrentStreamCandidate>()
+                    if (cleanImdb.isNotBlank()) {
+                        results.addAll(fetchFromAddon(addon, "${addon.baseUrl}/stream/$typeStr/$cleanImdb$epSuffix.json"))
+                    }
+                    if (results.isEmpty() && tmdbId != null && tmdbId > 0) {
+                        results.addAll(fetchFromAddon(addon, "${addon.baseUrl}/stream/$typeStr/tmdb:$tmdbId$epSuffix.json"))
+                    }
+                    if (results.isEmpty() && cleanTitle.isNotBlank()) {
+                        results.addAll(fetchViaCatalogSearch(addon, cleanTitle, typeStr, epSuffix))
+                    }
+                    results
+                }.orEmpty()
             }
         }.awaitAll().flatten()
 
@@ -201,6 +211,20 @@ class StremioAddonClient(
         return out
     }
 
+    suspend fun fetchDirectAddonStreams(
+        addons: List<TorrentAddonConfig>,
+        addonId: String,
+        type: String,
+        itemId: String,
+    ): List<TorrentStreamCandidate> = withContext(Dispatchers.IO) {
+        val target = addons.firstOrNull { it.enabled && it.id == addonId && it.baseUrl.startsWith("http") }
+            ?: return@withContext emptyList()
+        val encodedId = runCatching { URLEncoder.encode(itemId, "UTF-8").replace("+", "%20") }.getOrDefault(itemId)
+        val url = "${target.baseUrl}/stream/${type.lowercase()}/$encodedId.json"
+        val raw = withTimeoutOrNull(5_500L) { fetchFromAddon(target, url) }.orEmpty()
+        StreamMetadataParser.sortCandidates(raw)
+    }
+
     suspend fun fetchCatalogRows(
         addons: List<TorrentAddonConfig>,
         maxRowsPerAddon: Int = 10,
@@ -264,6 +288,7 @@ class StremioAddonClient(
                     releaseYear = year,
                     rating = meta.imdbRating?.toDoubleOrNull(),
                     addonName = addonLabel,
+                    addonId = addon.id,
                 )
             }.take(maxItemsPerRow)
 

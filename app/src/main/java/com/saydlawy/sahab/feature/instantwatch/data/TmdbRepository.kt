@@ -355,11 +355,18 @@ class TmdbRepository(
             }
         }
 
-        // Step 3: Fallback search by title + year
-        val cleanTitle = title.trim()
+        // Step 3: Fallback search by cleaned title + year
+        val rawClean = title.trim()
+            .replace(Regex("\\s*[\\(\\[]\\s*(?:\\d{3,4}p|4k|uhd|hd|fhd|sd|cam|web[- ]?dl|bluray|\\d{4})\\s*[\\)\\]]", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("^(?:مسلسل|فيلم|فلم|أنمي|انمي|برنامج|مسرحية|كارتون|كرتون)\\s+"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        val cleanTitle = rawClean.ifBlank { title.trim() }
         if (cleanTitle.isBlank()) return@withContext null
         val targetYear = releaseYear?.trim()?.take(4)?.toIntOrNull()
-        val candidates = searchMulti(cleanTitle)
+        val candidates = searchMulti(cleanTitle).ifEmpty {
+            if (cleanTitle != title.trim()) searchMulti(title.trim()) else emptyList()
+        }
         if (candidates.isEmpty()) return@withContext null
 
         val best = candidates.firstOrNull { it.mediaType == preferredType && (targetYear == null || it.releaseYear == targetYear) }

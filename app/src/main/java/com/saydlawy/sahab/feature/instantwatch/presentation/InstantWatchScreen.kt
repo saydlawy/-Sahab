@@ -208,19 +208,69 @@ fun InstantWatchScreen(
     fun handleAddonItemSelected(addonItem: AddonCatalogItem) {
         scope.launch {
             isLoading = true
-            statusMessage = "جارٍ جلب تفاصيل ${addonItem.title}..."
-            val resolved = sessionManager.tmdbRepository.resolveAddonItemToTmdb(
-                rawId = addonItem.id,
-                rawType = addonItem.type,
-                title = addonItem.title,
-                releaseYear = addonItem.releaseYear,
+            val isLiveChannel = addonItem.type.equals("tv", ignoreCase = true) ||
+                addonItem.type.equals("channel", ignoreCase = true)
+
+            if (!isLiveChannel) {
+                statusMessage = "جارٍ جلب تفاصيل ${addonItem.title}..."
+                val resolved = sessionManager.tmdbRepository.resolveAddonItemToTmdb(
+                    rawId = addonItem.id,
+                    rawType = addonItem.type,
+                    title = addonItem.title,
+                    releaseYear = addonItem.releaseYear,
+                )
+                if (resolved != null) {
+                    isLoading = false
+                    statusMessage = null
+                    handleMediaSelected(resolved)
+                    return@launch
+                }
+            }
+
+            // Direct playback fallback from the addon itself (for Live TV or non-TMDB items)
+            statusMessage = "جارٍ جلب البث المباشر لـ ${addonItem.title}..."
+            val directStreams = sessionManager.torrentBridge.fetchDirectAddonStreams(
+                addonId = addonItem.addonId,
+                type = addonItem.type,
+                itemId = addonItem.id,
             )
-            isLoading = false
-            if (resolved != null) {
-                statusMessage = null
-                handleMediaSelected(resolved)
-            } else {
-                statusMessage = "تعذّر مطابقة «${addonItem.title}» على TMDB."
+            val best = directStreams.firstOrNull()
+            if (best == null) {
+                isLoading = false
+                statusMessage = "لم ترجع الإضافة رابط بث لـ «${addonItem.title}»."
+                return@launch
+            }
+            when (val res = sessionManager.torrentBridge.resolveForPlayback(best)) {
+                is TorrentResolutionResult.Ready -> {
+                    isLoading = false
+                    statusMessage = null
+                    val fallbackItem = InstantMediaItem(
+                        tmdbId = -(addonItem.id.hashCode() and 0x7FFFFFFF).coerceAtLeast(1),
+                        mediaType = if (addonItem.type.equals("movie", ignoreCase = true)) InstantMediaType.MOVIE else InstantMediaType.TV,
+                        title = addonItem.title,
+                        originalTitle = addonItem.title,
+                        releaseYear = addonItem.releaseYear?.toIntOrNull(),
+                        posterUrl = addonItem.posterUrl,
+                        imdbId = addonItem.id.takeIf { it.startsWith("tt") },
+                        rating = addonItem.rating,
+                    )
+                    sessionManager.startSession(
+                        ActivePlaybackSession(
+                            item = fallbackItem,
+                            seasonNumber = null,
+                            episodeNumber = null,
+                            source = ResolvedPlaybackSource.NativeMedia3(streamUrl = res.streamUrl),
+                            resumePositionMs = 0L,
+                            headers = res.headers,
+                            torrServerHashToCleanup = res.torrServerHashToCleanup,
+                            releaseHint = best.rawTitle,
+                        ),
+                    )
+                }
+                is TorrentResolutionResult.Error -> {
+                    isLoading = false
+                    statusMessage = res.message
+                }
             }
         }
     }

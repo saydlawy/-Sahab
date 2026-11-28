@@ -75,6 +75,7 @@ data class AddonCatalogItem(
     val releaseYear: String? = null,
     val rating: Double? = null,
     val addonName: String = "",
+    val addonId: String = "",
 )
 
 data class AddonCatalogRow(

@@ -52,6 +52,16 @@ class TorrentFeatureController(
         return rows
     }
 
+    override suspend fun fetchDirectAddonStreams(
+        addonId: String,
+        type: String,
+        itemId: String,
+    ): List<TorrentStreamCandidate> {
+        val cur = preferences.current
+        if (!cur.enabled || !cur.hasConfiguredAddons) return emptyList()
+        return addonClient.fetchDirectAddonStreams(cur.addons, addonId, type, itemId)
+    }
+
     override suspend fun fetchStreams(
         imdbId: String,
         isSeries: Boolean,
