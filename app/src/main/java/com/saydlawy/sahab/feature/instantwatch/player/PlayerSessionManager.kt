@@ -39,6 +39,7 @@ data class ActivePlaybackSession(
     val resumePositionMs: Long,
     val headers: Map<String, String> = emptyMap(),
     val torrServerHashToCleanup: String? = null,
+    val releaseHint: String? = null,
 )
 
 class PlayerSessionManager(

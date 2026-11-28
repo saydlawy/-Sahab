@@ -373,6 +373,7 @@ fun InstantWatchScreen(
                                                 resumePositionMs = 0L,
                                                 headers = res.headers,
                                                 torrServerHashToCleanup = res.torrServerHashToCleanup,
+                                                releaseHint = candidate.rawTitle,
                                             ),
                                         )
                                     }

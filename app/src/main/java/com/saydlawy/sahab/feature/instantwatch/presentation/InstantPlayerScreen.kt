@@ -288,6 +288,53 @@ fun InstantPlayerScreen(
         }
     }
 
+    LaunchedEffect(session) {
+        if (isEmbedSource || session.releaseHint.isNullOrBlank()) return@LaunchedEffect
+        if (!settings.autoArabicSubtitles || subtitleCues.isNotEmpty()) return@LaunchedEffect
+        delay(1800L)
+        if (subtitleCues.isNotEmpty()) return@LaunchedEffect
+        val hasEmbeddedArabic = embeddedSubtitleTracks.any { track ->
+            val l = track.label.lowercase()
+            l.contains("arab") || l.contains("عرب") || l == "ar" || l == "ara"
+        }
+        if (hasEmbeddedArabic) return@LaunchedEffect
+
+        val resolvedImdbId = session.item.imdbId?.takeIf { it.isNotBlank() }
+            ?: sessionManager.tmdbRepository
+                .getDetails(session.item.tmdbId, session.item.mediaType)
+                ?.imdbId
+        val found = sessionManager.onlineSubtitleFetcher.searchArabic(
+            tmdbId = session.item.tmdbId,
+            imdbId = resolvedImdbId,
+            isTv = session.item.mediaType == InstantMediaType.TV,
+            seasonNumber = session.seasonNumber,
+            episodeNumber = session.episodeNumber,
+            sourceFilter = SubtitleSourceFilter.ALL,
+            subdlApiKey = settings.subdlApiKey,
+            openSubtitlesApiKey = settings.openSubtitlesApiKey,
+            releaseHint = session.releaseHint,
+        )
+        if (found.isEmpty()) return@LaunchedEffect
+        onlineOptions = found
+
+        for (opt in found.take(3)) {
+            val raw = downloadedCache[opt.id]
+                ?: sessionManager.onlineSubtitleFetcher.downloadSubtitleText(
+                    option = opt,
+                    openSubtitlesApiKey = settings.openSubtitlesApiKey,
+                )?.also { downloadedCache[opt.id] = it }
+                ?: continue
+            if (sessionManager.onlineSubtitleFetcher.isLikelyPersian(raw)) continue
+            val parsed = SubtitleParser.parse(raw)
+            if (parsed.isNotEmpty()) {
+                subtitleCues = parsed
+                subtitlesVisible = true
+                onlineStatus = "تمت المزامنة تلقائياً: ${opt.label} (${parsed.size} سطر)"
+                break
+            }
+        }
+    }
+
     val subtitlePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -1369,6 +1416,7 @@ fun InstantPlayerScreen(
                             sourceFilter = selectedSource,
                             subdlApiKey = settings.subdlApiKey,
                             openSubtitlesApiKey = settings.openSubtitlesApiKey,
+                            releaseHint = session.releaseHint,
                         )
                         onlineOptions = found
                         onlineStatus = when {

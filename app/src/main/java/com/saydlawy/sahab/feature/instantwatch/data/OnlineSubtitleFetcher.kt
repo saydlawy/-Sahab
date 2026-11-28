@@ -109,6 +109,7 @@ class OnlineSubtitleFetcher(
         sourceFilter: SubtitleSourceFilter = SubtitleSourceFilter.ALL,
         subdlApiKey: String = "",
         openSubtitlesApiKey: String = "",
+        releaseHint: String? = null,
     ): List<OnlineSubtitleOption> = withContext(Dispatchers.IO) {
         val results = ArrayList<OnlineSubtitleOption>()
         val cleanQuery = manualQuery?.trim().orEmpty()
@@ -147,7 +148,67 @@ class OnlineSubtitleFetcher(
             results.addAll(searchOpenSubtitlesV3(imdbId.trim(), seasonNumber, episodeNumber))
         }
 
-        results.distinctBy { it.id }.take(20)
+        val unique = results.distinctBy { it.id }
+        val ranked = if (!releaseHint.isNullOrBlank()) {
+            rankByReleaseMatch(unique, releaseHint)
+        } else {
+            unique
+        }
+        ranked.take(20)
+    }
+
+    private fun rankByReleaseMatch(
+        options: List<OnlineSubtitleOption>,
+        releaseHint: String,
+    ): List<OnlineSubtitleOption> {
+        val hintLower = releaseHint.lowercase()
+        val hintTokens = extractReleaseTokens(hintLower)
+        if (hintTokens.isEmpty()) return options
+
+        val scored = options.mapIndexed { idx, opt ->
+            val score = scoreReleaseMatch(opt.label.lowercase(), hintLower, hintTokens)
+            Triple(opt, score, idx)
+        }.sortedWith(compareByDescending<Triple<OnlineSubtitleOption, Int, Int>> { it.second }.thenBy { it.third })
+
+        return scored.map { (opt, score, _) ->
+            if (score >= 40) {
+                opt.copy(sourceTag = "${opt.sourceTag} ★ متطابق")
+            } else {
+                opt
+            }
+        }
+    }
+
+    private fun extractReleaseTokens(text: String): Set<String> =
+        text.split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 2 }
+            .toSet()
+
+    private fun scoreReleaseMatch(candidateLower: String, hintLower: String, hintTokens: Set<String>): Int {
+        var score = 0
+        val candTokens = extractReleaseTokens(candidateLower)
+
+        val sources = listOf("remux", "bluray", "bdrip", "brrip", "web-dl", "webdl", "webrip", "hdrip", "hdtv", "cam", "ts")
+        for (src in sources) {
+            if (hintLower.contains(src) && candidateLower.contains(src)) score += 35
+        }
+
+        val platforms = listOf("amzn", "nf", "netflix", "dsnp", "atvp", "hmax", "hulu", "pcok", "stan")
+        for (plat in platforms) {
+            if (plat in hintTokens && plat in candTokens) score += 25
+        }
+
+        val resolutions = listOf("2160p", "4k", "1080p", "720p")
+        for (res in resolutions) {
+            if (res in hintTokens && res in candTokens) score += 15
+        }
+
+        val commonIgnored = setOf("the", "and", "x264", "x265", "h264", "h265", "hevc", "aac", "ddp", "ddp5", "atmos", "hdr", "10bit", "mp4", "mkv", "srt", "arabic", "ar")
+        val meaningfulHint = hintTokens - commonIgnored
+        val overlap = meaningfulHint.intersect(candTokens).size
+        score += (overlap * 8).coerceAtMost(40)
+
+        return score
     }
 
     private fun searchSubdl(
