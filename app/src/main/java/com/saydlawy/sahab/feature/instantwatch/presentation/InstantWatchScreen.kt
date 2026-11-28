@@ -201,6 +201,10 @@ fun InstantWatchScreen(
         }
     }
 
+    fun handleMediaSelected(item: InstantMediaItem) {
+        navigateTo(InstantWatchRoute.Details(item))
+    }
+
     fun handleAddonItemSelected(addonItem: AddonCatalogItem) {
         scope.launch {
             isLoading = true
@@ -219,10 +223,6 @@ fun InstantWatchScreen(
                 statusMessage = "تعذّر مطابقة «${addonItem.title}» على TMDB."
             }
         }
-    }
-
-    fun handleMediaSelected(item: InstantMediaItem) {
-        navigateTo(InstantWatchRoute.Details(item))
     }
 
     fun performSearch(overrideQuery: String? = null) {
