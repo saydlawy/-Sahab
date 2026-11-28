@@ -1,5 +1,6 @@
 package com.saydlawy.sahab.feature.torrent.api
 
+import com.saydlawy.sahab.feature.torrent.domain.AddonCatalogRow
 import com.saydlawy.sahab.feature.torrent.domain.TorrentResolutionResult
 import com.saydlawy.sahab.feature.torrent.domain.TorrentSettings
 import com.saydlawy.sahab.feature.torrent.domain.TorrentStreamCandidate
@@ -25,6 +26,8 @@ interface TorrentFeatureBridge {
 
     suspend fun onPlaybackStopped(torrServerHash: String?)
 
+    suspend fun fetchCatalogRows(forceRefresh: Boolean = false): List<AddonCatalogRow>
+
     suspend fun testTorrServerConnection(): Result<String>
 }
 
@@ -46,6 +49,8 @@ object NoOpTorrentFeatureBridge : TorrentFeatureBridge {
         TorrentResolutionResult.Error("ميزة مصادر 4K غير مفعّلة في هذه النسخة.")
 
     override suspend fun onPlaybackStopped(torrServerHash: String?) = Unit
+
+    override suspend fun fetchCatalogRows(forceRefresh: Boolean): List<AddonCatalogRow> = emptyList()
 
     override suspend fun testTorrServerConnection(): Result<String> =
         Result.failure(IllegalStateException("غير متاح في هذه النسخة"))

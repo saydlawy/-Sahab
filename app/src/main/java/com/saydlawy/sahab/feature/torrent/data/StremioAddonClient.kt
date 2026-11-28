@@ -1,5 +1,7 @@
 package com.saydlawy.sahab.feature.torrent.data
 
+import com.saydlawy.sahab.feature.torrent.domain.AddonCatalogItem
+import com.saydlawy.sahab.feature.torrent.domain.AddonCatalogRow
 import com.saydlawy.sahab.feature.torrent.domain.StreamMetadataParser
 import com.saydlawy.sahab.feature.torrent.domain.TorrentAddonConfig
 import com.saydlawy.sahab.feature.torrent.domain.TorrentStreamCandidate
@@ -35,12 +37,14 @@ private data class StremioStreamDto(
 private data class StremioCatalogDefDto(
     val type: String? = null,
     val id: String? = null,
+    val name: String? = null,
     val extra: List<StremioCatalogExtraDto> = emptyList(),
 )
 
 @Serializable
 private data class StremioCatalogExtraDto(
     val name: String? = null,
+    val isRequired: Boolean = false,
 )
 
 @Serializable
@@ -53,6 +57,9 @@ private data class StremioMetaDto(
     val id: String? = null,
     val type: String? = null,
     val name: String? = null,
+    val poster: String? = null,
+    val releaseInfo: String? = null,
+    val imdbRating: String? = null,
 )
 
 @Serializable
@@ -192,6 +199,95 @@ class StremioAddonClient(
             }
         }
         return out
+    }
+
+    suspend fun fetchCatalogRows(
+        addons: List<TorrentAddonConfig>,
+        maxRowsPerAddon: Int = 10,
+        maxItemsPerRow: Int = 20,
+    ): List<AddonCatalogRow> = withContext(Dispatchers.IO) {
+        val enabled = addons.filter { it.enabled && it.baseUrl.startsWith("http") }
+        if (enabled.isEmpty()) return@withContext emptyList()
+
+        coroutineScope {
+            enabled.map { addon ->
+                async {
+                    runCatching {
+                        fetchAddonCatalogRows(addon, maxRowsPerAddon, maxItemsPerRow)
+                    }.getOrDefault(emptyList())
+                }
+            }.awaitAll().flatten()
+        }
+    }
+
+    private fun fetchAddonCatalogRows(
+        addon: TorrentAddonConfig,
+        maxRowsPerAddon: Int,
+        maxItemsPerRow: Int,
+    ): List<AddonCatalogRow> {
+        val manifest = manifestCache[addon.baseUrl] ?: run {
+            val body = executeGet("${addon.baseUrl}/manifest.json") ?: return emptyList()
+            runCatching { json.decodeFromString<StremioManifestDto>(body) }.getOrNull()?.also {
+                manifestCache[addon.baseUrl] = it
+            } ?: return emptyList()
+        }
+
+        val browsable = manifest.catalogs.filter { cat ->
+            val catId = cat.id.orEmpty()
+            val catType = cat.type.orEmpty().lowercase()
+            val requiresExtra = cat.extra.any { it.isRequired }
+            catId.isNotBlank() && catType.isNotBlank() && !requiresExtra
+        }.take(maxRowsPerAddon)
+
+        if (browsable.isEmpty()) return emptyList()
+
+        val rows = mutableListOf<AddonCatalogRow>()
+        val addonLabel = addon.name.ifBlank { manifest.name.orEmpty().ifBlank { "إضافة" } }
+        for (cat in browsable) {
+            val catType = cat.type.orEmpty().lowercase()
+            val catId = cat.id.orEmpty()
+            val encodedId = runCatching { URLEncoder.encode(catId, "UTF-8").replace("+", "%20") }
+                .getOrDefault(catId)
+            val body = executeGet("${addon.baseUrl}/catalog/$catType/$encodedId.json") ?: continue
+            val resp = runCatching { json.decodeFromString<StremioCatalogResponse>(body) }.getOrNull()
+                ?: continue
+            val items = resp.metas.mapNotNull { meta ->
+                val metaId = meta.id?.trim().orEmpty()
+                val title = meta.name?.trim().orEmpty()
+                if (metaId.isBlank() || title.isBlank()) return@mapNotNull null
+                val year = meta.releaseInfo?.trim()?.take(4)?.takeIf { it.all(Char::isDigit) }
+                AddonCatalogItem(
+                    id = metaId,
+                    type = meta.type?.trim()?.lowercase().orEmpty().ifBlank { catType },
+                    title = title,
+                    posterUrl = meta.poster?.trim()?.takeIf { it.startsWith("http") },
+                    releaseYear = year,
+                    rating = meta.imdbRating?.toDoubleOrNull(),
+                    addonName = addonLabel,
+                )
+            }.take(maxItemsPerRow)
+
+            if (items.isNotEmpty()) {
+                val catTitle = cat.name?.trim().orEmpty().ifBlank {
+                    when (catType) {
+                        "series" -> "مسلسلات"
+                        "movie" -> "أفلام"
+                        "anime" -> "أنمي"
+                        else -> catId
+                    }
+                }
+                rows.add(
+                    AddonCatalogRow(
+                        id = "${addon.id}:$catType:$catId",
+                        title = "$catTitle • $addonLabel",
+                        addonName = addonLabel,
+                        type = catType,
+                        items = items,
+                    )
+                )
+            }
+        }
+        return rows
     }
 
     suspend fun fetchManifestName(manifestUrl: String): Result<String> = withContext(Dispatchers.IO) {

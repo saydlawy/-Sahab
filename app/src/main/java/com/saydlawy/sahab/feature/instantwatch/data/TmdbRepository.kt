@@ -302,6 +302,74 @@ class TmdbRepository(
         }.distinctBy { it.first }
     }
 
+    suspend fun resolveAddonItemToTmdb(
+        rawId: String,
+        rawType: String,
+        title: String,
+        releaseYear: String? = null,
+    ): InstantMediaItem? = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) return@withContext null
+        val cleanId = rawId.trim()
+        val isSeriesLike = rawType.equals("series", ignoreCase = true) ||
+            rawType.equals("tv", ignoreCase = true) ||
+            rawType.equals("anime", ignoreCase = true)
+        val preferredType = if (isSeriesLike) InstantMediaType.TV else InstantMediaType.MOVIE
+        val altType = if (preferredType == InstantMediaType.MOVIE) InstantMediaType.TV else InstantMediaType.MOVIE
+
+        // Step 1: tmdb:12345
+        if (cleanId.startsWith("tmdb:", ignoreCase = true)) {
+            val tmdbNum = cleanId.substringAfter(":").substringBefore(":").toIntOrNull()
+            if (tmdbNum != null && tmdbNum > 0) {
+                return@withContext getDetails(tmdbNum, preferredType) ?: getDetails(tmdbNum, altType)
+            }
+        }
+
+        // Step 2: IMDb ID tt1234567 -> TMDB /find/
+        if (cleanId.startsWith("tt", ignoreCase = true)) {
+            val imdbId = cleanId.substringBefore(":")
+            val findUrl = "https://api.themoviedb.org/3/find/$imdbId".toHttpUrl().newBuilder()
+                .addQueryParameter("api_key", apiKey)
+                .addQueryParameter("external_source", "imdb_id")
+                .addQueryParameter("language", "ar")
+                .build()
+            val req = Request.Builder().url(findUrl).get().build()
+            val foundPair = runCatching {
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    val body = resp.body?.string().orEmpty()
+                    val dto = json.decodeFromString<FindResponseDto>(body)
+                    val firstMovie = dto.movieResults.firstOrNull()?.id
+                    val firstTv = dto.tvResults.firstOrNull()?.id
+                    if (preferredType == InstantMediaType.TV) {
+                        firstTv?.let { it to InstantMediaType.TV }
+                            ?: firstMovie?.let { it to InstantMediaType.MOVIE }
+                    } else {
+                        firstMovie?.let { it to InstantMediaType.MOVIE }
+                            ?: firstTv?.let { it to InstantMediaType.TV }
+                    }
+                }
+            }.getOrNull()
+
+            if (foundPair != null) {
+                return@withContext getDetails(foundPair.first, foundPair.second)
+            }
+        }
+
+        // Step 3: Fallback search by title + year
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) return@withContext null
+        val targetYear = releaseYear?.trim()?.take(4)?.toIntOrNull()
+        val candidates = searchMulti(cleanTitle)
+        if (candidates.isEmpty()) return@withContext null
+
+        val best = candidates.firstOrNull { it.mediaType == preferredType && (targetYear == null || it.releaseYear == targetYear) }
+            ?: candidates.firstOrNull { it.mediaType == preferredType }
+            ?: candidates.firstOrNull { targetYear != null && it.releaseYear == targetYear }
+            ?: candidates.first()
+
+        getDetails(best.tmdbId, best.mediaType) ?: best
+    }
+
     suspend fun getDetails(tmdbId: Int, type: InstantMediaType): InstantMediaItem? = withContext(Dispatchers.IO) {
         if (apiKey.isBlank() || tmdbId <= 0) return@withContext null
         val url = "https://api.themoviedb.org/3/${type.apiValue}/$tmdbId".toHttpUrl().newBuilder()
@@ -398,6 +466,15 @@ class TmdbRepository(
         @SerialName("vote_average") val voteAverage: Double? = null,
         val genres: List<GenreDto>? = null,
     )
+
+    @Serializable
+    private data class FindResponseDto(
+        @SerialName("movie_results") val movieResults: List<FindItemDto> = emptyList(),
+        @SerialName("tv_results") val tvResults: List<FindItemDto> = emptyList(),
+    )
+
+    @Serializable
+    private data class FindItemDto(val id: Int)
 
     @Serializable
     private data class GenreDto(val id: Int, val name: String? = null)

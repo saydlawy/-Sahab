@@ -19,6 +19,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saydlawy.sahab.feature.instantwatch.data.InstantDiscoverFeed
+import com.saydlawy.sahab.feature.torrent.domain.AddonCatalogItem
+import com.saydlawy.sahab.feature.torrent.domain.AddonCatalogRow
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaItem
 import com.saydlawy.sahab.feature.instantwatch.data.InstantMediaType
 import com.saydlawy.sahab.feature.instantwatch.data.InstantGenreTile
@@ -91,6 +93,7 @@ fun InstantWatchScreen(
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
     var discoverFeed by remember { mutableStateOf(InstantDiscoverFeed()) }
+    var addonCatalogRows by remember { mutableStateOf<List<AddonCatalogRow>>(emptyList()) }
     var isFeedLoading by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf(InstantQuickFilter.ALL) }
     var genreMovies by remember { mutableStateOf<List<InstantMediaItem>>(emptyList()) }
@@ -110,6 +113,14 @@ fun InstantWatchScreen(
             isFeedLoading = true
             discoverFeed = sessionManager.tmdbRepository.loadDiscoverFeed()
             isFeedLoading = false
+        }
+    }
+
+    LaunchedEffect(isSignedIn, settings.enabled, torrentSettings.enabled, torrentSettings.addons) {
+        if (isSignedIn && settings.enabled && torrentSettings.enabled && torrentSettings.hasConfiguredAddons) {
+            addonCatalogRows = sessionManager.torrentBridge.fetchCatalogRows()
+        } else {
+            addonCatalogRows = emptyList()
         }
     }
 
@@ -187,6 +198,26 @@ fun InstantWatchScreen(
                 is OrchestrationResult.Error -> statusMessage = res.message
             }
             isLoading = false
+        }
+    }
+
+    fun handleAddonItemSelected(addonItem: AddonCatalogItem) {
+        scope.launch {
+            isLoading = true
+            statusMessage = "جارٍ جلب تفاصيل ${addonItem.title}..."
+            val resolved = sessionManager.tmdbRepository.resolveAddonItemToTmdb(
+                rawId = addonItem.id,
+                rawType = addonItem.type,
+                title = addonItem.title,
+                releaseYear = addonItem.releaseYear,
+            )
+            isLoading = false
+            if (resolved != null) {
+                statusMessage = null
+                handleMediaSelected(resolved)
+            } else {
+                statusMessage = "تعذّر مطابقة «${addonItem.title}» على TMDB."
+            }
         }
     }
 
@@ -433,6 +464,9 @@ fun InstantWatchScreen(
                 scope.launch {
                     isFeedLoading = true
                     discoverFeed = sessionManager.tmdbRepository.loadDiscoverFeed(forceRefresh = true)
+                    if (torrentSettings.enabled && torrentSettings.hasConfiguredAddons) {
+                        addonCatalogRows = sessionManager.torrentBridge.fetchCatalogRows(forceRefresh = true)
+                    }
                     isFeedLoading = false
                 }
             },
@@ -606,6 +640,50 @@ fun InstantWatchScreen(
                 if (showTopRated && discoverFeed.topRatedMovies.isNotEmpty()) {
                     item {
                         MediaCarouselSection("روائع السينما", discoverFeed.topRatedMovies, horizontalPad, cardWidth, cardImageHeight, ::handleMediaSelected, { focusedItem = it }, subtitle = "الأعلى تقييماً في تاريخ TMDB")
+                    }
+                }
+                if (addonCatalogRows.isNotEmpty()) {
+                    val filteredAddonRows = addonCatalogRows.filter { row ->
+                        when (selectedFilter) {
+                            InstantQuickFilter.MOVIES -> row.type == "movie"
+                            InstantQuickFilter.TV -> row.type == "series" || row.type == "tv" || row.type == "anime"
+                            else -> true
+                        }
+                    }
+                    filteredAddonRows.forEach { row ->
+                        item(key = "addon_row_${row.id}") {
+                            val byKey = remember(row.items) {
+                                row.items.mapIndexed { idx, addonItem ->
+                                    val fakeId = -(idx + 1)
+                                    val mType = if (addonItem.type == "movie") InstantMediaType.MOVIE else InstantMediaType.TV
+                                    val preview = InstantMediaItem(
+                                        tmdbId = fakeId,
+                                        mediaType = mType,
+                                        title = addonItem.title,
+                                        originalTitle = addonItem.title,
+                                        releaseYear = addonItem.releaseYear?.toIntOrNull(),
+                                        posterUrl = addonItem.posterUrl,
+                                        imdbId = addonItem.id.takeIf { it.startsWith("tt") },
+                                        rating = addonItem.rating,
+                                    )
+                                    preview to addonItem
+                                }
+                            }
+                            val previewItems = remember(byKey) { byKey.map { it.first } }
+                            val lookup = remember(byKey) { byKey.associate { it.first.contentKey to it.second } }
+                            MediaCarouselSection(
+                                title = row.title,
+                                items = previewItems,
+                                horizontalPad = horizontalPad,
+                                cardWidth = cardWidth,
+                                cardImageHeight = cardImageHeight,
+                                onSelect = { clicked ->
+                                    lookup[clicked.contentKey]?.let { handleAddonItemSelected(it) }
+                                },
+                                onFocusItem = { focusedItem = it },
+                                subtitle = "كتالوج إضافة ${row.addonName}",
+                            )
+                        }
                     }
                 }
             }

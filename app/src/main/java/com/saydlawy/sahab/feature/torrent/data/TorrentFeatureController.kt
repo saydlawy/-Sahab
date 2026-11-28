@@ -2,6 +2,7 @@ package com.saydlawy.sahab.feature.torrent.data
 
 import android.content.Context
 import com.saydlawy.sahab.feature.torrent.api.TorrentFeatureBridge
+import com.saydlawy.sahab.feature.torrent.domain.AddonCatalogRow
 import com.saydlawy.sahab.feature.torrent.domain.TorrentEngineMode
 import com.saydlawy.sahab.feature.torrent.domain.TorrentResolutionResult
 import com.saydlawy.sahab.feature.torrent.domain.TorrentSettings
@@ -20,12 +21,35 @@ class TorrentFeatureController(
     private val torrServerEngine = TorrServerEngine(okHttpClient)
     private val debridEngine = DebridEngine(okHttpClient)
 
+    @Volatile private var cachedCatalogRows: List<AddonCatalogRow> = emptyList()
+    @Volatile private var cachedCatalogSignature: String = ""
+    @Volatile private var cachedCatalogAtMs: Long = 0L
+
     override val isFeatureCompiled: Boolean = true
     override val settings: StateFlow<TorrentSettings> = preferences.settings
 
     override fun isEnabledAndReady(): Boolean {
         val cur = preferences.current
         return cur.enabled && cur.hasConfiguredAddons
+    }
+
+    override suspend fun fetchCatalogRows(forceRefresh: Boolean): List<AddonCatalogRow> {
+        val cur = preferences.current
+        if (!cur.enabled || !cur.hasConfiguredAddons) {
+            cachedCatalogRows = emptyList()
+            cachedCatalogSignature = ""
+            return emptyList()
+        }
+        val sig = cur.addons.filter { it.enabled }.joinToString("|") { "${it.id}:${it.manifestUrl}" }
+        val now = System.currentTimeMillis()
+        if (!forceRefresh && sig == cachedCatalogSignature && (now - cachedCatalogAtMs) < 15 * 60_000L && cachedCatalogRows.isNotEmpty()) {
+            return cachedCatalogRows
+        }
+        val rows = addonClient.fetchCatalogRows(cur.addons)
+        cachedCatalogRows = rows
+        cachedCatalogSignature = sig
+        cachedCatalogAtMs = now
+        return rows
     }
 
     override suspend fun fetchStreams(

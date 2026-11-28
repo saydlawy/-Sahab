@@ -66,3 +66,21 @@ sealed class TorrentResolutionResult {
 
     data class Error(val message: String) : TorrentResolutionResult()
 }
+
+data class AddonCatalogItem(
+    val id: String,
+    val type: String,
+    val title: String,
+    val posterUrl: String? = null,
+    val releaseYear: String? = null,
+    val rating: Double? = null,
+    val addonName: String = "",
+)
+
+data class AddonCatalogRow(
+    val id: String,
+    val title: String,
+    val addonName: String,
+    val type: String,
+    val items: List<AddonCatalogItem>,
+)
