@@ -228,7 +228,7 @@ class StremioAddonClient(
 
     suspend fun fetchCatalogRows(
         addons: List<TorrentAddonConfig>,
-        maxRowsPerAddon: Int = 25,
+        maxRowsPerAddon: Int = 80,
         maxItemsPerRow: Int = 40,
     ): List<AddonCatalogRow> = withContext(Dispatchers.IO) {
         val enabled = addons.filter { it.enabled && it.baseUrl.startsWith("http") }
@@ -245,16 +245,16 @@ class StremioAddonClient(
         }
     }
 
-    private fun fetchAddonCatalogRows(
+    private suspend fun fetchAddonCatalogRows(
         addon: TorrentAddonConfig,
         maxRowsPerAddon: Int,
         maxItemsPerRow: Int,
-    ): List<AddonCatalogRow> {
+    ): List<AddonCatalogRow> = coroutineScope {
         val manifest = manifestCache[addon.baseUrl] ?: run {
-            val body = executeGet("${addon.baseUrl}/manifest.json") ?: return emptyList()
+            val body = executeGet("${addon.baseUrl}/manifest.json") ?: return@coroutineScope emptyList()
             runCatching { json.decodeFromString<StremioManifestDto>(body) }.getOrNull()?.also {
                 manifestCache[addon.baseUrl] = it
-            } ?: return emptyList()
+            } ?: return@coroutineScope emptyList()
         }
 
         val candidates = manifest.catalogs.filter { cat ->
@@ -268,12 +268,20 @@ class StremioAddonClient(
                 requiredExtras[0].options.isNotEmpty()
         }
 
-        if (candidates.isEmpty()) return emptyList()
+        if (candidates.isEmpty()) return@coroutineScope emptyList()
 
-        val rows = mutableListOf<AddonCatalogRow>()
         val addonLabel = addon.name.ifBlank { manifest.name.orEmpty().ifBlank { "إضافة" } }
+
+        data class CatalogReq(
+            val reqUrl: String,
+            val rowId: String,
+            val catType: String,
+            val catTitle: String,
+        )
+
+        val allRequests = mutableListOf<CatalogReq>()
         for (cat in candidates) {
-            if (rows.size >= maxRowsPerAddon) break
+            if (allRequests.size >= maxRowsPerAddon) break
             val catType = cat.type.orEmpty().lowercase()
             val catId = cat.id.orEmpty()
             val encodedId = runCatching { URLEncoder.encode(catId, "UTF-8").replace("+", "%20") }
@@ -287,52 +295,70 @@ class StremioAddonClient(
                 }
             }
             val reqExtra = cat.extra.firstOrNull { it.isRequired }
-            val requests: List<Pair<String, String>> = if (reqExtra != null && !reqExtra.name.isNullOrBlank()) {
+            if (reqExtra != null && !reqExtra.name.isNullOrBlank()) {
                 val extraName = reqExtra.name.trim()
-                reqExtra.options.take(6).map { opt ->
+                for (opt in reqExtra.options.take(6)) {
+                    if (allRequests.size >= maxRowsPerAddon) break
                     val encOpt = runCatching { URLEncoder.encode(opt, "UTF-8").replace("+", "%20") }.getOrDefault(opt)
-                    "${addon.baseUrl}/catalog/$catType/$encodedId/$extraName=$encOpt.json" to "$baseCatTitle • $opt"
+                    allRequests.add(
+                        CatalogReq(
+                            reqUrl = "${addon.baseUrl}/catalog/$catType/$encodedId/$extraName=$encOpt.json",
+                            rowId = "${addon.id}_${catType}_${catId}_$opt",
+                            catType = catType,
+                            catTitle = "$baseCatTitle • $opt",
+                        )
+                    )
                 }
             } else {
-                listOf("${addon.baseUrl}/catalog/$catType/$encodedId.json" to baseCatTitle)
-            }
-
-            for ((reqUrl, catTitle) in requests) {
-                if (rows.size >= maxRowsPerAddon) break
-                val body = executeGet(reqUrl) ?: continue
-                val resp = runCatching { json.decodeFromString<StremioCatalogResponse>(body) }.getOrNull()
-                    ?: continue
-                val items = resp.metas.mapNotNull { meta ->
-                    val metaId = meta.id?.trim().orEmpty()
-                    val title = meta.name?.trim().orEmpty()
-                    if (metaId.isBlank() || title.isBlank()) return@mapNotNull null
-                    val year = meta.releaseInfo?.trim()?.take(4)?.takeIf { it.all(Char::isDigit) }
-                    AddonCatalogItem(
-                        id = metaId,
-                        type = meta.type?.trim()?.lowercase().orEmpty().ifBlank { catType },
-                        title = title,
-                        posterUrl = meta.poster?.trim()?.takeIf { it.startsWith("http") },
-                        releaseYear = year,
-                        rating = meta.imdbRating?.toDoubleOrNull(),
-                        addonName = addonLabel,
-                        addonId = addon.id,
-                    )
-                }.take(maxItemsPerRow)
-
-                if (items.isNotEmpty()) {
-                    rows.add(
-                        AddonCatalogRow(
-                        id = "${addon.id}:$catType:$catId",
-                        title = "$catTitle • $addonLabel",
-                        addonName = addonLabel,
-                        type = catType,
-                        items = items,
+                allRequests.add(
+                    CatalogReq(
+                        reqUrl = "${addon.baseUrl}/catalog/$catType/$encodedId.json",
+                        rowId = "${addon.id}_${catType}_$catId",
+                        catType = catType,
+                        catTitle = baseCatTitle,
                     )
                 )
-                }
             }
         }
-        return rows
+
+        val rows = mutableListOf<AddonCatalogRow>()
+        for (batch in allRequests.chunked(8)) {
+            val batchRows = batch.map { req ->
+                async(Dispatchers.IO) {
+                    withTimeoutOrNull(5_000L) {
+                        val body = executeGet(req.reqUrl) ?: return@withTimeoutOrNull null
+                        val resp = runCatching { json.decodeFromString<StremioCatalogResponse>(body) }.getOrNull()
+                            ?: return@withTimeoutOrNull null
+                        val items = resp.metas.mapNotNull { meta ->
+                            val metaId = meta.id?.trim().orEmpty()
+                            val title = meta.name?.trim().orEmpty()
+                            if (metaId.isBlank() || title.isBlank()) return@mapNotNull null
+                            val year = meta.releaseInfo?.trim()?.take(4)?.takeIf { it.all(Char::isDigit) }
+                            AddonCatalogItem(
+                                id = metaId,
+                                type = meta.type?.trim()?.lowercase().orEmpty().ifBlank { req.catType },
+                                title = title,
+                                posterUrl = meta.poster?.trim()?.takeIf { it.startsWith("http") },
+                                releaseYear = year,
+                                rating = meta.imdbRating?.toDoubleOrNull(),
+                                addonName = addonLabel,
+                                addonId = addon.id,
+                            )
+                        }.take(maxItemsPerRow)
+                        if (items.isEmpty()) null
+                        else AddonCatalogRow(
+                            id = req.rowId,
+                            title = req.catTitle,
+                            addonName = addonLabel,
+                            type = req.catType,
+                            items = items,
+                        )
+                    }
+                }
+            }.awaitAll().filterNotNull()
+            rows.addAll(batchRows)
+        }
+        rows
     }
 
     suspend fun fetchManifestName(manifestUrl: String): Result<String> = withContext(Dispatchers.IO) {
