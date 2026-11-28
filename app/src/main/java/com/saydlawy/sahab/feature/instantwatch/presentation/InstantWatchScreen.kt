@@ -499,44 +499,45 @@ fun InstantWatchScreen(
             .fillMaxSize()
             .background(Color(0xFF0B1120)),
     ) {
-        InstantWatchTopBar(
-            inputText = inputText,
-            onInputChange = { inputText = it; statusMessage = null },
-            onSearch = { performSearch() },
-            onPasteAndSearch = {
-                val pasted = clipboard.getText()?.text?.trim().orEmpty()
-                if (pasted.isNotEmpty()) {
-                    inputText = pasted
-                    performSearch(pasted)
-                }
-            },
-            onRefresh = {
-                scope.launch {
-                    isFeedLoading = true
-                    discoverFeed = sessionManager.tmdbRepository.loadDiscoverFeed(forceRefresh = true)
-                    if (torrentSettings.enabled && torrentSettings.hasConfiguredAddons) {
-                        addonCatalogRows = sessionManager.torrentBridge.fetchCatalogRows(forceRefresh = true)
-                    }
-                    isFeedLoading = false
-                }
-            },
-            onBack = onBack,
-            isLoading = isLoading,
-            statusMessage = statusMessage,
-            selectedFilter = selectedFilter,
-            onFilterSelected = { selectedFilter = it },
-            focusedItem = focusedItem,
-            isLandscape = isLandscape,
-            isTv = isTv,
-            horizontalPad = horizontalPad,
-        )
-
         LazyColumn(
             state = homeListState,
             modifier = Modifier.fillMaxSize().weight(1f),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            contentPadding = PaddingValues(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            item(key = "instant_watch_top_bar") {
+                InstantWatchTopBar(
+                    inputText = inputText,
+                    onInputChange = { inputText = it; statusMessage = null },
+                    onSearch = { performSearch() },
+                    onPasteAndSearch = {
+                        val pasted = clipboard.getText()?.text?.trim().orEmpty()
+                        if (pasted.isNotEmpty()) {
+                            inputText = pasted
+                            performSearch(pasted)
+                        }
+                    },
+                    onRefresh = {
+                        scope.launch {
+                            isFeedLoading = true
+                            discoverFeed = sessionManager.tmdbRepository.loadDiscoverFeed(forceRefresh = true)
+                            if (torrentSettings.enabled && torrentSettings.hasConfiguredAddons) {
+                                addonCatalogRows = sessionManager.torrentBridge.fetchCatalogRows(forceRefresh = true)
+                            }
+                            isFeedLoading = false
+                        }
+                    },
+                    onBack = onBack,
+                    isLoading = isLoading,
+                    statusMessage = statusMessage,
+                    selectedFilter = selectedFilter,
+                    onFilterSelected = { selectedFilter = it },
+                    focusedItem = focusedItem,
+                    isLandscape = isLandscape,
+                    isTv = isTv,
+                    horizontalPad = horizontalPad,
+                )
+            }
             if (isFeedLoading || isGenreLoading) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {

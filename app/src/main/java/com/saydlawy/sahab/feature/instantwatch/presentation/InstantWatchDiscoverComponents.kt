@@ -354,8 +354,8 @@ internal fun InstantWatchTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFF0F172A))
-            .padding(horizontal = horizontalPad, vertical = if (isLandscape && !isTv) 8.dp else 12.dp),
-        verticalArrangement = Arrangement.spacedBy(if (isLandscape && !isTv) 6.dp else 10.dp),
+            .padding(horizontal = horizontalPad, vertical = if (isTv || isLandscape) 8.dp else 12.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isTv || isLandscape) 8.dp else 10.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -477,56 +477,7 @@ internal fun InstantWatchTopBar(
             }
         }
 
-        if (isTv && focusedItem != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1E293B))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = focusedItem.title,
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = if (focusedItem.mediaType == InstantMediaType.TV) "مسلسل" else "فيلم",
-                            color = Color(0xFF38BDF8),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                        focusedItem.releaseYear?.let {
-                            Text("• $it", color = Color(0xFF94A3B8), style = MaterialTheme.typography.labelSmall)
-                        }
-                        focusedItem.rating?.let {
-                            Text(
-                                text = "• ★ ${String.format(Locale.US, "%.1f", it)}",
-                                color = Color(0xFFFBBF24),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                    if (focusedItem.overview.isNotBlank()) {
-                        Text(
-                            text = focusedItem.overview,
-                            color = Color(0xFFCBD5E1),
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
+
     }
 }
 
